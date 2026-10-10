@@ -249,11 +249,12 @@ func TestTUISlashPopup(t *testing.T) {
 		t.Fatalf("vp.Height = %d, want %d (terminal − chrome − popup)", m.vp.Height, want)
 	}
 
-	// Filtering to a unique command, then tab completion.
-	m.ti.SetValue("/st")
+	// Filtering to a unique command, then tab completion. (/st alone is
+	// no longer unique — /steps shares the prefix — so pin /sta.)
+	m.ti.SetValue("/sta")
 	m.updateSuggestions()
 	if len(m.sugs) != 1 || m.sugs[0].cmd != "/stats" {
-		t.Fatalf("filter /st → %#v", m.sugs)
+		t.Fatalf("filter /sta → %#v", m.sugs)
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	if m.ti.Value() != "/stats" {

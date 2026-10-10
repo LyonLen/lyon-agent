@@ -319,6 +319,21 @@ hits: 3
 - 展示与持久化：TUI header 常驻 `lyon chat · <标题>`；`/sessions` 和 resume 选择器列出各会话标题；快照保存标题，`chat -c` 恢复后延续。plain REPL 在标题变化时打印 `🏷 title …`。
 - 换题检测在 prompt_end 异步进行，UI 不等待；检查在途时新来的 prompt_end 会补跑，保证最新话题总被识别。
 
+## 右侧会话任务执行面板（步骤审计）
+
+- **实时动作审计**：终端宽度 ≥110 列时，TUI 右侧常驻面板，把本会话的每一步
+  **有效动作**按序号列出——工具调用（含参数预览）、服务端工具、子代理、compact——
+  每步带状态标记：`⟳` 进行中（实时显示耗时）· `✓` 完成（带耗时）· `✗` 失败/中断。
+- **数据全部来自引擎事件流**（tool_use_start / tool_exec_* / server_tool_result /
+  subagent_end / compaction / prompt_end），UI 层零额外开销：use_start 记决策、
+  exec_start 配对执行 ID、exec_end 按 ID 收尾（并行同名工具 FIFO 配对，逐个精准关闭）；
+  prompt_end 收尾时仍在跑的步骤如实记为 interrupted/aborted，绝不留悬空状态。
+- **审计可追溯**：步骤号会话内连续递增（与 hooks 审计日志对得上），compact 失败、
+  工具报错文本直接显示在行尾；/new /resume 重置面板（历史动作审计在 hooks 日志与转录里）。
+- **开关**：`/steps` 切换面板（窄终端自动隐藏，不覆盖 110 列下限）；布局为
+  `[转录 tw] │ [面板 40]`，转录列按差值重排宽，帧几何不变量（恰好 height 行、
+  每行 ≤ width）全程保持。
+
 ## OpenAI 兼容网关（协议翻译层）
 
 - **单点翻译**：`pkg/openaix` 实现一个 `http.RoundTripper`，在 HTTP 层把 Anthropic Messages 协议⇄
@@ -359,6 +374,7 @@ go build ./... && go vet ./... && go test ./... -count=1
 注册）、引擎（事件协议、客户端压缩终局/延迟重建/阈值谓词、快照 Save↔Load↔
 Restore 往返与 turn 延续、记忆注入、子代理、真实缓存命中、中断与历史修复）、
 TUI（转录渲染、状态机、命令、审批浮层、输入历史、thinking 折叠、斜杠候选弹层、
-ctrl+t 按键端到端、恢复回放）、OpenAI 翻译层（协议互转、SSE 合成、错误映射、
+ctrl+t 按键端到端、恢复回放、步骤面板生命周期/渲染尺寸/分栏几何）、OpenAI 翻译层
+（协议互转、SSE 合成、错误映射、
 SDK 穿层、引擎级工具循环 e2e）、MCP 客户端、服务（SSE、metrics、会话存储）、
 mockapi（缓存模拟器可信度）、bench（性能验收）。全部无网络、无真实密钥依赖。

@@ -158,6 +158,16 @@ type tuiModel struct {
 	// latest prompt is always recognized.
 	titleBusy    bool
 	titlePending bool
+
+	// Right-hand steps panel: the live action audit (steps.go). steps
+	// accumulates the session's effective actions, stepSeq numbers them
+	// session-wide, stepsOn is the /steps toggle (the panel also needs
+	// enough width to appear — panelOn). tw/pw are the current column
+	// widths: transcript and panel, gutter between.
+	steps   []execStep
+	stepSeq int
+	stepsOn bool
+	tw, pw  int
 }
 
 func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) *tuiModel {
@@ -187,7 +197,9 @@ func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) 
 		status:   idleStatus,
 		histIdx:  0,
 		pendKind: lineText,
+		stepsOn:  true, // panel appears once the terminal is wide enough
 	}
+	m.relayout() // tw/pw for the starting 80 columns (panel hidden)
 	m.resetTranscript()
 	m.updateSuggestions()
 	m.refresh()
@@ -213,6 +225,10 @@ func (m *tuiModel) resetTranscript() {
 		{kind: lineStyled, raw: paint(cDim, "commands: /stats  /clear  /resume  /sessions  /new  /think  /help  /quit")},
 		{kind: lineStyled, raw: ""},
 	}
+	// /new starts a fresh audit; /resume cannot re-derive durations from
+	// the snapshot, so the panel restarts with the replayed transcript.
+	m.steps = nil
+	m.stepSeq = 0
 }
 
 func (m *tuiModel) Init() tea.Cmd { return m.ti.Focus() }
@@ -365,6 +381,7 @@ func clipReplay(s string, n int) string {
 // applyEvent translates one engine event into transcript lines. Mirrors
 // render()'s plain-mode styling, minus the immediate stdout writes.
 func (m *tuiModel) applyEvent(ev agent.Event) {
+	m.stepEvent(ev) // fold into the right-hand audit panel first
 	switch ev.Type {
 	case agent.EventThinkingDelta:
 		m.appendDelta(lineThink, ev.Thinking)
@@ -648,6 +665,7 @@ var slashCommands = []sugItem{
 	{"/memory", "layered memory store — view, toggle hot, cloud sync"},
 	{"/remember", "distill this session's learnings into memory now"},
 	{"/think", "expand/collapse thinking blocks"},
+	{"/steps", "toggle the right-hand action audit panel"},
 	{"/help", "list commands and keys"},
 	{"/quit", "exit"},
 }
@@ -760,7 +778,7 @@ func (m *tuiModel) pickRows() []string {
 // Contiguous thinking lines render as one block: a fold header, with the
 // body only while the block streams or thinking is globally expanded.
 func (m *tuiModel) renderTranscript() string {
-	w := m.width
+	w := m.tw // transcript column — narrower when the steps panel splits
 	if w <= 0 {
 		w = 80
 	}
@@ -1060,7 +1078,11 @@ func (m *tuiModel) View() string {
 	var b strings.Builder
 	b.WriteString(m.clip(m.headerLine()))
 	b.WriteByte('\n')
-	b.WriteString(m.vp.View())
+	if m.pw > 0 {
+		b.WriteString(m.composeSplit(vh))
+	} else {
+		b.WriteString(m.vp.View())
+	}
 	b.WriteByte('\n')
 	b.WriteString(m.clip(m.statusLine()))
 	b.WriteByte('\n')
@@ -1069,6 +1091,36 @@ func (m *tuiModel) View() string {
 		b.WriteByte('\n')
 	}
 	b.WriteString(m.clip(m.inputLine()))
+	return b.String()
+}
+
+// composeSplit joins the transcript viewport with the steps panel row by
+// row: [transcript, tw cells] │ [panel, pw cells], exactly vh rows. The
+// panel rows arrive pre-sized to pw; transcript rows are clipped and
+// padded to tw so the gutter and the right edge stay on their columns.
+func (m *tuiModel) composeSplit(vh int) string {
+	vlines := strings.Split(m.vp.View(), "\n")
+	panels := m.renderSteps(m.pw, vh)
+	var b strings.Builder
+	for i := 0; i < vh; i++ {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		trow := ""
+		if i < len(vlines) {
+			trow = vlines[i]
+		}
+		if ansi.StringWidth(trow) > m.tw {
+			trow = ansi.Truncate(trow, m.tw, "…")
+		}
+		if pad := m.tw - ansi.StringWidth(trow); pad > 0 {
+			trow += strings.Repeat(" ", pad)
+		}
+		b.WriteString(trow)
+		b.WriteByte(' ')
+		b.WriteString(paint(cDim, "│"))
+		b.WriteString(panels[i]) // exactly pw cells (renderSteps contract)
+	}
 	return b.String()
 }
 
@@ -1113,7 +1165,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.vp.Width = msg.Width
+		m.relayout() // sets vp.Width: transcript column (panel may split it)
 		// prompt (2 cells) + value field + cursor (1 cell) must fit the
 		// row exactly; -2 left the cursor one cell past the right edge.
 		m.ti.Width = msg.Width - 3
@@ -1409,6 +1461,16 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		return m.rememberNow()
 	case "/think":
 		m.toggleThinking()
+	case "/steps":
+		m.stepsOn = !m.stepsOn
+		m.relayout()
+		state := "on"
+		if !m.stepsOn {
+			state = "off"
+		} else if !m.panelOn() {
+			state = "on (terminal too narrow — needs 110+ columns)"
+		}
+		m.status = "steps panel " + state
 	case "/help":
 		m.flushPend()
 		m.pushStyled(
@@ -1421,6 +1483,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
 			"  /remember distill this session's learnings into memory now (auto-runs on exit)",
 			"  /think   expand/collapse thinking blocks",
+			"  /steps   toggle the right-hand action audit panel (tools, compact, subagents)",
 			"  /help    this help",
 			"  /quit    exit",
 			paint(cDim, "typing / pops the command list — tab completes · ↑/↓ choose · esc closes"),
