@@ -179,6 +179,13 @@ func (s *Session) compactNow(pctx context.Context, prompt string, trigger Usage,
 	}
 	summaryMsg := anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(text))
 
+	// Undo point: the full history right before the summary replaces it,
+	// so a compaction is always reversible (/rollback). Captured only now
+	// — a failed summarizer above leaves history untouched and must not
+	// litter the undo stack.
+	s.captureCheckpoint(CheckpointCompact,
+		fmt.Sprintf("before compact (%d msgs)", len(msgs)), msgs)
+
 	if !pendingTools {
 		// Final case: the runner is done (or about to be). Replacing
 		// Messages lets its completion proceed; the next prompt's

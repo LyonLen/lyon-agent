@@ -485,12 +485,14 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			m.pushStyled(paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
 			m.status = idleStatus
 		}
-		if m.pending != "" { // deferred /resume or /new: prompt has ended
+		if m.pending != "" { // deferred /resume, /new or /rollback: prompt ended
 			act, idx := m.pending, m.pendingIdx
 			m.pending, m.pendingIdx = "", 0
 			switch {
 			case act == "/new":
 				m.doNew()
+			case act == "/rollback":
+				m.rollbackAction(idx)
 			case idx > 0:
 				m.doResume(idx)
 			default:
@@ -630,6 +632,49 @@ func (m *tuiModel) showSessions() {
 // duplicates the store), so nothing resumable dies with /new; later saves
 // rotate rather than overwrite, which is why browsing old sessions needs
 // /sessions + /resume N instead of a single slot.
+// rollbackAction lists the session's undo checkpoints (idx == 0) or
+// restores slot idx (1-based, newest first — same numbering as /sessions).
+// Caller guarantees no prompt is in flight (idle, or right after prompt_end).
+func (m *tuiModel) rollbackAction(idx int) {
+	cps := m.sess.Checkpoints()
+	m.flushPend()
+	switch {
+	case len(cps) == 0:
+		m.pushStyled(paint(cYellow, "no checkpoint yet — one is captured before each prompt that had history"))
+	case idx == 0:
+		m.pushStyled(paint(cBold, fmt.Sprintf("checkpoints (%d, newest first)", len(cps))))
+		for i, cp := range cps {
+			mark := "•"
+			if cp.Kind == "compact" {
+				mark = "📦"
+			}
+			m.pushStyled(fmt.Sprintf("  %2d  %s %s  %s  %s", i+1, mark,
+				paint(cYellow, cp.Label), paint(cDim, fmt.Sprintf("%d msgs · %s",
+					cp.Messages, cp.At.Format("15:04:05"))),
+				paint(cDim, fmt.Sprintf("— /rollback %d", i+1))))
+		}
+		m.pushStyled(paint(cDim, "rolling back keeps turn stats & usage — only the conversation rewinds"))
+	case idx > len(cps):
+		m.pushStyled(paint(cRed, fmt.Sprintf("no slot %d — /rollback lists %d checkpoints", idx, len(cps))))
+	default:
+		target := cps[idx-1]
+		info, err := m.sess.Rollback(target.ID)
+		if err != nil {
+			m.pushStyled(paint(cRed, "rollback: "+err.Error()))
+			break
+		}
+		m.pushStyled("")
+		m.pushStyled(fmt.Sprintf("%s %s",
+			paint(cYellow, "↺ rolled back"),
+			paint(cDim, fmt.Sprintf("#%d %s — %d messages restored · turns/usage kept · audit line written",
+				info.ID, info.Label, info.Messages))))
+		m.pushStyled(paint(cDim, "transcript above the marker reflects discarded turns; next prompt continues from the checkpoint"))
+		m.pushStyled("")
+		m.status = "rolled back to #" + fmt.Sprint(info.ID)
+	}
+	m.refresh()
+}
+
 func (m *tuiModel) doNew() {
 	archived, err := m.sess.ArchiveIfNew()
 	m.sess.Reset()
@@ -664,6 +709,7 @@ var slashCommands = []sugItem{
 	{"/new", "start a fresh session (current one archived)"},
 	{"/memory", "layered memory store — view, toggle hot, cloud sync"},
 	{"/remember", "distill this session's learnings into memory now"},
+	{"/rollback", "undo history to a checkpoint — list, or /rollback N"},
 	{"/think", "expand/collapse thinking blocks"},
 	{"/steps", "toggle the right-hand action audit panel"},
 	{"/help", "list commands and keys"},
@@ -1459,6 +1505,44 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.showMemory(args)
 	case "/remember":
 		return m.rememberNow()
+	case "/rollback":
+		arg := strings.TrimSpace(args)
+		// "/rollback save [label]" marks the current history as an undo
+		// point — reach for it before a risky stretch of work.
+		if arg == "save" || strings.HasPrefix(arg, "save ") {
+			label := strings.TrimSpace(strings.TrimPrefix(arg, "save"))
+			info, err := m.sess.Checkpoint(label)
+			m.flushPend()
+			if err != nil {
+				m.pushStyled(paint(cRed, "checkpoint: "+err.Error()))
+			} else {
+				m.pushStyled(fmt.Sprintf("%s %s",
+					paint(cGreen, "★ checkpoint #"+fmt.Sprint(info.ID)+" saved"),
+					paint(cDim, fmt.Sprintf("%s · %d msgs", info.Label, info.Messages))))
+			}
+			m.refresh()
+			return nil
+		}
+		idx := 0 // 0 = list the checkpoints
+		if arg != "" {
+			var ok bool
+			if idx, ok = parseResumeIndex(arg); !ok {
+				m.pushStyled(paint(cYellow, "usage: /rollback [N] — lists, restores slot N; /rollback save [text] marks a point"))
+				m.refresh()
+				return nil
+			}
+		}
+		if m.busy {
+			// Restore needs a settled prompt (histMu spans the whole
+			// drive): interrupt now, act the moment prompt_end lands —
+			// the same deferral /resume uses.
+			m.pending = "/rollback"
+			m.pendingIdx = idx
+			m.sess.Interrupt()
+			m.status = "rollback after the current prompt…"
+			return nil
+		}
+		m.rollbackAction(idx)
 	case "/think":
 		m.toggleThinking()
 	case "/steps":
@@ -1482,6 +1566,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /new     fresh session: current conversation archived first",
 			"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
 			"  /remember distill this session's learnings into memory now (auto-runs on exit)",
+			"  /rollback undo history: bare lists checkpoints, /rollback N restores, /rollback save [text] marks one",
 			"  /think   expand/collapse thinking blocks",
 			"  /steps   toggle the right-hand action audit panel (tools, compact, subagents)",
 			"  /help    this help",

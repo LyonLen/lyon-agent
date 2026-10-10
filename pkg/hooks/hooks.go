@@ -53,6 +53,7 @@ const (
 	EvSecurityBlock = "security_block"
 	EvHookError     = "hook_error"
 	EvMemorySave    = "memory_save"
+	EvRollback      = "rollback"
 )
 
 // Record is one audit line and one hook payload — the JSON external hooks

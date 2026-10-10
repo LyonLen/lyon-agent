@@ -334,6 +334,22 @@ hits: 3
   `[转录 tw] │ [面板 40]`，转录列按差值重排宽，帧几何不变量（恰好 height 行、
   每行 ≤ width）全程保持。
 
+## 回滚机制（/rollback，含 compact 前回滚）
+
+- **检查点**：每次进入 prompt 前（历史非空时）自动捕获一份完整历史副本；
+  **compact 替换历史前**也捕获一份——所以 compact 永远可以撤销。
+  手动标记：`/rollback save [text]`（比如动危险文件前先标一个）。
+- **恢复**：`/rollback` 列出检查点（新→旧，带消息数/时间/标签，compact 标 📦），
+  `/rollback N` 恢复第 N 个（与 /sessions 同序号习惯）。恢复 = 下一 prompt 从
+  检查点重建历史；**轮次统计、花费、标题保留**（钱花了就是花了，只有对话回退）。
+- **compact 后回滚到 compact 前**：compact 检查点存的是替换前的完整原文，
+  恢复后下一次请求重新携带原始对话（`TestCompactRollback` 断言摘要彻底消失、
+  原文回归）；compact 检查点在淘汰时最长寿（undo 栈上限 20，先删 prompt 检查点）。
+- **安全语义**：恢复只在空闲时执行（busy 自动 interrupt 并在 prompt_end 后执行，
+  与 /resume 同一延迟机制）；目标之后的检查点随之作废；未知 id 报错不 panic；
+  每次恢复写一条 `rollback` 审计记录（hooks 日志）。转录保留被丢弃的行 +
+  `↺ rolled back` 标记，审计痕迹不抹。
+
 ## OpenAI 兼容网关（协议翻译层）
 
 - **单点翻译**：`pkg/openaix` 实现一个 `http.RoundTripper`，在 HTTP 层把 Anthropic Messages 协议⇄
@@ -372,7 +388,8 @@ go build ./... && go vet ./... && go test ./... -count=1
 
 覆盖：工具系统（schema 稳定性、审批、白名单、指标、shell 探测、记忆读写/上限/
 注册）、引擎（事件协议、客户端压缩终局/延迟重建/阈值谓词、快照 Save↔Load↔
-Restore 往返与 turn 延续、记忆注入、子代理、真实缓存命中、中断与历史修复）、
+Restore 往返与 turn 延续、回滚（多轮撤销/compact 撤销/淘汰策略）、记忆注入、
+子代理、真实缓存命中、中断与历史修复）、
 TUI（转录渲染、状态机、命令、审批浮层、输入历史、thinking 折叠、斜杠候选弹层、
 ctrl+t 按键端到端、恢复回放、步骤面板生命周期/渲染尺寸/分栏几何）、OpenAI 翻译层
 （协议互转、SSE 合成、错误映射、

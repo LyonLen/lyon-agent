@@ -77,6 +77,13 @@ type Session struct {
 	// before mu.
 	histMu sync.Mutex
 
+	// Undo stack (rollback.go): checkpoints are captured under histMu but
+	// guarded by their own mutex so listing never waits on a live prompt.
+	// Lock order: histMu before cpMu.
+	cpMu          sync.Mutex
+	checkpoints   []checkpoint
+	checkpointSeq int
+
 	// seed is a restored history waiting for the first prompt to create a
 	// runner; buildHistory falls back to it while runner is nil.
 	seed []anthropic.BetaMessageParam
@@ -295,6 +302,11 @@ func (s *Session) drive(prompt string) {
 		s.promptCancel.CompareAndSwap(&pcancel, nil)
 		pcancel()
 	}()
+
+	// Undo point: capture the pre-prompt state so /rollback can discard
+	// this prompt (and everything after) without touching turn stats.
+	s.captureCheckpoint(CheckpointPrompt, clipRunes(strings.TrimSpace(prompt), 64),
+		s.currentHistoryLocked())
 
 	hist := s.buildHistory(s.takePendingNote(), prompt)
 
