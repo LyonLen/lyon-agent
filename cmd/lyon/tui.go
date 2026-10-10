@@ -94,6 +94,7 @@ type tline struct {
 type tuiModel struct {
 	sess      *agent.Session
 	metrics   *tools.Metrics
+	cfg       agent.Config // for /model: effective params (model, effort, …)
 	header    string
 	workspace string // where /resume looks for the saved snapshot
 
@@ -185,6 +186,7 @@ func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) 
 	m := &tuiModel{
 		sess:      sess,
 		metrics:   metrics,
+		cfg:       cfg,
 		workspace: cfg.Workspace,
 		header: paint(cBold, "lyon chat") + paint(cDim,
 			fmt.Sprintf("  model=%s effort=%s workspace=%s", cfg.Model, cfg.Effort, cfg.Workspace)),
@@ -710,6 +712,7 @@ var slashCommands = []sugItem{
 	{"/memory", "layered memory store — view, toggle hot, cloud sync"},
 	{"/remember", "distill this session's learnings into memory now"},
 	{"/rollback", "undo history to a checkpoint — list, or /rollback N"},
+	{"/model", "model card: context window, official params, pricing"},
 	{"/think", "expand/collapse thinking blocks"},
 	{"/steps", "toggle the right-hand action audit panel"},
 	{"/help", "list commands and keys"},
@@ -1543,6 +1546,8 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			return nil
 		}
 		m.rollbackAction(idx)
+	case "/model":
+		m.showModel(args)
 	case "/think":
 		m.toggleThinking()
 	case "/steps":
@@ -1567,6 +1572,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
 			"  /remember distill this session's learnings into memory now (auto-runs on exit)",
 			"  /rollback undo history: bare lists checkpoints, /rollback N restores, /rollback save [text] marks one",
+			"  /model   model card: /model current · /model list · /model <id>",
 			"  /think   expand/collapse thinking blocks",
 			"  /steps   toggle the right-hand action audit panel (tools, compact, subagents)",
 			"  /help    this help",

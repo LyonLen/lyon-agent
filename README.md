@@ -350,6 +350,28 @@ hits: 3
   每次恢复写一条 `rollback` 审计记录（hooks 日志）。转录保留被丢弃的行 +
   `↺ rolled back` 标记，审计痕迹不抹。
 
+## 内置模型参数知识库（/model）
+
+- **离线知识库**（`pkg/models`）：常见模型家族的上下文窗口、输出上限、官方推荐
+  参数（温度/top_p/推理模型约束）、知识截止与**参考价**（USD/百万 token）——
+  Anthropic Claude、OpenAI GPT/o 系、Google Gemini、DeepSeek、Qwen、Llama、
+  Mistral，无网络查询，编译进二进制。
+- **查找规则**：先精确匹配（不分大小写），再最长通配前缀
+  （`gpt-4o-mini-2024-07-18` → `gpt-4o-mini*` 卡片而不是 `gpt-4o*`）；
+  **未收录返回 nil，绝不猜窗口**——调用方回退到配置值。
+- **`/model` 命令**（TUI 与 plain REPL 同款）：
+  - `/model` — 当前模型知识卡 + `effective:` 行（实际生效的 model/effort/
+    max_tokens/ctx 配置/compact 阈值）；
+  - `/model list` — 全库表（id · context · 价格 · 家族）；
+  - `/model <id>` — 查任意型号，**不切换模型**；
+  - 未收录型号显示「知识库未收录 — 按配置执行，不猜参数」。
+- **价格是参考价**：厂商随时调价，以官网为准（卡片明示）；价格未知的条目
+  显示「未知（以官网为准）」而不是编数字。
+- **为「上下文占比 + 花费」铺路**：知识库的 context 窗口与单价是后续常驻
+  百分比与花费展示的数据源（Lookup(nil) 回退配置窗口）。
+
+
+
 ## OpenAI 兼容网关（协议翻译层）
 
 - **单点翻译**：`pkg/openaix` 实现一个 `http.RoundTripper`，在 HTTP 层把 Anthropic Messages 协议⇄
@@ -391,7 +413,9 @@ go build ./... && go vet ./... && go test ./... -count=1
 Restore 往返与 turn 延续、回滚（多轮撤销/compact 撤销/淘汰策略）、记忆注入、
 子代理、真实缓存命中、中断与历史修复）、
 TUI（转录渲染、状态机、命令、审批浮层、输入历史、thinking 折叠、斜杠候选弹层、
-ctrl+t 按键端到端、恢复回放、步骤面板生命周期/渲染尺寸/分栏几何）、OpenAI 翻译层
+ctrl+t 按键端到端、恢复回放、步骤面板生命周期/渲染尺寸/分栏几何、/model 卡片/
+列表/未收录回退）、模型知识库（精确/通配/未收录查找、注册表健全性、价格格式化）、
+OpenAI 翻译层
 （协议互转、SSE 合成、错误映射、
 SDK 穿层、引擎级工具循环 e2e）、MCP 客户端、服务（SSE、metrics、会话存储）、
 mockapi（缓存模拟器可信度）、bench（性能验收）。全部无网络、无真实密钥依赖。
