@@ -394,12 +394,23 @@ func cmdChat(args []string) int {
 	}
 	defer saveChatSession(sess, cfg.Workspace)
 
+	// Self-evolution: distill learnings from this conversation into the
+	// memory store before the history dies with the process. Registered
+	// last → runs first in the LIFO chain, while the client, hooks and
+	// the TUI event pump are all still alive. 20s cap: a slow endpoint
+	// must never hang exit; LYON_DISTILL=off skips it entirely.
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_, _ = sess.Distill(ctx)
+	}()
+
 	if !*plain && isTTY(os.Stdout) {
 		return runTUI(cfg, sess, metrics, snap)
 	}
 
 	fmt.Println(paint(cBold, "lyon chat") + paint(cDim, fmt.Sprintf("  model=%s effort=%s workspace=%s", cfg.Model, cfg.Effort, cfg.Workspace)))
-	fmt.Println(paint(cDim, "commands: /stats  /resume  /sessions  /new  /quit"))
+	fmt.Println(paint(cDim, "commands: /stats  /resume  /sessions  /new  /memory  /remember  /quit"))
 	if snap != nil {
 		fmt.Println(paint(cDim, fmt.Sprintf("restored %d messages · %s", len(snap.Messages), snap.SavedAt.Format("2006-01-02 15:04"))))
 	} else if hint := resumeHint(cfg.Workspace, false); hint != "" { // plain: newest
@@ -424,6 +435,21 @@ func cmdChat(args []string) int {
 				return 0
 			case "/stats":
 				printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks())
+			case "/memory":
+				handlePlainMemory(os.Stdout, cfg.Workspace, args)
+			case "/remember":
+				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+				n, err := sess.Distill(ctx)
+				cancel()
+				switch {
+				case err != nil:
+					fmt.Println(paint(cYellow, "remember: "+err.Error()))
+				case n == 0:
+					fmt.Println(paint(cDim, "remember: nothing durable to add"))
+				default:
+					fmt.Printf("%s saved %d fact(s) — /memory to review\n",
+						paint(cCyan, "🧠 memory"), n)
+				}
 			case "/sessions":
 				listSessions(cfg.Workspace)
 			case "/resume":

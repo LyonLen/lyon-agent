@@ -95,7 +95,7 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	// Durable memory (save_memory / read_memory / forget_memory) lives at
 	// <workspace>/.lyon/memory.json; registered as one set.
 	if _, exists := reg.Get("save_memory"); !exists {
-		_ = tools.RegisterMemory(reg, tools.MemoryPath(cfg.Workspace))
+		_ = tools.RegisterMemory(reg, cfg.Workspace)
 	}
 	// run_subagent delegates to the cost-tier model. Registered last so it
 	// can see the final tool set when building its read-only subset.

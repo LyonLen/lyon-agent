@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -19,6 +20,7 @@ import (
 	isatty "github.com/mattn/go-isatty"
 
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/memory"
 	"lyon-agent/pkg/tools"
 )
 
@@ -145,6 +147,10 @@ type tuiModel struct {
 
 	hist    []string
 	histIdx int // len(hist) = not recalling; up decrements, down increments
+
+	// memRows mirrors the last /memory table's numbering so "/memory N"
+	// toggles exactly the row the user is looking at.
+	memRows []memory.Fact
 }
 
 func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) *tuiModel {
@@ -619,6 +625,8 @@ var slashCommands = []sugItem{
 	{"/resume", "restore a saved session — bare /resume opens a picker"},
 	{"/sessions", "list this workspace's saved sessions"},
 	{"/new", "start a fresh session (current one archived)"},
+	{"/memory", "layered memory store — view, toggle hot, cloud sync"},
+	{"/remember", "distill this session's learnings into memory now"},
 	{"/think", "expand/collapse thinking blocks"},
 	{"/help", "list commands and keys"},
 	{"/quit", "exit"},
@@ -1108,6 +1116,29 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		notifyDecision("lyon: approval needed",
 			truncNotif(msg.ev.Name+" "+string(msg.ev.Input), 200))
 
+	case rememberDone:
+		m.status = ""
+		switch {
+		case msg.err != nil:
+			m.pushStyled(paint(cYellow, "remember: "+sanitizeText(msg.err.Error())))
+		case msg.n == 0:
+			m.pushStyled(paint(cDim, "remember: nothing durable to add"))
+		default:
+			m.pushStyled(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
+				paint(cCyan, "🧠 memory"), msg.n))
+		}
+		m.refresh()
+
+	case memSyncDone:
+		m.status = ""
+		if msg.err != nil {
+			m.pushStyled(paint(cYellow, "memory sync: "+sanitizeText(msg.err.Error())))
+		} else {
+			m.pushStyled(fmt.Sprintf("%s sync: pushed %d, pulled %d",
+				paint(cCyan, "🧠 memory"), msg.pushed, msg.pulled))
+		}
+		m.refresh()
+
 	case tea.MouseMsg:
 		before := m.vp.YOffset
 		m.vp, _ = m.vp.Update(msg)
@@ -1340,6 +1371,10 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		default:
 			m.resumeAction() // bare /resume — picker when several saved
 		}
+	case "/memory":
+		m.showMemory(args)
+	case "/remember":
+		return m.rememberNow()
 	case "/think":
 		m.toggleThinking()
 	case "/help":
@@ -1351,6 +1386,8 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /resume  restore a saved session — bare /resume opens a picker (/resume N jumps to slot N)",
 			"  /sessions list this workspace's saved sessions",
 			"  /new     fresh session: current conversation archived first",
+			"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
+			"  /remember distill this session's learnings into memory now (auto-runs on exit)",
 			"  /think   expand/collapse thinking blocks",
 			"  /help    this help",
 			"  /quit    exit",
@@ -1362,6 +1399,93 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.pushStyled(paint(cRed, "unknown command: "+head), paint(cDim, "try /help"))
 	}
 	m.refresh()
+	return nil
+}
+
+// showMemory handles /memory and its subcommands: bare renders the
+// numbered table, N toggles that row's hot tier, forget N deletes it,
+// sync talks to the configured cloud (async — the UI stays live), reload
+// re-reads files another agent may have edited.
+func (m *tuiModel) showMemory(args string) {
+	args = strings.TrimSpace(args)
+	render := func(extra ...string) {
+		lines, rows := memoryTable(m.workspace)
+		m.memRows = rows
+		m.flushPend()
+		m.pushStyled("")
+		if len(extra) > 0 {
+			m.pushStyled(extra...)
+		}
+		m.pushStyled(lines...)
+	}
+	switch {
+	case args == "":
+		render()
+	case args == "sync":
+		ws := m.workspace
+		m.status = "memory sync…"
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			pushed, pulled, err := syncMemory(ctx, ws)
+			if p := tuiProg.Load(); p != nil {
+				p.Send(memSyncDone{pushed: pushed, pulled: pulled, err: err})
+			}
+		}()
+	case args == "reload":
+		memory.Open(m.workspace).Reload()
+		render(paint(cDim, "memory reloaded from disk"))
+	case strings.HasPrefix(args, "forget"):
+		idx, ok := parseRowArg(strings.TrimPrefix(args, "forget"))
+		if !ok || idx > len(m.memRows) {
+			m.status = "usage: /memory forget N — N comes from the table"
+			return
+		}
+		f := m.memRows[idx-1]
+		if err := memory.Open(m.workspace).Delete(f.Scope, f.Name); err != nil {
+			m.status = "forget: " + err.Error()
+			return
+		}
+		render(paint(cDim, fmt.Sprintf("forgot (%s) %s", f.Scope, f.Name)))
+	default:
+		idx, ok := parseRowArg(args)
+		if !ok || idx > len(m.memRows) {
+			m.status = "usage: /memory [N | forget N | sync | reload]"
+			return
+		}
+		f := m.memRows[idx-1]
+		hot, err := memory.Open(m.workspace).ToggleHot(f.Scope, f.Name)
+		if err != nil {
+			m.status = "hot: " + err.Error()
+			return
+		}
+		state := "cold"
+		if hot {
+			state = "hot"
+		}
+		render(paint(cDim, fmt.Sprintf("(%s) %s is now %s", f.Scope, f.Name, state)))
+	}
+	m.refresh()
+}
+
+// rememberNow distills the session's learnings into memory on a
+// goroutine: the model call takes seconds and the TUI must stay live.
+// histMu waits out any in-flight drive; the result arrives as rememberDone.
+func (m *tuiModel) rememberNow() tea.Cmd {
+	if m.busy {
+		m.status = "busy — /remember runs after the current prompt"
+		return nil
+	}
+	m.status = "distilling learnings into memory…"
+	sess := m.sess
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		n, err := sess.Distill(ctx)
+		if p := tuiProg.Load(); p != nil {
+			p.Send(rememberDone{n: n, err: err})
+		}
+	}()
 	return nil
 }
 

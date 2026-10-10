@@ -2,217 +2,237 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
-	"time"
+
+	"lyon-agent/pkg/memory"
 )
 
-// Durable workspace memory: a small JSON file the model maintains through
-// three tools (save/read/forget). Survives sessions; a session's first
-// prompt carries a rendered snapshot (MemoryFacts) so continuity works even
-// before the model touches a tool.
+// Durable memory surfaced to the model through three tools, backed by the
+// layered store in pkg/memory (team / personal / project scopes, BM25
+// search, hot tier). The session's first prompt carries the hot tier
+// (MemoryFacts) so continuity works even before the model touches a tool;
+// read_memory with a query searches cold facts ranked by relevance.
 
 const (
-	memoryFileVersion = 1
-	memoryMaxEntries  = 500 // beyond this, the oldest entries are evicted
-	memoryMaxContent  = 8192
-	memoryMaxTitle    = 80
+	memoryMaxContent = 8192
+	memoryMaxTitle   = 80
+	memorySearchTop  = 8
+	memoryHotBytes   = 4096
 )
 
-type memoryEntry struct {
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type memoryFile struct {
-	Version int           `json:"version"`
-	Entries []memoryEntry `json:"entries"`
-}
-
-// memMu serializes memory file access process-wide: several sessions of one
-// engine can share a workspace, and read-modify-write must not interleave.
-var memMu sync.Mutex
-
-// MemoryPath is where a workspace's durable memory lives.
-func MemoryPath(workspace string) string {
-	return filepath.Join(workspace, ".lyon", "memory.json")
-}
-
-func loadMemory(path string) []memoryEntry {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var f memoryFile
-	if json.Unmarshal(data, &f) != nil {
-		return nil
-	}
-	return f.Entries
-}
-
-// saveMemory writes atomically (tmp + rename) so a crash mid-write cannot
-// truncate an existing memory file.
-func saveMemory(path string, entries []memoryEntry) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(memoryFile{Version: memoryFileVersion, Entries: entries}, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-// saveFact upserts an entry keyed by title (case-insensitive); evicts the
-// oldest entries past memoryMaxEntries; clips oversized content.
-func saveFact(path, title, content string) (string, error) {
-	title = strings.TrimSpace(title)
-	content = strings.TrimSpace(content)
-	if title == "" || content == "" {
-		return "", fmt.Errorf("title and content are required")
-	}
-	if r := []rune(title); len(r) > memoryMaxTitle {
-		title = string(r[:memoryMaxTitle])
-	}
-	if r := []rune(content); len(r) > memoryMaxContent {
-		content = string(r[:memoryMaxContent]) + "\n... [truncated]"
-	}
-	memMu.Lock()
-	defer memMu.Unlock()
-	entries := loadMemory(path)
-	now := time.Now().UTC()
-	for i := range entries {
-		if strings.EqualFold(entries[i].Title, title) {
-			entries[i].Content = content
-			entries[i].UpdatedAt = now
-			if err := saveMemory(path, entries); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("updated memory %q", entries[i].Title), nil
-		}
-	}
-	entries = append(entries, memoryEntry{Title: title, Content: content, UpdatedAt: now})
-	if len(entries) > memoryMaxEntries {
-		entries = entries[len(entries)-memoryMaxEntries:]
-	}
-	if err := saveMemory(path, entries); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("saved memory %q (%d entries)", title, len(entries)), nil
-}
-
-// readFacts returns one entry by title, or all of them when title is empty.
-// A named-but-missing title errors, so the model gets an is_error result
-// and can correct itself.
-func readFacts(path, title string) (string, error) {
-	memMu.Lock()
-	defer memMu.Unlock()
-	entries := loadMemory(path)
-	title = strings.TrimSpace(title)
-	if title != "" {
-		for _, e := range entries {
-			if strings.EqualFold(e.Title, title) {
-				return fmt.Sprintf("## %s\n%s\n(updated %s)", e.Title, e.Content,
-					e.UpdatedAt.Format(time.RFC3339)), nil
-			}
-		}
-		return "", fmt.Errorf("no memory titled %q", title)
-	}
-	if len(entries) == 0 {
-		return "(no memories saved yet)", nil
-	}
-	var b strings.Builder
-	for _, e := range entries {
-		fmt.Fprintf(&b, "## %s\n%s\n\n", e.Title, e.Content)
-	}
-	return strings.TrimSpace(b.String()), nil
-}
-
-// forgetFact deletes one entry by title; missing titles error.
-func forgetFact(path, title string) (string, error) {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return "", fmt.Errorf("title is required")
-	}
-	memMu.Lock()
-	defer memMu.Unlock()
-	entries := loadMemory(path)
-	for i, e := range entries {
-		if strings.EqualFold(e.Title, title) {
-			entries = append(entries[:i], entries[i+1:]...)
-			if err := saveMemory(path, entries); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("forgot memory %q", e.Title), nil
-		}
-	}
-	return "", fmt.Errorf("no memory titled %q", title)
-}
-
-// MemoryFacts renders the workspace's saved memories as the block injected
-// into a session's first prompt; "" when nothing is saved.
+// MemoryFacts renders the hot tier for injection into a session's first
+// prompt; "" when no fact is marked hot.
 func MemoryFacts(workspace string) string {
-	memMu.Lock()
-	entries := loadMemory(MemoryPath(workspace))
-	memMu.Unlock()
-	if len(entries) == 0 {
+	st := memory.Open(workspace)
+	hot := st.HotText(memoryHotBytes)
+	if hot == "" {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("[persistent-memory]\n")
-	b.WriteString("Durable facts saved across sessions with save_memory, captured at session start. Call read_memory for the current list.\n")
-	for _, e := range entries {
-		b.WriteString("\n## " + e.Title + "\n" + e.Content + "\n")
+	b.WriteString("[persistent-memory — hot tier, always in context]\n")
+	b.WriteString("Durable facts across sessions. Use read_memory with a query to search the cold tiers (team/personal/project), save_memory to persist new facts, forget_memory to delete. /memory in the TUI shows and manages the store.\n")
+	b.WriteString(hot)
+	return b.String()
+}
+
+// clipFact keeps a single fact within the per-entry size budget.
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return string(r[:n]) + "\n... [truncated]"
+}
+
+func validScopeArg(scope string) (string, error) {
+	switch scope {
+	case "", memory.ScopeProject, memory.ScopePersonal, memory.ScopeTeam:
+		if scope == "" {
+			return memory.ScopeProject, nil
+		}
+		return scope, nil
+	}
+	return "", fmt.Errorf("scope must be team, personal or project (got %q)", scope)
+}
+
+// resolveName accepts an exact fact name or a title slug ("Build Command"
+// → "build-command", CJK preserved).
+func resolveName(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return ""
+	}
+	return title
 }
 
 type memorySaveInput struct {
-	Title   string `json:"title" jsonschema:"required,description=Short label for the fact (e.g. 'project codename'); saved case-insensitively, re-saving the same title updates it"`
-	Content string `json:"content" jsonschema:"required,description=The fact itself; markdown allowed"`
+	Title   string `json:"title" jsonschema:"required,description=Short unique label for the fact; re-saving the same title (any case) updates it"`
+	Content string `json:"content" jsonschema:"required,description=The durable fact itself; markdown allowed"`
+	Scope   string `json:"scope" jsonschema:"description=team (shared across all projects/agents), personal (this user everywhere), project (this codebase only). Default: project"`
+	Hot     bool   `json:"hot" jsonschema:"description=true pins the fact into the always-loaded hot tier (keep the hot tier small: preferences and hard constraints, not trivia)"`
 }
 
 type memoryReadInput struct {
-	Title string `json:"title" jsonschema:"description=Entry title; omit to list all memories"`
+	Title string `json:"title" jsonschema:"description=Exact fact name (or its title form) to read in full; omit to combine with query or list"`
+	Query string `json:"query" jsonschema:"description=Relevance search across all scopes (BM25, CJK-aware) — preferred when you don't know the exact name"`
+	Scope string `json:"scope" jsonschema:"description=Restrict to team, personal or project"`
 }
 
 type memoryForgetInput struct {
-	Title string `json:"title" jsonschema:"required,description=Exact title of the memory to delete"`
+	Title string `json:"title" jsonschema:"required,description=Exact fact name (or its title form) to delete"`
+	Scope string `json:"scope" jsonschema:"description=Scope to delete from; without it the first match across scopes is removed (project first)"`
 }
 
-// RegisterMemory adds the durable-memory tools backed by the JSON file at
-// path: save_memory (serial — mutates shared state), read_memory (parallel),
-// forget_memory (serial).
-func RegisterMemory(r *Registry, path string) error {
+// RegisterMemory adds the durable-memory tools backed by the layered
+// store for workspace: save_memory (serial — mutates shared state),
+// read_memory (parallel — search/list), forget_memory (serial).
+func RegisterMemory(r *Registry, workspace string) error {
 	if err := RegisterFunc(r, "save_memory",
-		"Persist a durable fact across sessions (upsert by title). Use for project context, user preferences, decisions — anything the next session should know.",
+		"Persist a durable fact across sessions (upsert by title). Scopes: project (this codebase), personal (your preferences everywhere), team (shared across projects). Use for decisions, preferences, conventions — anything the next session must know. hot=true pins it into the always-loaded tier.",
 		false,
 		func(ctx context.Context, in memorySaveInput) (string, error) {
-			return saveFact(path, in.Title, in.Content)
+			scope, err := validScopeArg(in.Scope)
+			if err != nil {
+				return "", err
+			}
+			title := strings.TrimSpace(in.Title)
+			content := strings.TrimSpace(in.Content)
+			if title == "" || content == "" {
+				return "", fmt.Errorf("title and content are required")
+			}
+			if runes := []rune(title); len(runes) > memoryMaxTitle {
+				title = string(runes[:memoryMaxTitle])
+			}
+			st := memory.Open(workspace)
+			name := memory.Slug(title)
+			if _, err := st.Save(memory.Fact{
+				Name:        name,
+				Description: title,
+				Scope:       scope,
+				Body:        clipRunes(content, memoryMaxContent),
+			}); err != nil {
+				return "", err
+			}
+			hotNote := ""
+			if in.Hot {
+				if f, _ := st.Get(scope, name); f.Name != "" && !f.Hot {
+					st.ToggleHot(scope, name)
+				}
+				hotNote = ", hot tier"
+			}
+			return fmt.Sprintf("saved memory %q (%s scope)%s", title, scope, hotNote), nil
 		}); err != nil {
 		return err
 	}
 	if err := RegisterFunc(r, "read_memory",
-		"Read durable memories saved with save_memory: give a title for one entry, omit it to list everything.",
+		"Search or read durable memories: query= does relevance search across scopes (preferred), title= reads one fact in full, neither lists everything compactly.",
 		true,
 		func(ctx context.Context, in memoryReadInput) (string, error) {
-			return readFacts(path, in.Title)
+			st := memory.Open(workspace)
+			scope := strings.TrimSpace(in.Scope)
+			if scope != "" {
+				if _, err := validScopeArg(scope); err != nil {
+					return "", err
+				}
+			}
+			if q := strings.TrimSpace(in.Query); q != "" {
+				hits := st.Search(q, memorySearchTop)
+				if scope != "" {
+					kept := hits[:0]
+					for _, h := range hits {
+						if h.Fact.Scope == scope {
+							kept = append(kept, h)
+						}
+					}
+					hits = kept
+				}
+				if len(hits) == 0 {
+					return fmt.Sprintf("no memories match %q", q), nil
+				}
+				var b strings.Builder
+				for _, h := range hits {
+					writeFactBlock(&b, h.Fact, 1200)
+				}
+				return strings.TrimSpace(b.String()), nil
+			}
+			if title := resolveName(in.Title); title != "" {
+				name := memory.Slug(title)
+				scopes := []string{scope}
+				if scope == "" {
+					scopes = []string{memory.ScopeProject, memory.ScopePersonal, memory.ScopeTeam}
+				}
+				for _, sc := range scopes {
+					if sc == "" {
+						continue
+					}
+					if f, ok := st.Get(sc, name); ok {
+						st.Touch(sc, name)
+						var b strings.Builder
+						writeFactBlock(&b, f, memoryMaxContent)
+						return strings.TrimSpace(b.String()), nil
+					}
+				}
+				return "", fmt.Errorf("no memory titled %q (try query= to search)", title)
+			}
+			// Compact listing of everything (scoped when asked).
+			facts := st.List(scope)
+			if len(facts) == 0 {
+				return "(no memories saved yet)", nil
+			}
+			var b strings.Builder
+			for _, f := range facts {
+				mark := ""
+				if f.Hot {
+					mark = " [hot]"
+				}
+				fmt.Fprintf(&b, "(%s) %s%s — %s\n", f.Scope, f.Name, mark, oneLine(f.Description))
+			}
+			return strings.TrimSpace(b.String()), nil
 		}); err != nil {
 		return err
 	}
 	return RegisterFunc(r, "forget_memory",
-		"Delete a durable memory by its exact title.",
+		"Delete a durable memory by its exact name (list them with read_memory and no arguments).",
 		false,
 		func(ctx context.Context, in memoryForgetInput) (string, error) {
-			return forgetFact(path, in.Title)
+			title := resolveName(in.Title)
+			if title == "" {
+				return "", fmt.Errorf("title is required")
+			}
+			name := memory.Slug(title)
+			st := memory.Open(workspace)
+			scopes := []string{memory.ScopeProject, memory.ScopePersonal, memory.ScopeTeam}
+			if in.Scope != "" {
+				if _, err := validScopeArg(in.Scope); err != nil {
+					return "", err
+				}
+				scopes = []string{in.Scope}
+			}
+			for _, sc := range scopes {
+				if _, ok := st.Get(sc, name); ok {
+					if err := st.Delete(sc, name); err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("forgot memory %q (%s scope)", name, sc), nil
+				}
+			}
+			return "", fmt.Errorf("no memory named %q", name)
 		})
+}
+
+func writeFactBlock(b *strings.Builder, f memory.Fact, cap int) {
+	fmt.Fprintf(b, "## (%s) %s", f.Scope, f.Name)
+	if f.Hot {
+		b.WriteString(" [hot]")
+	}
+	b.WriteString("\n")
+	if f.Description != "" && f.Description != f.Name {
+		b.WriteString(f.Description + "\n")
+	}
+	b.WriteString(clipRunes(f.Body, cap) + "\n\n")
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

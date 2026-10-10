@@ -279,6 +279,39 @@ user message，保证 role 交替完整、API 不会拒绝。busy 锁在发出 p
 外部钩子可用于自建统计上报、审计外送、DLP/沙箱等安全网关；子代理工具同样
 经过 `PreTool` 安全门。
 
+## 记忆模块（分层热/冷 + 自进化 + 云同步）
+
+三层持久记忆，one-fact-per-file Markdown，人可直接手改：
+
+| 层 | 位置 | 作用域 |
+|---|---|---|
+| team | `$LYON_HOME/memory/team/` | 跨项目、跨 agent 共享（组织约定） |
+| personal | `$LYON_HOME/memory/personal/` | 此用户的所有项目（个人偏好） |
+| project | `<workspace>/.lyon/memory/` | 当前代码库（决策、约定、坑） |
+
+- **检索**：本地 BM25 倒排索引（CJK 二元分词，无需分词器），字段加权 name 3.0 / tags 2.5 / description 2.0 / body 1.0；平局时近层优先（project > personal > team）。纯内存索引，毫秒级，召回与排序强于 grep。
+- **热层**：`hot: true` 的事实随会话首条 prompt 常驻系统提示（默认 4KB 预算、整条渲染不截断）。`/memory N` 切换冷热；已存事实被检索/精读命中累计 hits≥2 后，再蒸馏时自动晋级热层。
+- **模型工具**：`save_memory`（按标题 upsert，`scope`/`hot` 参数）、`read_memory`（`query`=BM25 检索 / `title`=精读 / 空=紧凑列表）、`forget_memory`（按名删除）。
+- **自进化（distill）**：`/remember` 手动触发或退出会话时自动跑一次——用低价位子模型（SubagentModel）从近期对话提取耐久事实入库。幂等（内容没变不重写）、限时 20s 不拖住退出、`LYON_DISTILL=off` 关闭；每次写入记 `memory_save` 审计事件。
+- **云同步**：设置 `LYON_SYNC_URL`（可选 `LYON_SYNC_TOKEN`）后启用，`POST /memory/push {"facts":[…]}`、`POST /memory/pull {"scopes":["team","personal"]}`，`updated` 新者胜；只同步 team+personal，project 层永不出机。`/memory sync` 手动触发。
+- **旧格式迁移**：`<workspace>/.lyon/memory.json` 首次打开时自动拆为 project 层单条事实，原文件改名 `memory.json.imported`。
+- **TUI/REPL**：`/memory` 渲染编号表格（层、命中数、更新时间、摘要），`/memory N` 置热、`/memory forget N` 删除、`/memory reload` 重读磁盘（其他 agent 的改动）、`/memory sync` 云同步；plain REPL 同样支持。
+
+事实文件格式（frontmatter 可手改，无 frontmatter 的文件以文件名为名整体作正文）：
+
+```markdown
+---
+name: toast-notification-preference
+description: 通知用右下角 toast，不要老式弹窗
+scope: personal
+hot: true
+created: 2026-10-10T18:00:00Z
+updated: 2026-10-10T18:30:00Z
+hits: 3
+---
+正文……
+```
+
 ## 测试
 
 ```bash
