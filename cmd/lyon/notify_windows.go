@@ -9,19 +9,20 @@ import (
 	"sync"
 )
 
-// Windows-native notifications: people running agents are not watching the
+// Windows notifications: people running agents are not watching the
 // transcript, so the two moments that matter — a run finished, or a tool is
-// waiting for approval — surface as system UI instead of TUI lines.
+// waiting for approval — surface as a system toast in the bottom-right
+// notification corner. No modal dialogs: an agent should never steal focus
+// from whatever the user is doing (feedback: "要系统右下角那种，不要老式弹窗").
 //
-//   - notifyDone: a toast (registry AppUserModelID + ToastNotificationManager
-//     via PowerShell). Fire-and-forget: the TUI event loop never waits.
-//   - notifyDecision: a modal MessageBox — an approval is modal anyway, and
-//     a window is harder to miss than a status line. The answer itself
-//     still happens in the TUI (keys stay bound there); the box only says
-//     "look at me".
+//   - notifyDone: standard toast, fire-and-forget — the TUI event loop
+//     never waits on PowerShell.
+//   - notifyDecision: same toast with duration="long" so an approval has
+//     ~25s to be noticed. The answer itself still happens in the TUI
+//     (keys stay bound there); the toast only says "look at me".
 //
-// Both are no-ops when LYON_NOTIFY=off (or empty LYON_NOTIFY_UNLESS... see
-// notifyEnabled) or when PowerShell is unavailable.
+// Both are silent no-ops when LYON_NOTIFY=off/0/false/no, when the toast
+// infrastructure is unavailable, or on non-Windows (notify_other.go).
 
 const notifyAppID = "Lyon.Agent"
 
@@ -39,30 +40,27 @@ func notifyEnabled() bool {
 	return true
 }
 
-// notifyDone pops a toast: the run ended (ok or not). Title/body stay short
-// — a notification is a glance, not a report.
+// notifyDone pops a standard toast: the run ended (ok or not). Title/body
+// stay short — a notification is a glance, not a report.
 func notifyDone(title, body string) {
+	fireToast(title, body, false)
+}
+
+// notifyDecision raises a long-lived toast for a waiting approval.
+func notifyDecision(title, body string) {
+	fireToast(title, body, true)
+}
+
+func fireToast(title, body string, long bool) {
 	if !notifyEnabled() {
 		return
 	}
 	go func() {
-		if ensureToastRegistered() {
-			if err := toast(title, body); err == nil {
-				return
-			}
+		if !ensureToastRegistered() {
+			return // toast infra missing: stay silent, never block the TUI
 		}
-		// Toast unavailable (old PowerShell, missing WinRT): fall back to a
-		// message box so the signal is never silently lost.
-		messageBox(title, body)
+		_ = toast(title, body, long)
 	}()
-}
-
-// notifyDecision raises a MessageBox for a waiting approval.
-func notifyDecision(title, body string) {
-	if !notifyEnabled() {
-		return
-	}
-	go messageBox(title, body)
 }
 
 // ensureToastRegistered creates a per-user AppUserModelID the toast API
@@ -84,30 +82,27 @@ func ensureToastRegistered() bool {
 	return true
 }
 
-// toast renders a Windows 10/11 toast through the WinRT notification API.
-func toast(title, body string) error {
+// toast renders a Windows 10/11 toast through the WinRT notification API —
+// this is the bottom-right corner bubble, not a dialog. duration="long"
+// keeps approval toasts around longer than the default ~7s.
+func toast(title, body string, long bool) error {
 	// XML-escape: titles contain CJK and bodies may carry & < >.
 	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
-	xml := `<toast><visual><binding template="ToastGeneric"><text>` +
+	dur := ""
+	if long {
+		dur = ` duration="long"`
+	}
+	xml := `<toast` + dur + `><visual><binding template="ToastGeneric"><text>` +
 		esc.Replace(title) + `</text><text>` + esc.Replace(body) + `</text></binding></visual></toast>`
 	ps := `
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-$tmpl = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
 $x = New-Object Windows.Data.Xml.Dom.XmlDocument
 $x.LoadXml('` + strings.ReplaceAll(xml, "'", `\'`) + `')
 $n = [Windows.UI.Notifications.ToastNotification]::new($x)
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('` + notifyAppID + `').Show($n)
 `
 	return runPowerShell(ps)
-}
-
-// messageBox shows a modal OK box (System.Windows.Forms — always present).
-func messageBox(title, body string) {
-	esc := strings.NewReplacer("'", "''") // single-quoted PowerShell strings
-	ps := `Add-Type -AssemblyName System.Windows.Forms; ` +
-		`[System.Windows.Forms.MessageBox]::Show('` + esc.Replace(body) + `','` + esc.Replace(title) + `','OK','Information') | Out-Null`
-	_ = runPowerShell(ps) // best effort: box missing beats a wedged TUI
 }
 
 func runPowerShell(script string) error {

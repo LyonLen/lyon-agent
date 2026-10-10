@@ -421,6 +421,17 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		m.flushPend()
 		m.busy = false
 		m.armedQuit = false
+		// Surface completion as a system toast — long runs are watched by
+		// notification, not by staring at the transcript.
+		switch {
+		case ev.Err == agent.ErrInterrupted.Error():
+			notifyDone("lyon: interrupted", "the run was stopped — history repaired")
+		case ev.Err != "":
+			notifyDone("lyon: run failed", truncNotif(ev.Err, 160))
+		default:
+			notifyDone("lyon: run finished",
+				fmt.Sprintf("%d API calls complete — press enter for the next prompt", ev.Iterations))
+		}
 		if ev.Err == agent.ErrInterrupted.Error() {
 			m.pushStyled(paint(cYellow, "⏹ interrupted"), paint(cDim, "history repaired — keep chatting"))
 			m.status = idleStatus
@@ -1093,6 +1104,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case approveReq:
 		// First-come overlay; apprMu upstream guarantees no overlap.
 		m.appr = &msg
+		// The user is probably not watching the TUI — raise a system box.
+		notifyDecision("lyon: approval needed",
+			truncNotif(msg.ev.Name+" "+string(msg.ev.Input), 200))
 
 	case tea.MouseMsg:
 		before := m.vp.YOffset
@@ -1281,7 +1295,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		return tea.Quit
 	case "/stats":
 		var b strings.Builder
-		printStats(&b, m.sess.Stats(), m.metrics)
+		printStats(&b, m.sess.Stats(), m.metrics, m.sess.Hooks())
 		m.flushPend()
 		m.pushStyled("")
 		m.pushStyled(strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)

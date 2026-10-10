@@ -112,6 +112,7 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 			Timeout:   s.eng.cfg.ToolTimeout,
 			ResultCap: s.eng.cfg.ToolResultCap,
 			Observer:  s,
+			PreTool:   s.preTool, // subagent tools pass the same security gate
 			Seq:       &s.seq,
 		}))
 	}

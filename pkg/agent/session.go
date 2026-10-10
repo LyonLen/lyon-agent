@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 
+	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/tools"
 )
 
@@ -122,7 +123,8 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		Timeout:   e.cfg.ToolTimeout,
 		ResultCap: e.cfg.ToolResultCap,
 		Observer:  s,
-		Approve:   e.cfg.Approve,
+		Approve:   s.wrapApprove(e.cfg.Approve),
+		PreTool:   s.preTool,
 		Seq:       &s.seq,
 	})
 	go s.loop()
@@ -145,6 +147,7 @@ func (s *Session) Submit(prompt string) error {
 	}
 	select {
 	case s.reqs <- prompt:
+		s.eng.hooks.Fire(hooks.Record{Event: hooks.EvPromptStart, Prompt: prompt})
 		return nil
 	case <-s.ctx.Done():
 		s.busy.Store(false)
@@ -152,10 +155,47 @@ func (s *Session) Submit(prompt string) error {
 	}
 }
 
+// Hooks returns the engine's hook manager through the session (audit,
+// stats, security gate) — the TUI reads aggregates from here for /stats.
+func (s *Session) Hooks() *hooks.Manager { return s.eng.hooks }
+
+// preTool is the security seam handed to every adapted tool (main and
+// subagent): local policy and blocking hooks veto before approval.
+func (s *Session) preTool(ctx context.Context, name string, input json.RawMessage) error {
+	return s.eng.hooks.CheckTool(ctx, name, input)
+}
+
+// wrapApprove brackets the configured approver with audit events so every
+// human decision (including "always allow" auto-answers) lands in the log.
+// nil stays nil — auto-approve sessions don't fake approvals.
+func (s *Session) wrapApprove(a tools.ApproveFunc) tools.ApproveFunc {
+	if a == nil {
+		return nil
+	}
+	return func(ctx context.Context, e tools.ExecEvent) bool {
+		s.eng.hooks.Fire(hooks.Record{
+			Event: hooks.EvApproveReq,
+			Tool:  e.Name,
+			Input: string(e.Input),
+		})
+		ok := a(ctx, e)
+		s.eng.hooks.Fire(hooks.Record{
+			Event:    hooks.EvApproveRes,
+			Tool:     e.Name,
+			Approved: &ok,
+		})
+		return ok
+	}
+}
+
 // Close cancels any in-flight work, stops the session goroutine and closes
-// the event stream. Idempotent.
+// the event stream. Idempotent. Also flushes the engine's audit queue so
+// the session's tail records survive process exit.
 func (s *Session) Close() {
-	s.closeOne.Do(func() { s.cancel() })
+	s.closeOne.Do(func() {
+		s.cancel()
+		s.eng.hooks.Flush()
+	})
 }
 
 // Interrupt cancels the in-flight prompt without closing the session: the
@@ -484,6 +524,33 @@ func isCompactionMessage(msg *anthropic.BetaMessage) bool {
 func (s *Session) emit(e Event) {
 	if e.TS.IsZero() {
 		e.TS = time.Now()
+	}
+	// Audit everything except raw stream noise (deltas and message_start):
+	// those would drown the log without adding decisions. Fire never blocks.
+	switch e.Type {
+	case EventTextDelta, EventThinkingDelta, EventMessageStart:
+	default:
+		var u *hooks.Usage
+		if e.Usage != nil {
+			u = &hooks.Usage{
+				Input:         e.Usage.Input,
+				Output:        e.Usage.Output,
+				CacheRead:     e.Usage.CacheRead,
+				CacheCreation: e.Usage.CacheCreation,
+			}
+		}
+		s.eng.hooks.Fire(hooks.Record{
+			Event:      string(e.Type),
+			Tool:       e.ToolName,
+			Input:      string(e.Input),
+			DurationMS: e.DurationMS,
+			IsError:    e.IsError,
+			Err:        e.Err,
+			Usage:      u,
+			Iterations: e.Iterations,
+			StopReason: e.StopReason,
+			Detail:     e.Detail,
+		})
 	}
 	select {
 	case s.events <- e:

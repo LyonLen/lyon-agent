@@ -11,6 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
+	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/tools"
 )
 
@@ -21,6 +22,9 @@ type Engine struct {
 	client anthropic.Client
 	cfg    Config
 	reg    *tools.Registry
+	// hooks is the observability/control hub: audit log, statistics and
+	// the security gate, shared by every session of this engine.
+	hooks *hooks.Manager
 	// turnSem, when non-nil, bounds in-flight runner iterations across all
 	// sessions of this engine.
 	turnSem chan struct{}
@@ -106,7 +110,7 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 		clientOpts = append(clientOpts, option.WithDebugLog(log.New(os.Stderr, "[api] ", 0)))
 	}
 	client := anthropic.NewClient(clientOpts...)
-	e := &Engine{client: client, cfg: cfg, reg: reg}
+	e := &Engine{client: client, cfg: cfg, reg: reg, hooks: hooks.New(cfg.Workspace)}
 	if cfg.MaxConcurrentTurns > 0 {
 		e.turnSem = make(chan struct{}, cfg.MaxConcurrentTurns)
 	}
@@ -118,6 +122,10 @@ func (e *Engine) Config() Config { return e.cfg }
 
 // Registry returns the engine's tool registry.
 func (e *Engine) Registry() *tools.Registry { return e.reg }
+
+// Hooks returns the engine's hook manager (audit log, statistics, security
+// gate). Never nil.
+func (e *Engine) Hooks() *hooks.Manager { return e.hooks }
 
 // NewSession starts a session: its own event stream, its own serial-tool
 // lock, its own tool runner lifecycle. The observer may be nil.

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/mcp"
 	"lyon-agent/pkg/tools"
 )
@@ -318,12 +319,12 @@ func cmdRun(args []string) int {
 	}
 	if code := drain(sess, true); code != 0 {
 		if *stats {
-			printStats(os.Stdout, sess.Stats(), metrics)
+			printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks())
 		}
 		return code
 	}
 	if *stats {
-		printStats(os.Stdout, sess.Stats(), metrics)
+		printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks())
 	}
 	return 0
 }
@@ -422,7 +423,7 @@ func cmdChat(args []string) int {
 			case "/quit", "/exit", ":q":
 				return 0
 			case "/stats":
-				printStats(os.Stdout, sess.Stats(), metrics)
+				printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks())
 			case "/sessions":
 				listSessions(cfg.Workspace)
 			case "/resume":
@@ -708,7 +709,7 @@ func shortJSON(raw json.RawMessage, max int) string {
 
 // printStats writes the usage + tool-metric tables to w (stdout for the
 // plain modes, a transcript buffer for the TUI's /stats).
-func printStats(w io.Writer, turns []agent.TurnStat, metrics *tools.Metrics) {
+func printStats(w io.Writer, turns []agent.TurnStat, metrics *tools.Metrics, hk *hooks.Manager) {
 	if len(turns) == 0 {
 		fmt.Fprintln(w, paint(cDim, "no turns yet"))
 	} else {
@@ -747,5 +748,26 @@ func printStats(w io.Writer, turns []agent.TurnStat, metrics *tools.Metrics) {
 			m.Name, m.Calls, m.Errors,
 			m.Avg().Milliseconds(), m.P50.Milliseconds(),
 			m.P95.Milliseconds(), m.Max.Milliseconds())
+	}
+	printHookStats(w, hk)
+}
+
+// printHookStats appends the persistent cross-run aggregates (audit +
+// stats layer): unlike the per-session tables above, these survive restarts
+// via $LYON_HOME/stats.json and cover approvals, security and hooks.
+func printHookStats(w io.Writer, hk *hooks.Manager) {
+	if hk == nil {
+		return
+	}
+	s := hk.Stats()
+	fmt.Fprintln(w, paint(cBold, "totals (persistent across runs)"))
+	fmt.Fprintf(w, "  prompts %d · api calls %d · compactions %d · subagents %d\n",
+		s.Prompts, s.ApiCalls, s.Compactions, s.Subagents)
+	fmt.Fprintf(w, "  approvals %d asked / %d yes / %d no · security blocks %d · hook failures %d\n",
+		s.ApprovalsReq, s.ApprovalsYes, s.ApprovalsNo, s.SecurityBlocks, s.HookFailures)
+	fmt.Fprintf(w, "  tokens in=%d out=%d cache_read=%d cache_create=%d\n",
+		s.Tokens.Input, s.Tokens.Output, s.Tokens.CacheRead, s.Tokens.CacheCreation)
+	if !s.StartedAt.IsZero() {
+		fmt.Fprintln(w, paint(cDim, "  tracked since "+s.StartedAt.Format("2006-01-02 15:04")))
 	}
 }

@@ -241,6 +241,44 @@ History` 会给每个悬空调用排入合成 `tool_result`，与下一条用户
 user message，保证 role 交替完整、API 不会拒绝。busy 锁在发出 prompt_end **之前**
 释放，避免事件缓冲消费者立刻重投时撞上 `ErrPromptInProgress`。
 
+## 统计、审计与安全控制（hooks）
+
+`pkg/hooks` 在每个会话生命周期上留了钩子点，并实现三个消费方——事件表里
+`prompt_start/end`、`turn_end`、`tool_use/exec_start/end`、`approve_request/result`、
+`compaction`、`subagent_end`、`error`、`security_block` 等都会经过：
+
+- **审计**：`~/.lyon/audit/<日期>.jsonl`，每行一个 JSON Record（时间、事件、工具、
+  截断后的输入、耗时、审批结果、token 用量、拦截原因）。写盘在独立 goroutine，
+  热路径零 I/O；保留 30 天自动清理。`LYON_AUDIT=off` 关闭。
+- **统计**：`~/.lyon/stats.json` 持久化聚合——prompt/迭代/compaction/subagent 次数、
+  审批 yes/no、安全拦截数、token 累计、每工具调用/失败/耗时。TUI 里 `/stats`
+  在原有会话表之后追加该全局段。prompt_end 落盘（≤2s 延迟），`Session.Close`
+  时 `Flush` 同步收尾。
+- **安全控制**（两层，先于审批执行——被拦的工具不会打扰人类）：
+  1. `~/.lyon/policy.json` 本地策略：
+     ```json
+     {
+       "allow_tools": ["read", "grep", "glob"],   // 非空即白名单模式
+       "deny_tools": ["bash"],
+       "deny_patterns": ["(?i)rm\\s+-rf\\s+/", "curl[^|]*\\|\\s*(ba)?sh"]
+     }
+     ```
+     模式对工具输入的原始 JSON 做正则匹配；拦截以 `blocked by security policy`
+     作为工具结果返回给模型，并记 `security_block`（`blocked_by` 指明规则）。
+  2. `~/.lyon/hooks.json` 外部钩子：
+     ```json
+     [
+       {"event": "tool_end",   "command": "node C:/hooks/log.js", "timeout_ms": 5000},
+       {"event": "tool_start", "argv": ["gate.exe"], "blocking": true}
+     ]
+     ```
+     Record 以 JSON 写到钩子 stdin；`"blocking": true`（仅 tool_start）退出码 2
+     或 stdout `{"deny":true,"reason":"..."}` 即否决该次工具执行。非阻塞钩子
+     异步执行，失败计入 `hook_failures` 并记 `hook_error`。`LYON_HOOKS=off` 关闭。
+
+外部钩子可用于自建统计上报、审计外送、DLP/沙箱等安全网关；子代理工具同样
+经过 `PreTool` 安全门。
+
 ## 测试
 
 ```bash
