@@ -151,6 +151,13 @@ type tuiModel struct {
 	// memRows mirrors the last /memory table's numbering so "/memory N"
 	// toggles exactly the row the user is looking at.
 	memRows []memory.Fact
+
+	// titleBusy guards the async title refresh kicked at prompt_end:
+	// one intent check in flight at a time. titlePending re-kicks a
+	// prompt_end that landed while a check was still running, so the
+	// latest prompt is always recognized.
+	titleBusy    bool
+	titlePending bool
 }
 
 func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) *tuiModel {
@@ -185,6 +192,16 @@ func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) 
 	m.updateSuggestions()
 	m.refresh()
 	return m
+}
+
+// headerLine is the pinned header plus the live session title once the
+// async intent check has recognized one. Read per-frame, so a title
+// landing between prompts shows up on the next redraw.
+func (m *tuiModel) headerLine() string {
+	if t := sanitizeText(m.sess.Title()); t != "" {
+		return m.header + paint(cDim, " · "+t)
+	}
+	return m.header
 }
 
 // resetTranscript re-seeds the transcript with the banner — the opening
@@ -427,6 +444,9 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		m.flushPend()
 		m.busy = false
 		m.armedQuit = false
+		// Topic may have shifted: kick the cheap intent check so the
+		// header title follows the conversation.
+		m.kickTitleCheck()
 		// Surface completion as a system toast — long runs are watched by
 		// notification, not by staring at the transcript.
 		switch {
@@ -718,6 +738,9 @@ func (m *tuiModel) pickRows() []string {
 	for i, r := range m.pick {
 		head := fmt.Sprintf("%2d  %s  %d messages", i+1,
 			r.SavedAt.Format("2006-01-02 15:04"), r.Messages)
+		if r.Title != "" {
+			head += "  " + sanitizeText(r.Title)
+		}
 		if i == m.pickIdx {
 			rows = append(rows, paint(cCyan, "❯ "+head))
 		} else {
@@ -1035,7 +1058,7 @@ func (m *tuiModel) View() string {
 	m.vp.Height = vh
 	m.vp.SetYOffset(m.vp.YOffset) // re-clamp: Height may have just shrunk
 	var b strings.Builder
-	b.WriteString(m.clip(m.header))
+	b.WriteString(m.clip(m.headerLine()))
 	b.WriteByte('\n')
 	b.WriteString(m.vp.View())
 	b.WriteByte('\n')
@@ -1115,6 +1138,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The user is probably not watching the TUI — raise a system box.
 		notifyDecision("lyon: approval needed",
 			truncNotif(msg.ev.Name+" "+string(msg.ev.Input), 200))
+
+	case titleUpdated:
+		// The intent check finished; the next View re-reads Title().
+		// A prompt_end that landed mid-check re-kicks now.
+		m.titleBusy = false
+		if m.titlePending {
+			m.titlePending = false
+			m.kickTitleCheck()
+		}
 
 	case rememberDone:
 		m.status = ""
@@ -1467,6 +1499,29 @@ func (m *tuiModel) showMemory(args string) {
 	}
 	m.refresh()
 }
+
+// kickTitleCheck refreshes the session title asynchronously after a
+// prompt: one small-model intent check, bounded, at most one in flight.
+// The result shows up via headerLine() on the redraw titleUpdated triggers.
+func (m *tuiModel) kickTitleCheck() {
+	if m.titleBusy {
+		m.titlePending = true // re-kick when the in-flight check lands
+		return
+	}
+	m.titleBusy = true
+	sess := m.sess
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_, _, _ = sess.RefreshTitle(ctx)
+		if p := tuiProg.Load(); p != nil {
+			p.Send(titleUpdated{})
+		}
+	}()
+}
+
+// titleUpdated nudges a redraw after an async title refresh lands.
+type titleUpdated struct{}
 
 // rememberNow distills the session's learnings into memory on a
 // goroutine: the model call takes seconds and the TUI must stay live.

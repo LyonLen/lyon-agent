@@ -591,8 +591,12 @@ func listSessions(workspace string) {
 	default:
 		fmt.Println(paint(cBold, fmt.Sprintf("saved sessions (%d, newest first)", len(refs))))
 		for i, r := range refs {
-			fmt.Printf("  %2d  %s  %d messages  %s\n", i+1,
-				r.SavedAt.Format("2006-01-02 15:04"), r.Messages,
+			title := ""
+			if r.Title != "" {
+				title = "  " + sanitizeText(r.Title)
+			}
+			fmt.Printf("  %2d  %s  %d messages%s  %s\n", i+1,
+				r.SavedAt.Format("2006-01-02 15:04"), r.Messages, title,
 				paint(cDim, fmt.Sprintf("— /resume %d", i+1)))
 		}
 		fmt.Println(paint(cDim, "/resume alone restores the newest"))
@@ -631,6 +635,17 @@ func drain(sess *agent.Session, stopOnError bool) int {
 	for ev := range sess.Events() {
 		render(ev)
 		if ev.Type == agent.EventPromptEnd {
+			// Async intent check: refresh the session title when the
+			// topic shifted; print only when it actually changes. The
+			// goroutine owns no session state and outliving drain is
+			// harmless (its ctx is independent).
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if title, changed, err := sess.RefreshTitle(ctx); err == nil && changed && title != "" {
+					fmt.Printf("\n%s %s\n", paint(cCyan, "🏷 title"), paint(cDim, title))
+				}
+			}()
 			if ev.Err != "" {
 				if stopOnError {
 					return 1

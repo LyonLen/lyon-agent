@@ -104,6 +104,12 @@ type Session struct {
 	mu          sync.Mutex
 	turns       []TurnStat
 	pendingNote string // next-boundary role:"system" message (PushSystemNote)
+
+	// Session intent title (title.go): recognized asynchronously after
+	// prompt_end, persisted with snapshots. Guarded by mu.
+	title       string
+	firstPrompt string
+	lastPrompt  string
 }
 
 func newSession(e *Engine, obs tools.Observer) *Session {
@@ -147,6 +153,14 @@ func (s *Session) Submit(prompt string) error {
 	}
 	select {
 	case s.reqs <- prompt:
+		// Recorded for title intent recognition (title.go): the latest
+		// prompt drives the check, the first anchors the session topic.
+		s.mu.Lock()
+		s.lastPrompt = prompt
+		if s.firstPrompt == "" {
+			s.firstPrompt = prompt
+		}
+		s.mu.Unlock()
 		s.eng.hooks.Fire(hooks.Record{Event: hooks.EvPromptStart, Prompt: prompt})
 		return nil
 	case <-s.ctx.Done():

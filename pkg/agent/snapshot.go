@@ -23,11 +23,15 @@ import (
 // snapshotVersion bumps when the Snapshot layout changes incompatibly.
 const snapshotVersion = 1
 
-// Snapshot is one conversation's persistable state.
+// Snapshot is one conversation's persistable state. Title/FirstPrompt
+// are additive (empty on old files, ignored by old readers — version
+// stays compatible).
 type Snapshot struct {
 	Version            int
 	Workspace          string
 	Model              string
+	Title              string // auto intent label (title.go)
+	FirstPrompt        string // first user prompt — title intent context
 	SavedAt            time.Time
 	Messages           []anthropic.BetaMessageParam
 	PendingToolResults []anthropic.BetaContentBlockParamUnion
@@ -47,10 +51,15 @@ func (s *Session) Export() Snapshot {
 	case s.seed != nil:
 		msgs = append([]anthropic.BetaMessageParam(nil), s.seed...)
 	}
+	s.mu.Lock()
+	title, first := s.title, s.firstPrompt
+	s.mu.Unlock()
 	return Snapshot{
 		Version:            snapshotVersion,
 		Workspace:          s.eng.cfg.Workspace,
 		Model:              s.eng.cfg.Model,
+		Title:              title,
+		FirstPrompt:        first,
 		SavedAt:            time.Now(),
 		Messages:           msgs,
 		PendingToolResults: append([]anthropic.BetaContentBlockParamUnion(nil), s.pendingToolResults...),
@@ -77,6 +86,8 @@ func (s *Session) Restore(snap Snapshot) {
 	s.memoryInjected = false
 	s.mu.Lock()
 	s.turns = append([]TurnStat(nil), snap.Turns...)
+	s.title = snap.Title
+	s.firstPrompt = snap.FirstPrompt
 	s.mu.Unlock()
 }
 
@@ -262,6 +273,7 @@ type SnapshotRef struct {
 	Path     string
 	SavedAt  time.Time
 	Messages int
+	Title    string
 }
 
 // ListSnapshots returns every saved session for a workspace — latest slot
@@ -277,7 +289,7 @@ func ListSnapshots(workspace string) ([]SnapshotRef, error) {
 		return nil, err
 	}
 	if latest != nil {
-		refs = append(refs, SnapshotRef{Path: latestPath, SavedAt: latest.SavedAt, Messages: len(latest.Messages)})
+		refs = append(refs, SnapshotRef{Path: latestPath, SavedAt: latest.SavedAt, Messages: len(latest.Messages), Title: latest.Title})
 	}
 	dir, err := sessionDir(workspace)
 	if err != nil {
@@ -296,7 +308,7 @@ func ListSnapshots(workspace string) ([]SnapshotRef, error) {
 		if err != nil || s == nil {
 			continue // one corrupt archive entry must not hide the rest
 		}
-		refs = append(refs, SnapshotRef{Path: p, SavedAt: s.SavedAt, Messages: len(s.Messages)})
+		refs = append(refs, SnapshotRef{Path: p, SavedAt: s.SavedAt, Messages: len(s.Messages), Title: s.Title})
 	}
 	sort.Slice(refs, func(i, j int) bool { return refs[i].SavedAt.After(refs[j].SavedAt) })
 	return refs, nil

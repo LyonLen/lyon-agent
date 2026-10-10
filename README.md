@@ -312,6 +312,13 @@ hits: 3
 正文……
 ```
 
+## 会话自动标题（意图识别）
+
+- 每次 prompt 结束后，用低价位子模型做一次意图判定：同话题回 `{"changed":false}` 保持原题（不写不花），换题才重出标题（3-8 个词，跟随用户语言）。
+- 判定输入只有「首条 prompt + 当前标题 + 最新 prompt」（几百 token，绝不带整段历史），回复上限 64 token；`LYON_TITLE=off` 关闭。
+- 展示与持久化：TUI header 常驻 `lyon chat · <标题>`；`/sessions` 和 resume 选择器列出各会话标题；快照保存标题，`chat -c` 恢复后延续。plain REPL 在标题变化时打印 `🏷 title …`。
+- 换题检测在 prompt_end 异步进行，UI 不等待；检查在途时新来的 prompt_end 会补跑，保证最新话题总被识别。
+
 ## 测试
 
 ```bash
