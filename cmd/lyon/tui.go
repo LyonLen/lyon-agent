@@ -215,7 +215,7 @@ func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) 
 // row can't fit both, the title side wins and the gauge drops: a
 // half-clipped money figure would read worse than none.
 func (m *tuiModel) headerLine() string {
-	left := m.header
+	left := m.header + modeBadge(m.sess.Mode())
 	if t := sanitizeText(m.sess.Title()); t != "" {
 		left += paint(cDim, " · "+t)
 	}
@@ -725,6 +725,7 @@ var slashCommands = []sugItem{
 	{"/remember", "distill this session's learnings into memory now"},
 	{"/rollback", "undo history to a checkpoint — list, or /rollback N"},
 	{"/model", "model card: context window, official params, pricing"},
+	{"/mode", "switch plan (read-only) / bypass (auto-approve) / default"},
 	{"/think", "expand/collapse thinking blocks"},
 	{"/steps", "toggle the right-hand action audit panel"},
 	{"/help", "list commands and keys"},
@@ -1331,6 +1332,17 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case "shift+tab":
+			// Cycle execution mode: default → plan → bypass → default.
+			m.armedQuit = false
+			prev := m.sess.Mode()
+			if _, err := m.sess.SetMode(cycleMode(prev)); err == nil {
+				m.pushStyled(modeSwitchLine(prev, m.sess.Mode()))
+				m.status = "mode: " + string(m.sess.Mode())
+				m.refresh()
+			}
+			return m, nil
+
 		case "ctrl+t":
 			m.armedQuit = false
 			m.toggleThinking()
@@ -1561,6 +1573,10 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.rollbackAction(idx)
 	case "/model":
 		m.showModel(args)
+	case "/mode":
+		m.flushPend()
+		m.pushStyled(modeAction(m.sess, args))
+		m.status = "mode: " + string(m.sess.Mode())
 	case "/think":
 		m.toggleThinking()
 	case "/steps":
@@ -1586,12 +1602,13 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /remember distill this session's learnings into memory now (auto-runs on exit)",
 			"  /rollback undo history: bare lists checkpoints, /rollback N restores, /rollback save [text] marks one",
 			"  /model   model card: /model current · /model list · /model <id>",
+			"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
 			"  /think   expand/collapse thinking blocks",
 			"  /steps   toggle the right-hand action audit panel (tools, compact, subagents)",
 			"  /help    this help",
 			"  /quit    exit",
 			paint(cDim, "typing / pops the command list — tab completes · ↑/↓ choose · esc closes"),
-			paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · esc interrupt"),
+			paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt"),
 			paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
 		)
 	default:

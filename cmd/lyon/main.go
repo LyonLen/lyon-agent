@@ -422,7 +422,7 @@ func cmdChat(args []string) int {
 	}
 
 	fmt.Println(paint(cBold, "lyon chat") + paint(cDim, fmt.Sprintf("  model=%s effort=%s workspace=%s", cfg.Model, cfg.Effort, cfg.Workspace)))
-	fmt.Println(paint(cDim, "commands: /stats  /model  /resume  /sessions  /new  /memory  /remember  /quit"))
+	fmt.Println(paint(cDim, "commands: /stats  /model  /mode  /resume  /sessions  /new  /memory  /remember  /quit"))
 	if snap != nil {
 		fmt.Println(paint(cDim, fmt.Sprintf("restored %d messages · %s", len(snap.Messages), snap.SavedAt.Format("2006-01-02 15:04"))))
 	} else if hint := resumeHint(cfg.Workspace, false); hint != "" { // plain: newest
@@ -470,6 +470,8 @@ func cmdChat(args []string) int {
 				for _, l := range modelLines(cfg, strings.TrimSpace(args)) {
 					fmt.Println(l)
 				}
+			case "/mode":
+				fmt.Println(modeAction(sess, args))
 			case "/sessions":
 				listSessions(cfg.Workspace)
 			case "/resume":

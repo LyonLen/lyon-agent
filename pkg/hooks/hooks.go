@@ -54,6 +54,7 @@ const (
 	EvHookError     = "hook_error"
 	EvMemorySave    = "memory_save"
 	EvRollback      = "rollback"
+	EvMode          = "mode" // plan/bypass/default switch (audit trail)
 )
 
 // Record is one audit line and one hook payload — the JSON external hooks

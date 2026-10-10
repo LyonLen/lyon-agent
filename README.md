@@ -393,6 +393,32 @@ hits: 3
 
 
 
+## plan mode / bypass mode（/mode 切换）
+
+- **三种执行模式**（会话级，引擎强制，TUI/REPL 同款）：
+  - `default` — 按配置走：`-approve` 弹 y/n，否则自动放行；
+  - `plan` — **只读探索**：写文件、shell、记忆写入、MCP 工具与未注册工具
+    一律 `blocked by plan mode`（fail closed：放行名单 = registry 的
+    ParallelSafe 只读标注，`mcp_*` 因副作用未知额外排除，`run_subagent`
+    因子代理只拿只读工具且过同一道门而放行）。拦截以
+    `security_block(blocked_by=mode:plan)` 落审计，**不打扰审批、不触发
+    外部 hook**；system prompt 同步注入 `[MODE: PLAN]` 合约（模型先知道
+    规则，切换各花一次缓存 MISS，切回 default 字节复原可再命中）；
+  - `bypass` — **审批自动放行**：需要审批的工具不再弹给人，直接 yes，
+    approve_request/result 两条审计照写（auto-grant 必留痕）。
+    **policy.json 与 blocking hooks 照常执行**——bypass 只跳过人工，
+    不削弱安全底线。
+- **切换**：`/mode`（裸=查状态）· `/mode plan|bypass|default` ·
+  **shift+tab 循环** default→plan→bypass→default；每次切换写一条
+  `mode` 审计记录（`default → plan`）。
+- **常驻可见**：TUI header 徽章 `· [plan]`（黄）/ `· [bypass]`（红），
+  转录落 `mode → …` 确认行；mode 不随 `/new` `/resume` 偷偷改——
+  徽章一直在，切了就看得见。
+- 运行中的 prompt 实时生效：下一秒的工具调用就按新模式走（原子切换，
+  UI 线程与驱动线程安全）。
+
+
+
 ## OpenAI 兼容网关（协议翻译层）
 
 - **单点翻译**：`pkg/openaix` 实现一个 `http.RoundTripper`，在 HTTP 层把 Anthropic Messages 协议⇄
@@ -435,9 +461,10 @@ Restore 往返与 turn 延续、回滚（多轮撤销/compact 撤销/淘汰策�
 子代理、真实缓存命中、中断与历史修复）、
 TUI（转录渲染、状态机、命令、审批浮层、输入历史、thinking 折叠、斜杠候选弹层、
 ctrl+t 按键端到端、恢复回放、步骤面板生命周期/渲染尺寸/分栏几何、/model 卡片/
-列表/未收录回退、上下文/花费仪表与 header 常驻几何）、模型知识库（精确/通配/
-未收录查找、注册表健全性、价格格式化、CostUSD 缓存倍率）、子代理用量记账、
-OpenAI 翻译层
+列表/未收录回退、上下文/花费仪表与 header 常驻几何、/mode 与 shift+tab 循环）、
+模式与审批（plan 门放行/拦截矩阵、bypass 短路人工、system 注入、mode 审计）、
+模型知识库（精确/通配/未收录查找、注册表健全性、价格格式化、CostUSD 缓存
+倍率）、子代理用量记账、OpenAI 翻译层
 （协议互转、SSE 合成、错误映射、
 SDK 穿层、引擎级工具循环 e2e）、MCP 客户端、服务（SSE、metrics、会话存储）、
 mockapi（缓存模拟器可信度）、bench（性能验收）。全部无网络、无真实密钥依赖。

@@ -116,6 +116,11 @@ type Session struct {
 	subUsage    map[string]Usage
 	pendingNote string // next-boundary role:"system" message (PushSystemNote)
 
+	// mode is the session execution mode (mode.go): plan gates tools,
+	// bypass auto-approves. Atomic — the UI goroutine switches while the
+	// drive goroutine's preTool/approve gates read it.
+	mode atomic.Pointer[Mode]
+
 	// Session intent title (title.go): recognized asynchronously after
 	// prompt_end, persisted with snapshots. Guarded by mu.
 	title       string
@@ -185,32 +190,52 @@ func (s *Session) Submit(prompt string) error {
 func (s *Session) Hooks() *hooks.Manager { return s.eng.hooks }
 
 // preTool is the security seam handed to every adapted tool (main and
-// subagent): local policy and blocking hooks veto before approval.
+// subagent): plan mode's read-only gate first, then local policy and
+// blocking hooks — all before approval.
 func (s *Session) preTool(ctx context.Context, name string, input json.RawMessage) error {
+	if err := s.modeGate(name, input); err != nil {
+		return err
+	}
 	return s.eng.hooks.CheckTool(ctx, name, input)
 }
 
 // wrapApprove brackets the configured approver with audit events so every
 // human decision (including "always allow" auto-answers) lands in the log.
-// nil stays nil — auto-approve sessions don't fake approvals.
+// nil stays nil — auto-approve sessions don't fake approvals. Bypass mode
+// short-circuits the human to yes, but still writes both audit events:
+// an auto-grant must leave a trace. Policy and blocking hooks ran earlier
+// in preTool and are NOT weakened by bypass.
 func (s *Session) wrapApprove(a tools.ApproveFunc) tools.ApproveFunc {
 	if a == nil {
 		return nil
 	}
 	return func(ctx context.Context, e tools.ExecEvent) bool {
+		auto := s.Mode() == ModeBypass // never prompt the human just to override them
 		s.eng.hooks.Fire(hooks.Record{
-			Event: hooks.EvApproveReq,
-			Tool:  e.Name,
-			Input: string(e.Input),
+			Event:  hooks.EvApproveReq,
+			Tool:   e.Name,
+			Input:  string(e.Input),
+			Detail: detailIf(auto, "bypass mode — no human prompt"),
 		})
-		ok := a(ctx, e)
+		ok := auto
+		if !auto {
+			ok = a(ctx, e)
+		}
 		s.eng.hooks.Fire(hooks.Record{
 			Event:    hooks.EvApproveRes,
 			Tool:     e.Name,
 			Approved: &ok,
+			Detail:   detailIf(auto, "auto-approved by bypass mode"),
 		})
 		return ok
 	}
+}
+
+func detailIf(cond bool, d string) string {
+	if cond {
+		return d
+	}
+	return ""
 }
 
 // Close cancels any in-flight work, stops the session goroutine and closes
@@ -272,7 +297,7 @@ func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMe
 		MaxTokens: cfg.MaxTokens,
 		Messages:  msgs,
 		System: []anthropic.BetaTextBlockParam{{
-			Text:         cfg.SystemPrompt,
+			Text:         s.systemWithMode(cfg.SystemPrompt),
 			CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 		}},
 		OutputConfig: anthropic.BetaOutputConfigParam{
