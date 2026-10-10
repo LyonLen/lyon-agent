@@ -64,6 +64,13 @@ type Config struct {
 	// SubagentMaxTokens caps one subagent response (default 8192).
 	SubagentMaxTokens int64
 
+	// OpenAIBase, when non-empty, routes every Messages API call through
+	// an Anthropic→OpenAI protocol translation layer to
+	// {OpenAIBase}/chat/completions, reusing the same API key as
+	// Authorization: Bearer. Set by -openai / -openai-base, or env
+	// LYON_OPENAI_BASE. Empty means speak Anthropic protocol directly.
+	OpenAIBase string
+
 	// CompactThreshold triggers conversation compaction when the latest
 	// turn's total input (fresh + cached) reaches this fraction of
 	// ContextWindow. 0.7 default; negative disables compaction.
@@ -166,6 +173,10 @@ const DefaultSystemPrompt = `You are lyon, a fast, capable general-purpose agent
 
 func (c Config) withDefaults() Config {
 	d := DefaultConfig()
+	if c.OpenAIBase == "" {
+		c.OpenAIBase = strings.TrimSpace(os.Getenv("LYON_OPENAI_BASE"))
+	}
+	c.OpenAIBase = strings.TrimRight(c.OpenAIBase, "/")
 	if c.Model == "" {
 		c.Model = d.Model
 	}
@@ -194,10 +205,22 @@ func (c Config) withDefaults() Config {
 		c.EventBuffer = d.EventBuffer
 	}
 	if c.WebToolMode == "" {
-		c.WebToolMode = autoWebToolMode()
+		if c.OpenAIBase != "" {
+			// An OpenAI gateway can't execute Anthropic server-side web
+			// tools; the local implementations work everywhere.
+			c.WebToolMode = "client"
+		} else {
+			c.WebToolMode = autoWebToolMode()
+		}
 	}
 	if c.SubagentModel == "" {
-		c.SubagentModel = d.SubagentModel
+		if c.OpenAIBase != "" && os.Getenv("LYON_SUBAGENT_MODEL") == "" {
+			// Single-model gateways reject a second id: fall back to
+			// whatever model the main loop uses.
+			c.SubagentModel = c.Model
+		} else {
+			c.SubagentModel = d.SubagentModel
+		}
 	}
 	if c.SubagentEffort == "" {
 		c.SubagentEffort = d.SubagentEffort

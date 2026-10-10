@@ -21,6 +21,7 @@ import (
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/mcp"
+	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/tools"
 )
 
@@ -107,6 +108,8 @@ type commonFlags struct {
 	ctxWindow  *int64
 	maxTurns   *int
 	prewarm    *bool
+	openai     *bool
+	openaiBase *string
 }
 
 func registerFlags(fs *flag.FlagSet) commonFlags {
@@ -131,6 +134,8 @@ func registerFlags(fs *flag.FlagSet) commonFlags {
 		ctxWindow:  fs.Int64("context-window", 0, "context window size for the compaction ratio (default 200000)"),
 		maxTurns:   fs.Int("max-turns", 0, "global cap on in-flight API turns (default unlimited)"),
 		prewarm:    fs.Bool("prewarm", false, "warm the prompt cache before the first prompt"),
+		openai:     fs.Bool("openai", false, "speak OpenAI protocol to the gateway at "+openaix.DefaultBase+" (same API key as Bearer auth)"),
+		openaiBase: fs.String("openai-base", "", "OpenAI-compatible base URL, e.g. https://host/v1 (implies -openai; env LYON_OPENAI_BASE)"),
 	}
 }
 
@@ -186,6 +191,11 @@ func (f commonFlags) buildConfig() (agent.Config, error) {
 	}
 	if f.maxTurns != nil && *f.maxTurns > 0 {
 		cfg.MaxConcurrentTurns = *f.maxTurns
+	}
+	if f.openaiBase != nil && *f.openaiBase != "" {
+		cfg.OpenAIBase = *f.openaiBase
+	} else if f.openai != nil && *f.openai {
+		cfg.OpenAIBase = openaix.DefaultBase
 	}
 	return cfg, nil
 }

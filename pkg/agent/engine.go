@@ -12,6 +12,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"lyon-agent/pkg/hooks"
+	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/tools"
 )
 
@@ -71,8 +72,14 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 		ExpectContinueTimeout: time.Second,
 	}
 	// One tuned HTTP client for the whole process: the Anthropic API and the
-	// client-side web tools share its keep-alive pool.
-	httpClient := &http.Client{Transport: transport}
+	// client-side web tools share its keep-alive pool. With OpenAIBase set,
+	// a translating RoundTripper fronts the pool: Messages API calls become
+	// OpenAI chat/completions requests, everything else passes through.
+	var rt http.RoundTripper = transport
+	if cfg.OpenAIBase != "" {
+		rt = &openaix.Transport{Base: cfg.OpenAIBase, Inner: transport}
+	}
+	httpClient := &http.Client{Transport: rt}
 
 	builtins := []tools.Tool{
 		&tools.Shell{Root: cfg.Workspace, Allow: cfg.ShellAllow},

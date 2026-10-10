@@ -42,3 +42,53 @@ func TestWebToolModeExplicitOverrides(t *testing.T) {
 		t.Fatal("server mode must not register client web tools")
 	}
 }
+
+// TestOpenAIBaseDefaults: LYON_OPENAI_BASE enables the translation layer
+// with gateway-friendly defaults (client web tools, single subagent model),
+// explicit values win, and leaving it unset keeps the Anthropic path.
+func TestOpenAIBaseDefaults(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_MODEL", "")
+	t.Setenv("LYON_SUBAGENT_MODEL", "")
+
+	// Env enables; trailing slash trimmed; subagent falls back to the
+	// main model because single-model gateways reject a second id.
+	t.Setenv("LYON_OPENAI_BASE", "https://gw.example.com/v1/")
+	eng := NewEngine(Config{Model: "m-both"}, nil)
+	cfg := eng.Config()
+	if cfg.OpenAIBase != "https://gw.example.com/v1" {
+		t.Fatalf("OpenAIBase = %q (env + trailing-slash trim)", cfg.OpenAIBase)
+	}
+	if cfg.WebToolMode != "client" {
+		t.Fatalf("WebToolMode = %q, want client under an OpenAI gateway", cfg.WebToolMode)
+	}
+	if cfg.SubagentModel != "m-both" {
+		t.Fatalf("SubagentModel = %q, want main model", cfg.SubagentModel)
+	}
+
+	// An explicit base (flag) wins over the env var.
+	t.Setenv("LYON_OPENAI_BASE", "https://env.example/v1")
+	eng2 := NewEngine(Config{OpenAIBase: "https://flag.example/v1"}, nil)
+	if got := eng2.Config().OpenAIBase; got != "https://flag.example/v1" {
+		t.Fatalf("flag base lost: %q", got)
+	}
+
+	// Explicit subagent model still wins over the single-model fallback.
+	t.Setenv("LYON_SUBAGENT_MODEL", "haiku-x")
+	eng3 := NewEngine(Config{Model: "m-main"}, nil)
+	if got := eng3.Config().SubagentModel; got != "haiku-x" {
+		t.Fatalf("LYON_SUBAGENT_MODEL ignored: %q", got)
+	}
+
+	// Unset: Anthropic path untouched, stock subagent tier.
+	t.Setenv("LYON_OPENAI_BASE", "")
+	t.Setenv("LYON_SUBAGENT_MODEL", "")
+	eng4 := NewEngine(Config{Model: "m4"}, nil)
+	cfg4 := eng4.Config()
+	if cfg4.OpenAIBase != "" {
+		t.Fatalf("OpenAIBase leaked: %q", cfg4.OpenAIBase)
+	}
+	if cfg4.SubagentModel != DefaultSubagentModel {
+		t.Fatalf("SubagentModel = %q, want default tier", cfg4.SubagentModel)
+	}
+}

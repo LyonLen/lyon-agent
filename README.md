@@ -319,6 +319,36 @@ hits: 3
 - 展示与持久化：TUI header 常驻 `lyon chat · <标题>`；`/sessions` 和 resume 选择器列出各会话标题；快照保存标题，`chat -c` 恢复后延续。plain REPL 在标题变化时打印 `🏷 title …`。
 - 换题检测在 prompt_end 异步进行，UI 不等待；检查在途时新来的 prompt_end 会补跑，保证最新话题总被识别。
 
+## OpenAI 兼容网关（协议翻译层）
+
+- **单点翻译**：`pkg/openaix` 实现一个 `http.RoundTripper`，在 HTTP 层把 Anthropic Messages 协议⇄
+  OpenAI `chat/completions` 双向翻译。工具系统、历史构建、tool runner、compact、子代理、
+  标题生成……所有调用点共用一个 Engine client，**零业务代码改动**，不开启时零开销。
+- **开启方式**（任选其一）：
+  - `lyon chat -openai` — 默认网关 `https://token-plan-cn.xiaomimimo.com/v1`
+  - `lyon chat -openai-base https://host/v1` — 任意 OpenAI 兼容端点（隐含 `-openai`）
+  - 环境变量 `LYON_OPENAI_BASE`（flag 优先，尾部 `/` 自动去掉）
+  - `lyond -openai` / `lyond -openai-base …` 同样支持
+- **同一个 key**：请求仍带 `x-api-key`，翻译层自动换成 `Authorization: Bearer …`
+  发给网关（网关若本身用 Bearer 则原样透传）；**鉴权头/Anthropic 专有头不会泄漏给网关**。
+- **网关友好默认值**：`WebToolMode` 强制 `client`（网关跑不了 Anthropic 服务端 web 工具）；
+  未设 `LYON_SUBAGENT_MODEL` 时子代理自动用主模型（单模型网关会拒绝第二个模型 id）。
+- **协议要点**：
+  - 请求：system→首条 system 消息；`tool_result` 提升为独立 `role:"tool"` 消息并排在
+    user 文本之前（OpenAI 要求 tool 消息紧跟 assistant tool_calls）；相邻同角色合并；
+    thinking/未知块丢弃；`tool_choice` none/any/tool/auto→none/required/function/auto；
+    流式请求带 `stream_options:{include_usage:true}`。
+  - 响应：网关 SSE 逐帧合成为 Anthropic `message_start/content_block_delta/message_stop`
+    事件流（SDK Accumulate 严格按事件名分发，缺 `event:` 行的帧会被丢弃——全部补齐）；
+    usage 在 message_start 置零、message_delta 带全四个字段；JSON 响应同样可喂流式 SDK。
+  - 错误：非 2xx 保留原 HTTP 状态码（重试策略不变），body 包成 Anthropic
+    `{"type":"error",…}` 结构（401→authentication_error、429→rate_limit_error、
+    529→overloaded_error、≥500→api_error），`retry-after`/`x-request-id` 透传；
+    200 但 body 是 HTML/错误对象时映射为 502/500 而不是静默空消息。
+- **验收**：翻译单测、RoundTrip 往返（流式/非流式/错误/透传/鉴权）、真实
+  anthropic-sdk-go 客户端穿层、引擎级真实 tool runner 两轮循环 e2e
+  （`pkg/agent/openai_gateway_test.go`：tool_call→本地执行→role:"tool" 回传→文本收尾）。
+
 ## 测试
 
 ```bash
@@ -329,5 +359,6 @@ go build ./... && go vet ./... && go test ./... -count=1
 注册）、引擎（事件协议、客户端压缩终局/延迟重建/阈值谓词、快照 Save↔Load↔
 Restore 往返与 turn 延续、记忆注入、子代理、真实缓存命中、中断与历史修复）、
 TUI（转录渲染、状态机、命令、审批浮层、输入历史、thinking 折叠、斜杠候选弹层、
-ctrl+t 按键端到端、恢复回放）、MCP 客户端、服务（SSE、metrics、会话存储）、
+ctrl+t 按键端到端、恢复回放）、OpenAI 翻译层（协议互转、SSE 合成、错误映射、
+SDK 穿层、引擎级工具循环 e2e）、MCP 客户端、服务（SSE、metrics、会话存储）、
 mockapi（缓存模拟器可信度）、bench（性能验收）。全部无网络、无真实密钥依赖。
