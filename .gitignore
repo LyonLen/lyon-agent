@@ -1,0 +1,6 @@
+bin/
+*.exe
+*.exe~
+.demo/
+*.test
+*.out
