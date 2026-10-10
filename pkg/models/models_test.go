@@ -95,3 +95,27 @@ func TestFormatting(t *testing.T) {
 		t.Fatalf("FormatContext: %q", c)
 	}
 }
+
+// TestCostUSD: turn pricing with Anthropic's cache multipliers (read
+// 0.1×, write 1.25×) — and no cost at all without a full price.
+func TestCostUSD(t *testing.T) {
+	// Known() needs both rates.
+	if (Pricing{Input: 1}).Known() || (Pricing{}).Known() {
+		t.Fatal("half-known pricing must not be Known()")
+	}
+	if c := (Pricing{}).CostUSD(1e6, 1e6, 1e6, 1e6); c != 0 {
+		t.Fatalf("unknown pricing must cost 0, got %v", c)
+	}
+
+	p := Pricing{Input: 0.27, Output: 1.1}
+	// 1000×0.27 + 2000×0.27×0.1 + 100×0.27×1.25 + 500×1.1
+	want := (1000*0.27 + 2000*0.27*0.1 + 100*0.27*1.25 + 500*1.1) / 1e6
+	got := p.CostUSD(1000, 500, 2000, 100)
+	if diff := got - want; diff > 1e-12 || diff < -1e-12 {
+		t.Fatalf("CostUSD = %.12f, want %.12f", got, want)
+	}
+	// 1M tokens at face value = the rates themselves.
+	if diff := p.CostUSD(1e6, 0, 0, 0) - 0.27; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("1M input = %v, want 0.27", p.CostUSD(1e6, 0, 0, 0))
+	}
+}

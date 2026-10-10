@@ -86,6 +86,7 @@ func (s *Session) Restore(snap Snapshot) {
 	s.memoryInjected = false
 	s.mu.Lock()
 	s.turns = append([]TurnStat(nil), snap.Turns...)
+	s.subUsage = nil // subagent lines aren't snapshotted — reset with turns
 	s.title = snap.Title
 	s.firstPrompt = snap.FirstPrompt
 	s.mu.Unlock()

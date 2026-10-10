@@ -185,6 +185,7 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 		answer.WriteString("(subagent finished without a final answer)")
 	}
 
+	s.recordSub(cfg.SubagentModel, usage) // cost gauge: billed separately
 	s.emit(Event{
 		Type:       EventSubagentEnd,
 		ToolName:   cfg.SubagentModel,

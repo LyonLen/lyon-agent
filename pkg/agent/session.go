@@ -108,8 +108,12 @@ type Session struct {
 	// call total. Drive goroutine only.
 	iterOffset int
 
-	mu          sync.Mutex
-	turns       []TurnStat
+	mu    sync.Mutex
+	turns []TurnStat
+	// subUsage aggregates run_subagent token usage per model id — kept
+	// out of turn stats because a subagent rides inside a turn but bills
+	// separately (often a cheaper model). Cleared with turns on Restore.
+	subUsage    map[string]Usage
 	pendingNote string // next-boundary role:"system" message (PushSystemNote)
 
 	// Session intent title (title.go): recognized asynchronously after
@@ -588,6 +592,33 @@ func (s *Session) record(t TurnStat) {
 	s.mu.Lock()
 	t.Turn = len(s.turns) + 1
 	s.turns = append(s.turns, t)
+	s.mu.Unlock()
+}
+
+// SubUsage returns a copy of the per-model subagent usage accumulated
+// so far (empty map when none). Used by the cost gauge.
+func (s *Session) SubUsage() map[string]Usage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]Usage, len(s.subUsage))
+	for k, v := range s.subUsage {
+		out[k] = v
+	}
+	return out
+}
+
+// recordSub folds one subagent run's usage into the per-model totals.
+func (s *Session) recordSub(model string, u Usage) {
+	s.mu.Lock()
+	if s.subUsage == nil {
+		s.subUsage = make(map[string]Usage, 1)
+	}
+	a := s.subUsage[model]
+	a.Input += u.Input
+	a.Output += u.Output
+	a.CacheRead += u.CacheRead
+	a.CacheCreation += u.CacheCreation
+	s.subUsage[model] = a
 	s.mu.Unlock()
 }
 

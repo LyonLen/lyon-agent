@@ -228,3 +228,21 @@ func (i *Info) FormatContext() string {
 	}
 	return fmt.Sprintf("%d", i.Context)
 }
+
+// Known reports whether both unit prices are on file — the only state
+// in which cost is computed (a half-known price would silently mislead).
+func (p Pricing) Known() bool { return p.Input > 0 && p.Output > 0 }
+
+// CostUSD prices one API turn in USD: input and output at face value,
+// cache read at 0.1× and cache write at 1.25× the input rate (the
+// published multipliers — the only cache shape this table knows).
+// Unknown pricing returns 0; gate on Known() first.
+func (p Pricing) CostUSD(input, output, cacheRead, cacheCreation int64) float64 {
+	if !p.Known() {
+		return 0
+	}
+	return (float64(input)*p.Input +
+		float64(cacheRead)*p.Input*0.1 +
+		float64(cacheCreation)*p.Input*1.25 +
+		float64(output)*p.Output) / 1e6
+}

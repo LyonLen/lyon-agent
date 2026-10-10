@@ -209,13 +209,25 @@ func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) 
 }
 
 // headerLine is the pinned header plus the live session title once the
-// async intent check has recognized one. Read per-frame, so a title
-// landing between prompts shows up on the next redraw.
+// async intent check has recognized one, with the resident context/cost
+// gauge pinned right. Read per-frame, so a title landing between
+// prompts — or a turn's usage — shows up on the next redraw. When the
+// row can't fit both, the title side wins and the gauge drops: a
+// half-clipped money figure would read worse than none.
 func (m *tuiModel) headerLine() string {
+	left := m.header
 	if t := sanitizeText(m.sess.Title()); t != "" {
-		return m.header + paint(cDim, " · "+t)
+		left += paint(cDim, " · "+t)
 	}
-	return m.header
+	seg := newGauge(m.cfg, m.sess.Stats(), m.sess.SubUsage()).headerSeg()
+	if seg == "" {
+		return left
+	}
+	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(seg)
+	if gap < 3 { // need breathing room on both sides of the gauge
+		return left
+	}
+	return left + strings.Repeat(" ", gap) + seg
 }
 
 // resetTranscript re-seeds the transcript with the banner — the opening
@@ -1459,7 +1471,8 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		return tea.Quit
 	case "/stats":
 		var b strings.Builder
-		printStats(&b, m.sess.Stats(), m.metrics, m.sess.Hooks())
+		printStats(&b, m.sess.Stats(), m.metrics, m.sess.Hooks(),
+			newGauge(m.cfg, m.sess.Stats(), m.sess.SubUsage()))
 		m.flushPend()
 		m.pushStyled("")
 		m.pushStyled(strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)

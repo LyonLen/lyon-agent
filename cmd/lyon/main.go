@@ -329,12 +329,14 @@ func cmdRun(args []string) int {
 	}
 	if code := drain(sess, true); code != 0 {
 		if *stats {
-			printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks())
+			printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks(),
+				newGauge(cfg, sess.Stats(), sess.SubUsage()))
 		}
 		return code
 	}
 	if *stats {
-		printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks())
+		printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks(),
+			newGauge(cfg, sess.Stats(), sess.SubUsage()))
 	}
 	return 0
 }
@@ -426,6 +428,9 @@ func cmdChat(args []string) int {
 	} else if hint := resumeHint(cfg.Workspace, false); hint != "" { // plain: newest
 		fmt.Println(paint(cDim, hint))
 	}
+	if line := newGauge(cfg, sess.Stats(), sess.SubUsage()).detailLine(); line != "" {
+		fmt.Println(paint(cDim, "── ") + line) // resumed session keeps its gauge
+	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -444,7 +449,8 @@ func cmdChat(args []string) int {
 			case "/quit", "/exit", ":q":
 				return 0
 			case "/stats":
-				printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks())
+				printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks(),
+					newGauge(cfg, sess.Stats(), sess.SubUsage()))
 			case "/memory":
 				handlePlainMemory(os.Stdout, cfg.Workspace, args)
 			case "/remember":
@@ -504,6 +510,11 @@ func cmdChat(args []string) int {
 			continue
 		}
 		drain(sess, false)
+		// Resident readout after every prompt — the REPL twin of the
+		// TUI header gauge.
+		if line := newGauge(cfg, sess.Stats(), sess.SubUsage()).detailLine(); line != "" {
+			fmt.Println(paint(cDim, "── ") + line)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -764,7 +775,7 @@ func shortJSON(raw json.RawMessage, max int) string {
 
 // printStats writes the usage + tool-metric tables to w (stdout for the
 // plain modes, a transcript buffer for the TUI's /stats).
-func printStats(w io.Writer, turns []agent.TurnStat, metrics *tools.Metrics, hk *hooks.Manager) {
+func printStats(w io.Writer, turns []agent.TurnStat, metrics *tools.Metrics, hk *hooks.Manager, g usageGauge) {
 	if len(turns) == 0 {
 		fmt.Fprintln(w, paint(cDim, "no turns yet"))
 	} else {
@@ -788,6 +799,10 @@ func printStats(w io.Writer, turns []agent.TurnStat, metrics *tools.Metrics, hk 
 			share := float64(total.CacheRead) / float64(total.CacheRead+total.CacheCreation+total.Input) * 100
 			fmt.Fprintf(w, paint(cDim, "cache share of input tokens: %.1f%%\n"), share)
 		}
+	}
+	// Resident readout: window position + cumulative cost (参考价).
+	if line := g.detailLine(); line != "" {
+		fmt.Fprintln(w, line)
 	}
 
 	if metrics == nil {
