@@ -17,7 +17,7 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEMO="$ROOT/.demo"
-TPL="$ROOT/demo/template"
+TPL="$DEMO/tplrepo"   # materialized git mirror of demo/template (below)
 WS="$DEMO/evolve-ws"
 RUNNER="$DEMO/lyon-runner.exe"
 LOG="$DEMO/evolve-log.txt"
@@ -29,6 +29,17 @@ export LYON_SUBAGENT_MODEL="${LYON_SUBAGENT_MODEL:-mimo-v2.5-pro}"
 mkdir -p "$DEMO" "$LYON_HOME"
 
 log() { echo "[$(date '+%H:%M:%S')] $*" >>"$LOG"; }
+
+# The tracked template is plain files; rounds clone a git repo, so
+# materialize one under .demo on first use (kept across rounds).
+if [ ! -d "$TPL/.git" ]; then
+  mkdir -p "$TPL"
+  tar -cf - -C "$ROOT/demo" template | tar -xf - -C "$TPL" --strip-components=1
+  git -C "$TPL" init -q
+  git -C "$TPL" add -A
+  git -C "$TPL" -c user.email=demo@lyon -c user.name=lyon-demo commit -qm "evodemo template"
+  log "materialized template repo at $TPL"
+fi
 
 MODELS=(mimo-v2.6-flash mimo-v2.6-pro mimo-v2.5-pro)
 
