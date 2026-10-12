@@ -7,6 +7,9 @@ agent 循环（流式输出、工具调用、上下文压缩、子代理），�
 > 📘 **文档站**：浏览器打开 [`docs/index.html`](docs/index.html)（产品介绍 + 截图）
 > 与 [`docs/manual.html`](docs/manual.html)（使用手册：上手 → 界面 → 演化机制 →
 > 配置参考 → FAQ），纯本地静态页、无网络资源，双击即可读。
+> **English**: [`README.en.md`](README.en.md) ·
+> [`docs/index.en.html`](docs/index.en.html) · [`docs/manual.en.html`](docs/manual.en.html)。
+> 界面本身也双语：`/lang zh|en` 或启动时 `LYON_LANG=zh`（详见手册「界面语言」）。
 
 ```
 go build ./...          # 构建
@@ -48,7 +51,7 @@ bench               性能验收套件（阈值强制）
 `MaxIterations=0`（单 prompt 的 ReAct 轮次**默认不设上限**，跑到模型自己收工为止；
 要硬顶就 `-max-iter N` 或 `LYON_MAX_ITER=N`，到顶以
 `prompt_end.stop_reason="max_iterations"` 如实收尾）、压缩阈值 0.7×200k、
-子代理默认低配额档（子代理仍固定 6 轮）。
+子代理默认低配额档（轮次同样不设上限，跑到模型收工为止）。
 
 ## 快速开始
 
@@ -88,9 +91,16 @@ image block 随消息一起发给模型（`看看 @screenshot.png`；文件名�
 CJK 自动换行）、底部单行输入、跟随滚动。非 TTY（管道/重定向）或 `-plain` 时自动
 退化为行式 REPL。
 
+**分区改造**：宽终端（≥46 列 × ≥26 行）顶部固定 Lyon 大 logo（6 行 36 列的
+█ 字形 `LYON` 字标 + 身份行 + 全宽分隔线），logo 之下一条全宽细线把**会话区与
+输入区分隔开**（`──── 会话区 │ 输入区 ────`式的规则行）；窄终端自动降级为
+「身份行 + 细线」，帧几何不变量（恰好 height 行、每行 ≤ width）照常保持。
+
 **thinking 折叠**：思考过程按连续块分组，流式期间实时显示（带 `▾ thinking · N
 lines` 头部），下一个非思考内容一到就把整块折成一行
-`▸ thinking · N lines  <首行预览>`；`ctrl+t`（或 `/think`）全局展开/收起。
+`▸ thinking · N lines  <首行预览>`；**严格折叠**——对话末尾的最后一个思考块
+在 prompt 结束时同样折起，不会因为后面没有内容而一直摊开；`/resume` 回放的
+历史思考块也照折。`ctrl+t`（或 `/think`）全局展开/收起。
 
 | 按键 | 行为 |
 |---|---|
@@ -103,8 +113,25 @@ lines` 头部），下一个非思考内容一到就把整块折成一行
 | `alt+↑` / `alt+↓` | 步骤面板选步（首下选中最新，走到底回到实时跟随） |
 | `alt+enter` | 展开/折叠选中步骤的完整操作 |
 | `alt+←` / `alt+→` | 面板加宽/变窄（28–72，转录列同步重排） |
+| `alt+e` | 打开/关闭**进化面板**（在岗榜单 + 考试时钟，等价 `/evolve`） |
 | `alt+v` | 粘贴剪贴板图片：落到 `<workspace>/.lyon/paste/` 并在输入框插入 `@path`（等价命令 `/paste`） |
 | `pgup` / `pgdn` / 滚轮 | 滚动转录（滚离底部即停止跟随，回底部恢复） |
+
+**shift 变体**：`alt` 组合在 Trae 等终端里常被占用，因此步骤面板的四个键都接受
+`alt+shift+…` 变体（`alt+shift+↑/↓/←/→`，以及 `alt+shift+enter`）——检测逻辑
+`KeyMsg.String()` 会把 shift 修饰拼成 `alt+shift+up` 这类标签，大小写不敏感，
+两种按法等价。**常驻键位提示**：状态行空闲时固定显示
+`enter send · esc interrupt · pgup/pgdn scroll · ctrl+t think · alt+↑↓ steps ·
+alt+e evolve · alt+v paste · /help`（`/help` 里还有完整键位表），窄终端裁掉
+尾巴也不影响发送。
+
+**busy 时排队**：prompt 正在跑时直接输入下一条问题**不再丢失**——回车即入队，
+状态行显示 `queued (N) — sends when the current prompt ends`，当前 prompt 的
+`prompt_end` 落地后自动按 FIFO 逐条发出（中断也照常排空）。
+
+**界面语言**：`/lang zh` / `/lang en` 运行时切换整套界面文案（状态行、命令帮助、
+弹窗描述、面板标签、审批行、console 提示），`LYON_LANG=zh` 启动即中文；
+转录内容（提问、回答、工具输出）是数据，永不翻译。
 
 **斜杠候选弹层**：输入 `/` 即在输入框上方弹出命令列表，随输入实时过滤，末行提示
 `↑/↓ choose, enter runs · tab complete · esc close`；视口同步让出行数，布局不被
@@ -117,11 +144,17 @@ compact、审批与回滚审计）；指令说明与查询结果（`/stats` `/he
 `/memory` `/sessions` `/rollback` 列表、模式切换反馈、★ 检查点、记忆保存/同步）
 渲染在**转录下方的临时输出区**（`── output ──` 分隔，最多 10 行 + `…(+N more)`
 截断）。新 prompt、`esc`、下一条指令都会清空该区——永远只显示最新一次回答。
+**斜杠命令留痕**：执行过的 `/xxx` 会作为一条提问行写进转录（后跟空行分隔），
+向上滚动翻得到「我执行过什么」；清屏 `/clear` 会连自己的留痕一起清掉（清的就是
+视图本身）。用量类信息不再逐轮往转录里打 `[turn N] in=… out=…` 行——token
+账本交给 `/stats` 与右下角常驻仪表。
 
 命令：`/stats` 用量与缓存命中表 · `/clear` 清屏（会话历史保留）·
 `/resume` 恢复存档（多份时**直接弹列表选**，`/resume N` 指定第 N 份）·
 `/sessions` 列出全部存档 · `/new` 开新会话（当前对话先归档）· `/think` 同
-`ctrl+t` · `/help` · `/quit`。交互式 chat **默认**对 shell/写文件工具在状态行弹
+`ctrl+t` · `/steps` `/evolve` 侧面板（或 `alt+↑↓` / `alt+e`）· `/lang zh|en`
+界面语言 · `/help` · `/quit`（`/memory` `/remember` `/rollback` `/route`
+`/exam` `/flow` `/model` `/mode` `/paste` 见后文各节）。交互式 chat **默认**对 shell/写文件工具在状态行弹
 y/n 浮层（`-approve=false` 关闭、管道 stdin 自动关闭）：`y` 一次放行 ·
 **`a` 本会话该工具全部放行**（审批默认开后长任务不被同一问题打断十次）· `n` 拒绝
 （超时/关窗一律拒绝，fail closed；拒绝不持久化）。`lyon run` 默认不弹，
@@ -424,10 +457,12 @@ hits: 3
 
 ## 上下文占比与花费（常驻显示）
 
-- **TUI header 常驻仪表**：右端固定
+- **右下角常驻仪表**：贴在输入行最右端固定
   `ctx 68.2% · 136,400/200,000 · $0.412`——上下文占窗口百分比 + 当前占用/窗口 +
-  会话累计花费。颜色随水位走：≤60% 青、≥60% 黄（逼近 compact 阈值）、≥85% 红；
-  窄终端放不下时仪表整段退让（标题优先，绝不半截截断金额），帧几何不变量照常保持。
+  会话累计花费（从 header 挪到右下角：打字时眼角一扫就是「本会话的油量表」）。
+  仪表的座位从输入框自身宽度里**切出来**（给仪表留宽 + 3 格间隙，输入区不足
+  40 格时整段让位——输入被挤比少个数字更伤）；颜色随水位走：≤60% 青、≥60% 黄
+  （逼近 compact 阈值）、≥85% 红；帧几何不变量照常保持。
 - **plain REPL**：每次 prompt 结束后打一行 `── context 68.2% · … tok · cost …`，
   恢复存档启动时也打（续上会话的仪表）；`/stats` 末尾附同款汇总行。
 - **占用估算**：取最后一轮的请求侧（input+cache_read+cache_write）加回复——回复
@@ -579,6 +614,20 @@ hits: 3
 - **错因归纳回灌**：失败的 prompt 异步跑 `SummarizeFailure`，产出可核对
   条件 + patch——面板显示、audit 留痕（`LYON_DIAGNOSE=off` 关）；flow 重试
   时同一机制把约束块追加进下一次节点 prompt。
+
+### 进化面板（alt+e / /evolve）
+
+- **steps 式侧边弹窗**：`alt+e`（或 `/evolve`）在右侧列打开/关闭**进化面板**——
+  与步骤面板共用分栏几何（宽 40，`alt+←/→` 与 `/steps width` 同步可调 28–72，
+  窄终端 <110 列自动隐藏并如实提示）。
+- **一行一类**：8 个任务类固定行序（coding/fix/review/research/writing/design/
+  data/general，账本新增类排尾），每行 = 类名 · 在岗席位（模型短名，空缺显示
+  `(空缺)`）· 考试时钟 `轮次/10` · 在岗近期 10 次均分，右端贴告警标记：
+  `EXAM`（到点应考，黄）· `fN`（连挂 N 次，红）· `open`（席位空缺，暗）。
+- **数据安全**：全部读自 `eval.Leaderboard.Views` 的**加锁快照**——评分在
+  后台 goroutine 落榜，面板绝不去直接读 map（竞态）。
+- **空态提示**：账本无据时显示「每次完成的提问都会记一张评分卡并记一轮」的
+  指引块；页脚常驻 `/exam · /route · alt+e close`。
 
 ### 命令与标志速查
 

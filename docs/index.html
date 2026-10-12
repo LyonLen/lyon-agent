@@ -18,6 +18,7 @@
     <a href="#screens">截图</a>
     <a href="#install">安装</a>
     <a href="manual.html">手册</a>
+    <a href="index.en.html" title="English version">EN</a>
   </nav>
   <span class="version">docs · v1</span>
 </header>
@@ -47,8 +48,9 @@
     </div>
     <iframe src="screens/tui-workbench.html" title="lyon TUI 工作台截图" scrolling="auto"></iframe>
     <figcaption>
-      左侧是实时转录（含工具调用、thinking 折叠、<code class="inline">[turn N]</code> 回合计数），
-      右侧是步骤审计面板：每一步工具执行的名称、耗时、状态一览无余，Alt 键可展开详情。
+      左侧是实时转录（含工具调用、thinking 严格折叠、斜杠命令留痕），
+      右侧是步骤审计面板：每一步工具执行的名称、耗时、状态一览无余，Alt 键可展开详情；
+      输入行右下角是常驻用量仪表，token 账本看 /stats 与这里。
     </figcaption>
   </figure>
 
@@ -61,7 +63,7 @@
       <div class="card">
         <div class="icon">🖥️</div>
         <h3>全屏 TUI 工作台</h3>
-        <p>流式转录、thinking 折叠、审批浮层、图片预览；右侧步骤审计面板记录每一次工具执行的名称、耗时与结果。/resume 后步骤与 [turn N] 回合计数完整恢复。</p>
+        <p>流式转录、thinking 严格折叠、审批浮层、图片预览；右侧步骤面板记录每次工具执行，alt+e 还有进化面板。忙时输入自动排队、slash 命令留痕、/lang 中英双语切换；/resume 后步骤与用量统计完整恢复。</p>
         <span class="tag">cmd/lyon · bubbletea</span>
       </div>
       <div class="card">
@@ -207,6 +209,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond     <span class="c"># 
     <a href="manual.html">手册</a>
     <a href="#screens">截图</a>
     <a href="../README.md">README</a>
+    <a href="index.en.html">EN</a>
   </div>
   <div>lyon-agent · 本地优先、可演化的终端 AI 编程智能体 · 文档随仓库分发，无网络资源</div>
 </footer>

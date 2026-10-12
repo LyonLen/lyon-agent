@@ -17,6 +17,7 @@
     <a href="manual.html">手册</a>
     <a href="#reference">参考</a>
     <a href="#faq">FAQ</a>
+    <a href="manual.en.html" title="English version">EN</a>
   </nav>
   <span class="version">manual · v1</span>
 </header>
@@ -38,7 +39,7 @@
     <ol>
       <li><a href="#quickstart">快速上手 — 构建、凭证、三种运行方式</a></li>
       <li><a href="#tour">界面导览 — 四个区域与步骤审计面板</a></li>
-      <li><a href="#keys">按键与指令 — 全键位、17 条斜杠命令</a></li>
+      <li><a href="#keys">按键与指令 — 全键位、20 条斜杠命令</a></li>
       <li><a href="#evolution">演化机制 — 评分 · 考核 · 路由 · 覆盖门禁 · workflow</a></li>
       <li><a href="#reference">配置参考 — 启动标志与环境变量全表</a></li>
       <li><a href="#faq">常见问题 — 迭代预算、resume、门禁…</a></li>
@@ -81,7 +82,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr>
           <td><code>lyon chat -c</code></td>
           <td>恢复续聊</td>
-          <td>重启后接着上次的对话（转录重放、turn 编号延续、步骤面板原样恢复）</td>
+          <td>重启后接着上次的对话（转录重放、步骤面板原样恢复、用量续记 /stats）</td>
         </tr>
       </tbody>
     </table>
@@ -100,7 +101,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
   <!-- ════════ 2 tour ════════ -->
   <section id="tour">
     <h2><span class="hash">2 ·</span>界面导览</h2>
-    <p class="lede"><code class="inline">lyon chat</code> 的全屏工作区分成四块，各司其职。</p>
+    <p class="lede"><code class="inline">lyon chat</code> 的全屏工作区分成四块，各司其职。
+      转录区与输入行之间用<strong>分隔线</strong>隔开，分隔线上嵌一枚 Lyon 大字 logo（窄终端自动降级），
+      界面默认英文，<code class="inline">/lang zh</code> 或启动前设 <code class="inline">LYON_LANG=zh</code> 切中文。</p>
 
     <figure class="term tall">
       <div class="bar">
@@ -114,11 +117,14 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <h3>① 转录区（左，可滚动）</h3>
     <p>
       只放<strong>问题、模型回答与调用活动</strong>：工具行、
-      <code class="inline">[turn N]</code> 回合计数（含 token 用量与 stop 原因）、
+      本地斜杠命令执行后<strong>留痕</strong>在转录里（向上翻找得到，不再一闪而过）、
       <code class="inline">📦 compaction</code>、审批与回滚审计。
+      token 用量不再逐轮往转录里打行——账本交给 <code class="inline">/stats</code>
+      与输入行右下角的<strong>常驻仪表</strong>（上下文占用、模型、轮次）。
       markdown-lite 高亮、代码块着色、CJK 自动换行。
-      thinking 按块分组，流式期间实时显示，下一个非思考内容一到就折成
-      <code class="inline">▸ thinking · N lines</code> 一行，<code class="inline">ctrl+t</code> 全局展开/收起。
+      thinking 按块分组，流式期间实时显示，下一个非思考内容一到就<strong>严格折叠</strong>成
+      <code class="inline">▸ thinking · N lines</code> 一行（回放也同样折叠，历史里也不自动展开），
+      <code class="inline">ctrl+t</code> 全局展开/收起。
       滚离底部即停止跟随，滚回底部自动恢复。
     </p>
 
@@ -129,6 +135,10 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       唯一匹配的前缀直接执行（<code class="inline">/st</code> → <code class="inline">/stats</code>）。
       <code class="inline">@路径</code> 引用工作区图片随消息发送，<code class="inline">alt+v</code> 直接把剪贴板里的截图存成
       <code class="inline">.lyon/paste/</code> 下的文件并填好 <code class="inline">@路径</code>，<code class="inline">↑/↓</code> 空闲时回忆输入历史。
+      <strong>忙时打的字不会丢</strong>：prompt 正在跑时继续输入，回车会把这条消息排队，
+      当前回答一结束自动发出（状态行提示 <code class="inline">queued (1)</code>）。
+      输入行右端是<strong>常驻用量仪表</strong>：上下文占用条、模型名、轮次；
+      窄终端（输入区不足 40 列）自动让位，不挤占输入。
     </p>
 
     <h3>③ 临时输出区（转录下方，<code class="inline">── output ──</code>）</h3>
@@ -143,11 +153,23 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <p>
       每一次工具执行一行：序号、名称、耗时、状态，进行中的转圈、失败的标红；
       <code class="inline">alt+↑/↓</code> 选步、<code class="inline">alt+enter</code> 展开完整操作、
-      <code class="inline">alt+←/→</code> 调宽（28–72 列）。
+      <code class="inline">alt+←/→</code> 调宽（28–72 列）；
+      这些键同时接受 <strong>alt+shift+… 变体</strong>（IDE 如 Trae 常吞掉裸 alt 键）。
+      面板底部有<strong>常驻键位提示行</strong>，不用记也能上手。
       迭代预算耗尽时，被跳过的步骤如实标 <code class="inline">over budget</code> 而不是伪装成失败。
       <strong>面板本身随会话持久化：</strong>存档时步骤列表（含每步耗时）写进快照，
       <code class="inline">/resume</code> 或 <code class="inline">-c</code> 恢复后原样回来，
       当时正在跑的行会诚实地关成 <code class="inline">interrupted</code>。
+    </p>
+
+    <h3>⑤ 进化面板（<code class="inline">alt+e</code> / <code class="inline">/evolve</code>）</h3>
+    <p>
+      与步骤面板同款的右侧弹窗，把演化机制的运行时状态摊开看：
+      每个任务类一行——席位 Agent、考试时钟（<code class="inline">0/10</code> 轮）、
+      近 50 张记分卡的均分，<code class="inline">EXAM</code> 黄标表示到点待考，
+      <code class="inline">(空缺)</code> 表示席位无人。
+      空榜时给出入门提示（怎么产生第一张记分卡、怎么手动开考）；
+      面板宽度随 <code class="inline">alt+←/→</code> 调节，与步骤面板互斥占位。
     </p>
 
     <div class="note">
@@ -171,15 +193,17 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>ctrl+c</code></td><td>忙时：先中断，再按一次退出；空闲：退出</td></tr>
         <tr><td><code>ctrl+t</code></td><td>展开/折叠全部 thinking 块</td></tr>
         <tr><td><code>↑</code> / <code>↓</code></td><td>弹层开时移动候选，否则输入历史回忆</td></tr>
-        <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>步骤面板选步（首下选中最新，走到底回到实时跟随）</td></tr>
-        <tr><td><code>alt+enter</code></td><td>展开/折叠选中步骤的完整操作</td></tr>
-        <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>面板加宽/变窄（28–72，转录列同步重排）</td></tr>
+        <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>步骤面板选步（首下选中最新，走到底回到实时跟随）；<code>alt+shift+…</code> 同效</td></tr>
+        <tr><td><code>alt+enter</code></td><td>展开/折叠选中步骤的完整操作；<code>alt+shift+enter</code> 同效</td></tr>
+        <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>面板加宽/变窄（28–72，转录列同步重排）；<code>alt+shift+…</code> 同效</td></tr>
+        <tr><td><code>alt+e</code></td><td>开关进化面板（榜单 / 考试时钟）；<code>alt+shift+e</code> 同效</td></tr>
+        <tr><td><code>shift+tab</code></td><td>循环切换 plan / bypass / default 模式</td></tr>
         <tr><td><code>alt+v</code></td><td>粘贴剪贴板图片：落到 <code>.lyon/paste/</code> 并在输入框插入 <code>@path</code>（等价 <code>/paste</code>）</td></tr>
         <tr><td><code>pgup</code> / <code>pgdn</code> / 滚轮</td><td>滚动转录（滚离底部停止跟随，回底部恢复）</td></tr>
       </tbody>
     </table>
 
-    <h3>斜杠指令（17 条，输入 <code>/</code> 即见）</h3>
+    <h3>斜杠指令（20 条，输入 <code>/</code> 即见）</h3>
     <table>
       <thead><tr><th>指令</th><th>作用</th></tr></thead>
       <tbody>
@@ -194,10 +218,13 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>/model</code></td><td>模型卡：上下文窗口、官方参数、价格（<code>ANTHROPIC_MODEL</code> 可换）</td></tr>
         <tr><td><code>/mode</code></td><td>plan（只读）/ bypass（自动放行）/ default 三档切换</td></tr>
         <tr><td><code>/think</code></td><td>同 <code>ctrl+t</code>，展开/折叠 thinking</td></tr>
+        <tr><td><code>/paste</code></td><td>把剪贴板图片存成 <code>.lyon/paste/</code> 文件并插入 <code>@path</code>（同 <code>alt+v</code>）</td></tr>
         <tr><td><code>/steps</code></td><td>步骤面板：裸命令开关，或 <code>open/close/width N</code></td></tr>
+        <tr><td><code>/evolve</code></td><td>进化面板：分类榜单、考试时钟（同 <code>alt+e</code>）</td></tr>
         <tr><td><code>/route [text]</code></td><td>路由证据表；<code>/route &lt;任务&gt;</code> 做分类 + 推荐 + 画像对比</td></tr>
         <tr><td><code>/exam [class]</code></td><td>手动闭卷考核（每 10 轮自动考，<code>LYON_EXAM=off</code> 关）</td></tr>
         <tr><td><code>/flow …</code></td><td>workflow：list · show · match · export · save &lt;slug&gt;</td></tr>
+        <tr><td><code>/lang zh|en</code></td><td>切换界面语言（也可启动前设 <code>LYON_LANG=zh</code>）</td></tr>
         <tr><td><code>/help</code></td><td>指令与按键速查</td></tr>
         <tr><td><code>/quit</code></td><td>退出（<code>/exit</code>、<code>:q</code> 同义）</td></tr>
       </tbody>
@@ -385,6 +412,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> 关闭失败错因归纳（SummarizeFailure）</td></tr>
         <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI 兼容 base URL（等价 <code>-openai-base</code>）</td></tr>
         <tr><td><code>LYON_SUBAGENT_MODEL</code></td><td>子代理模型</td></tr>
+        <tr><td><code>LYON_LANG</code></td><td><code>zh</code> 启动即中文界面（默认 <code>en</code>；运行期用 <code>/lang zh|en</code> 切换）</td></tr>
         <tr><td><code>LYON_TITLE</code></td><td><code>off</code> 关闭会话自动标题（意图识别）</td></tr>
         <tr><td><code>LYON_NOTIFY</code></td><td>完成通知渠道开关</td></tr>
         <tr><td><code>LYON_HOOKS</code> / <code>LYON_HOOK_HELPER</code></td><td>审计/统计钩子与其 helper 路径</td></tr>
@@ -424,12 +452,12 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     </details>
 
     <details class="faq">
-      <summary>/resume 之后步骤面板和 [turn N] 标记会不会丢？</summary>
+      <summary>/resume 之后步骤面板和用量统计会不会丢？</summary>
       <div class="body">
         <p>
           不会。步骤面板（含每步耗时）随会话快照一起存盘，resume 后原样恢复——
           当时还在跑的行会诚实地关成 <code class="inline">interrupted</code>；
-          <code class="inline">[turn N]</code> 回合计数按快照里的轮次统计重放，编号延续不重置。
+          用量轮次也随快照续记，<code class="inline">/stats</code> 与右下角仪表接着上次的账算。
           老版本存的快照没有步骤数据，恢复后按新会话从头记（兼容降级，不会报错）。
           另外 <code class="inline">/new</code> 会把当前对话归档、清空面板——新会话就是干净的。
         </p>
@@ -536,6 +564,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <a href="manual.html">手册</a>
     <a href="#reference">参考</a>
     <a href="../README.md">README</a>
+    <a href="manual.en.html">EN</a>
   </div>
   <div>lyon-agent · 本地优先、可演化的终端 AI 编程智能体 · 文档随仓库分发，无网络资源</div>
 </footer>

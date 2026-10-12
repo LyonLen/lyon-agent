@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lyon-agent manual — from first steps to evolution mechanics</title>
+<meta name="description" content="lyon-agent user manual: quick start, UI tour, keys & commands, evolution mechanics (scoring/exams/routing/coverage gate/workflow), configuration reference and FAQ.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.en.html"><span class="tick">❯</span> lyon-agent</a>
+  <nav class="site">
+    <a href="index.en.html">Tour</a>
+    <a href="manual.en.html">Manual</a>
+    <a href="#reference">Reference</a>
+    <a href="#faq">FAQ</a>
+    <a href="manual.html" title="中文版">中文</a>
+  </nav>
+  <span class="version">manual · v1</span>
+</header>
+
+<main>
+
+  <div class="hero" style="text-align:left;padding-top:56px;">
+    <span class="kicker">User manual · readable start to finish</span>
+    <h1 style="font-size:clamp(32px,4.5vw,44px);">lyon-agent <span class="accent">user manual</span></h1>
+    <p class="sub" style="margin-left:0;">
+      This page serves two audiences: <strong>daily users</strong> who just want the tool
+      working, and <strong>learners</strong> who want to understand why the evolution
+      mechanics are designed the way they are. Every behavior maps one-to-one to the
+      repository code and the README — safe to treat as ground truth.
+    </p>
+  </div>
+
+  <div class="toc">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#quickstart">Quick start — build, credentials, three ways to run</a></li>
+      <li><a href="#tour">UI tour — four areas and the step audit panel</a></li>
+      <li><a href="#keys">Keys & commands — full keymap, 20 slash commands</a></li>
+      <li><a href="#evolution">Evolution — scoring · exams · routing · coverage gate · workflow</a></li>
+      <li><a href="#reference">Reference — launch flags and environment variables</a></li>
+      <li><a href="#faq">FAQ — iteration budget, resume, gates…</a></li>
+      <li><a href="#arch">Developer map — package structure</a></li>
+    </ol>
+  </div>
+
+  <!-- ════════ 1 quickstart ════════ -->
+  <section id="quickstart">
+    <h2><span class="hash">1 ·</span>Quick start</h2>
+    <p class="lede">Two build commands, one line of credentials, three ways to run depending on the scene.</p>
+
+    <h3>Build</h3>
+<pre><span class="c"># repository root (Go ≥ 1.25, no other dependencies)</span>
+go build <span class="k">-o</span> bin/lyon   ./cmd/lyon     <span class="c"># terminal main program: CLI + fullscreen TUI</span>
+go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># optional: OpenAI-compatible gateway / SSE service</span></pre>
+
+    <h3>Credentials (pick one)</h3>
+<pre><span class="c"># A · Anthropic official endpoint</span>
+<span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=sk-ant-...
+
+<span class="c"># B · OpenAI-compatible endpoint (the same key works, keep the /v1)</span>
+<span class="p">$</span> export ANTHROPIC_BASE_URL=<span class="s">https://token-plan-cn.xiaomimimo.com/v1</span>
+<span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=<span class="s">&lt;your-key&gt;</span></pre>
+
+    <h3>Three ways to run</h3>
+    <table>
+      <thead><tr><th>Command</th><th>Shape</th><th>When to use</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>lyon run "task"</code></td>
+          <td>one-shot</td>
+          <td>runs to completion in scripts/pipes, <code>-stats</code> prints the usage report; approvals auto-deny when stdin is closed (fail closed)</td>
+        </tr>
+        <tr>
+          <td><code>lyon chat</code></td>
+          <td>fullscreen TUI</td>
+          <td>the daily driver: streaming transcript + side step panel + approval overlay; auto-saves on exit</td>
+        </tr>
+        <tr>
+          <td><code>lyon chat -c</code></td>
+          <td>resume</td>
+          <td>pick up last session after a restart (transcript replay, usage stats continued, steps panel restored as-is)</td>
+        </tr>
+      </tbody>
+    </table>
+
+<pre><span class="p">$</span> ./bin/lyon chat                <span class="c"># enter the TUI; the first prompt injects local memory</span>
+<span class="p">$</span> ./bin/lyon chat <span class="k">-c</span>            <span class="c"># continue the same session in another terminal window</span>
+<span class="p">$</span> ./bin/lyon tools              <span class="c"># list all tools (run_shell/read_file/…)</span></pre>
+
+    <div class="note">
+      <strong>Storage root:</strong> all state (sessions, leaderboard, exams, workflows) lives in
+      <code class="inline">$LYON_HOME</code>, default <code class="inline">~/.lyon</code>.
+      Change it before launch to isolate — tests, containers and CI rely on it to stay off
+      the real home.
+    </div>
+  </section>
+
+  <!-- ════════ 2 tour ════════ -->
+  <section id="tour">
+    <h2><span class="hash">2 ·</span>UI tour</h2>
+    <p class="lede">The fullscreen workspace of <code class="inline">lyon chat</code> splits into four areas,
+      each with one job. The UI defaults to English; <code class="inline">/lang zh</code> or
+      <code class="inline">LYON_LANG=zh</code> before launch switches to Chinese.</p>
+
+    <figure class="term tall">
+      <div class="bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title">lyon chat — the whole workbench</span>
+      </div>
+      <iframe src="screens/tui-workbench.html" title="workbench screenshot" scrolling="auto"></iframe>
+      <figcaption>① transcript (left) · ② input line (bottom) · ③ temporary output strip under the transcript · ④ step audit panel (right)</figcaption>
+    </figure>
+
+    <h3>① Transcript (left, scrollable)</h3>
+    <p>
+      Holds only <strong>questions, model answers and call activity</strong>: tool lines,
+      slash-command <strong>traces</strong> (executed <code class="inline">/xxx</code> commands are
+      written into the transcript so scrolling up shows what you ran),
+      <code class="inline">📦 compaction</code>, approval and rollback audit.
+      Per-turn usage rows are no longer printed into the transcript — the token ledger
+      lives in <code class="inline">/stats</code> and the <strong>resident gauge</strong> at the
+      bottom-right of the input line (context usage, model, turns).
+      markdown-lite highlighting, code-block coloring, automatic CJK wrapping.
+      Thinking is grouped in blocks, shown live while streaming, and
+      <strong>strictly folded</strong> into a single
+      <code class="inline">▸ thinking · N lines</code> line the moment the next non-thinking
+      content arrives (replayed history folds the same way — it never auto-expands);
+      <code class="inline">ctrl+t</code> expands/collapses all.
+      Scrolling away from the bottom stops following; returning resumes.
+    </p>
+
+    <h3>② Input line (bottom)</h3>
+    <p>
+      Single-line input with follow-scroll. <code class="inline">enter</code> sends;
+      input starting with <code class="inline">/</code> runs local commands and pops the
+      candidate layer (↑↓ pick, enter runs the highlighted one, tab completes, esc closes);
+      a uniquely matching prefix executes directly (<code class="inline">/st</code> →
+      <code class="inline">/stats</code>).
+      <code class="inline">@path</code> attaches workspace images to the message,
+      <code class="inline">alt+v</code> saves a clipboard screenshot under
+      <code class="inline">.lyon/paste/</code> and fills in the <code class="inline">@path</code>,
+      <code class="inline">↑/↓</code> recalls input history while idle.
+      <strong>Typing while busy is not lost</strong>: keep typing while a prompt runs and
+      enter queues the message; it sends automatically the moment the current answer ends
+      (status line shows <code class="inline">queued (1)</code>).
+      At the right end of the input line sits the <strong>resident usage gauge</strong>:
+      context bar, model name, turns; on narrow terminals (input area under 40 cells) it
+      yields the seat entirely rather than squeeze your typing.
+    </p>
+
+    <h3>③ Temporary output strip (below the transcript, <code class="inline">── output ──</code>)</h3>
+    <p>
+      Command explanations and query results (<code class="inline">/help</code>
+      <code class="inline">/stats</code> <code class="inline">/model</code>
+      <code class="inline">/sessions</code> etc.) render here — up to 10 lines, then
+      truncated; a new prompt, <code class="inline">esc</code> or the next command clears it —
+      only the latest answer is ever shown, so the chat area never floods with query output.
+    </p>
+
+    <h3>④ Step audit panel (right)</h3>
+    <p>
+      One row per tool execution: index, name, duration, status; running rows spin, failures
+      turn red; <code class="inline">alt+↑/↓</code> walks steps,
+      <code class="inline">alt+enter</code> expands the full action,
+      <code class="inline">alt+←/→</code> resizes (28–72 columns) — these keys also accept
+      <strong>alt+shift+… variants</strong> (IDEs like Trae often swallow the plain alt keys).
+      The panel bottom carries a <strong>resident key-legend row</strong> so you never have to
+      memorize anything to start.
+      When the iteration budget runs out, skipped steps are honestly marked
+      <code class="inline">over budget</code> rather than disguised as failures.
+      <strong>The panel persists with the session:</strong> the step list (with durations) is
+      written into the snapshot on save, and returns unchanged after
+      <code class="inline">/resume</code> or <code class="inline">-c</code> — rows that were
+      mid-run are honestly closed as <code class="inline">interrupted</code>.
+    </p>
+
+    <h3>⑤ Evolution panel (<code class="inline">alt+e</code> / <code class="inline">/evolve</code>)</h3>
+    <p>
+      A side popup sharing the steps panel's geometry, laying the runtime state of the
+      evolution mechanism open: one row per task class — seat holder, exam clock
+      (<code class="inline">0/10</code> rounds), mean of the recent 50 scorecards;
+      a yellow <code class="inline">EXAM</code> flag means an exam is due, and
+      <code class="inline">(vacant)</code> means the seat is empty.
+      On a fresh ledger it shows getting-started hints (how to file the first scorecard,
+      how to run an exam manually); width adjusts with
+      <code class="inline">alt+←/→</code>, sharing the column with the steps panel.
+    </p>
+
+    <div class="note">
+      <strong>Approval overlay:</strong> interactive chat pops y/n on the status line by default
+      (off with <code class="inline">-approve=false</code>).
+      <code class="inline">y</code> approves once ·
+      <strong><code class="inline">a</code> approves that tool for the whole session</strong>
+      (so a long task isn't interrupted ten times by the same question) ·
+      <code class="inline">n</code> denies (timeout/closed window always denies, fail closed;
+      denials are not persisted).
+    </div>
+  </section>
+
+  <!-- ════════ 3 keys ════════ -->
+  <section id="keys">
+    <h2><span class="hash">3 ·</span>Keys & commands</h2>
+
+    <h3>Full keymap</h3>
+    <table>
+      <thead><tr><th>Key</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td><code>enter</code></td><td>send (<code>/</code>-prefixed input runs local commands; a unique prefix executes directly)</td></tr>
+        <tr><td><code>tab</code></td><td>complete the highlighted slash command from the popup into the input</td></tr>
+        <tr><td><code>esc</code></td><td>while busy, interrupt the current prompt (history auto-repaired, chat continues); while idle with a popup open, close it first</td></tr>
+        <tr><td><code>ctrl+c</code></td><td>busy: interrupt first, press again to exit; idle: exit</td></tr>
+        <tr><td><code>ctrl+t</code></td><td>expand/collapse all thinking blocks</td></tr>
+        <tr><td><code>↑</code> / <code>↓</code></td><td>move candidates when the popup is open, otherwise recall input history</td></tr>
+        <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>step-panel selection (first press picks the latest; walking past the end returns to live follow); <code>alt+shift+…</code> works the same</td></tr>
+        <tr><td><code>alt+enter</code></td><td>expand/collapse the selected step's full action; <code>alt+shift+enter</code> works the same</td></tr>
+        <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>panel wider/narrower (28–72, transcript columns re-flow); <code>alt+shift+…</code> works the same</td></tr>
+        <tr><td><code>alt+e</code></td><td>toggle the evolution panel (leaderboard / exam clock); <code>alt+shift+e</code> works the same</td></tr>
+        <tr><td><code>shift+tab</code></td><td>cycle plan / bypass / default modes</td></tr>
+        <tr><td><code>alt+v</code></td><td>paste clipboard image: lands in <code>.lyon/paste/</code> and inserts <code>@path</code> (same as <code>/paste</code>)</td></tr>
+        <tr><td><code>pgup</code> / <code>pgdn</code> / wheel</td><td>scroll the transcript (away from the bottom stops following, back to the bottom resumes)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Slash commands (20, visible the moment you type <code>/</code>)</h3>
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>/stats</code></td><td>usage table: tokens, cache hits, tool p50/p95 latency</td></tr>
+        <tr><td><code>/clear</code></td><td>clear the view (session history kept)</td></tr>
+        <tr><td><code>/resume [N]</code></td><td>restore an archive; multiple ones pop a picker, <code>/resume N</code> picks the Nth</td></tr>
+        <tr><td><code>/sessions</code></td><td>list all archives (index, time, message count)</td></tr>
+        <tr><td><code>/new</code></td><td>start a fresh session (current one archived first)</td></tr>
+        <tr><td><code>/memory</code></td><td>layered memory store: view, toggle hot, cloud sync</td></tr>
+        <tr><td><code>/remember</code></td><td>distill this session's learnings into memory now</td></tr>
+        <tr><td><code>/rollback [N]</code></td><td>roll back to a checkpoint (incl. pre-compaction); bare command lists them</td></tr>
+        <tr><td><code>/model</code></td><td>model card: context window, official params, pricing (<code>ANTHROPIC_MODEL</code> overrides)</td></tr>
+        <tr><td><code>/mode</code></td><td>switch plan (read-only) / bypass (auto-approve) / default</td></tr>
+        <tr><td><code>/think</code></td><td>same as <code>ctrl+t</code>, expand/collapse thinking</td></tr>
+        <tr><td><code>/paste</code></td><td>store the clipboard image under <code>.lyon/paste/</code> and insert <code>@path</code> (same as <code>alt+v</code>)</td></tr>
+        <tr><td><code>/steps</code></td><td>step panel: bare command toggles, or <code>open/close/width N</code></td></tr>
+        <tr><td><code>/evolve</code></td><td>evolution panel: class leaderboard, exam clock (same as <code>alt+e</code>)</td></tr>
+        <tr><td><code>/route [text]</code></td><td>routing evidence table; <code>/route &lt;task&gt;</code> classifies + recommends + compares profiles</td></tr>
+        <tr><td><code>/exam [class]</code></td><td>manual closed-book exam (auto every 10 rounds, off with <code>LYON_EXAM=off</code>)</td></tr>
+        <tr><td><code>/flow …</code></td><td>workflow: list · show · match · export · save &lt;slug&gt;</td></tr>
+        <tr><td><code>/lang zh|en</code></td><td>switch the interface language (or set <code>LYON_LANG=zh</code> before launch)</td></tr>
+        <tr><td><code>/help</code></td><td>command and key cheat sheet</td></tr>
+        <tr><td><code>/quit</code></td><td>exit (<code>/exit</code>, <code>:q</code> are synonyms)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ════════ 4 evolution ════════ -->
+  <section id="evolution">
+    <h2><span class="hash">4 ·</span>Evolution mechanics</h2>
+    <p class="lede">
+      This is what sets lyon apart from a "one-off chat tool": tasks leave evidence, evidence
+      becomes scores, scores decide who works, exams hold the line on capability, routing
+      sends tasks to whoever is best at them, and gates & freezes turn the reliable parts
+      into mechanical procedures. Four code layers:
+      <code class="inline">pkg/eval</code> <code class="inline">pkg/routing</code>
+      <code class="inline">pkg/models</code> <code class="inline">pkg/flow</code>.
+      Design document: <code class="inline">docs/design/agent-evolution.md</code>.
+    </p>
+
+    <ol class="flow">
+      <li><strong>Production scoring → on-duty leaderboard</strong><span>Every real run becomes a scorecard.</span></li>
+      <li><strong>Closed-book exams → elimination</strong><span>Test every 10 rounds; two consecutive fails and you're out.</span></li>
+      <li><strong>Task classification → recommended routing</strong><span>Hand the next task to the agent with the best evidence.</span></li>
+      <li><strong>Knowledge coverage gate</strong><span>Before going open-book, prove you've learned it.</span></li>
+      <li><strong>Workflow freezing → mechanical execution</strong><span>Reliable parts freeze into data; the LLM only fills in the blanks.</span></li>
+    </ol>
+
+    <h3>4.1 · Production scoring & the on-duty leaderboard</h3>
+    <p>
+      <code class="inline">eval.ScoreWith</code> scores on four dimensions:
+      Correctness / Efficiency / Cost / Compliance weighted into Total, and
+      <code class="inline">DefaultThresholds</code> requires all four to
+      <strong>pass</strong> — everyone on duty is qualified.
+      The leaderboard lives at <code class="inline">$LYON_HOME/leaderboard.json</code>,
+      kept per task class (coding / fix / review / research / writing / design / data /
+      general); each agent keeps its latest 50 scorecards, and every new card re-elects
+      on-duty (freshest evidence that passes wins).
+      <strong>Ordinary prompts auto-enter the leaderboard when finished:</strong> with no
+      ground truth a <strong>blind judge</strong> scores them (one cheap call returns a 0–1
+      correctness; the TUI judges in the background, <code class="inline">lyon run</code>
+      books it at the end, <code class="inline">LYON_SCORE=off</code> disables), and a failed
+      judgment is not recorded — better no card than a wrong one.
+      <code class="inline">lyon run -flow</code> results enter with
+      <code class="inline">source=flow</code>, correctness taken from the node pass rate.
+    </p>
+
+    <h3>4.2 · Closed-book exams (every 10 rounds)</h3>
+    <p>
+      Handwritten bank of 4 questions for each of 8 task classes, <strong>frozen into the
+      binary</strong> — never generated from the production tasks being examined, written to
+      <code class="inline">$LYON_HOME/exams/&lt;class&gt;.json</code> on first use, inspectable
+      and editable. Closed book = no tools, no file reads, only the knowledge in the weights;
+      a question scores when the expected string matches or over half the keywords hit,
+      <code class="inline">DefaultExamPass = 0.75</code> (3 of 4).
+      Clock: every 10 successful prompts books a round; when due and the seat is occupied an
+      exam auto-runs; <strong>two consecutive fails → dismissed</strong>, seat vacant, the next
+      production scorecard re-elects.
+      Exams run async in the steps panel without interrupting your work; failures
+      auto-summarize their causes.
+    </p>
+
+    <div class="shots" style="margin-top:20px;">
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/route — classify + recommend + profile</span>
+        </div>
+        <iframe src="screens/tui-route.html" title="routing screenshot" scrolling="auto"></iframe>
+        <figcaption>Bare <code class="inline">/route</code> shows the evidence table + exam clock + current model profile.</figcaption>
+      </figure>
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/exam — closed-book grading</span>
+        </div>
+        <iframe src="screens/tui-exam.html" title="exam screenshot" scrolling="auto"></iframe>
+        <figcaption>Graded against answer keys; Pct ≥ 0.75 passes, wrong answers feed the failure-cause library.</figcaption>
+      </figure>
+    </div>
+
+    <h3>4.3 · Task classification & recommended routing</h3>
+    <p>
+      <code class="inline">routing.Classify</code> scores bilingual keywords to class a task
+      (ties keep the earlier class: fix → review → research → design → coding → writing →
+      data → general); <code class="inline">Openness(text)</code> rates the task 0–5.
+      The recommendation table <code class="inline">$LYON_HOME/routing.json</code> records the
+      mean run score per (class, agent) with confidence
+      <code class="inline">mean × samples / (samples + 3)</code> — more samples, more
+      confidence; newcomers earn their seat with real scores.
+      The <code class="inline">pkg/models</code> registry annotates all 32 models with
+      five 0–5 profiles: Reasoning / LongHaul / Openness / Speed / Thrift.
+      <code class="inline">/route &lt;text&gt;</code> compares the task's openness against the
+      model profile and suggests a swap when the task exceeds it, plus workflow match
+      suggestions.
+    </p>
+
+    <h3>4.4 · Knowledge coverage gate</h3>
+    <p>
+      Before working open-book, run a <strong>two-stage closed-book quiz</strong>:
+      <code class="inline">GenSystem</code> generates a checkable Q/A list from the task →
+      <code class="inline">BookSystem</code> blind-answers → scored against it; below
+      <code class="inline">CoverageThreshold = 0.6</code> counts as a gap, and the gap rows
+      (<code class="inline">question → expected answer</code>) are spliced into the task body
+      for targeted injection — in flows they enter every node's prompt through
+      <code class="inline">{{input}}</code>.
+      A gate error only logs <code class="inline">gate skipped</code> —
+      <strong>never blocks</strong>.
+      Entry points: <code class="inline">lyon run -coverage</code> (prints the score),
+      <code class="inline">lyon run -flow</code> gates by default
+      (<code class="inline">LYON_FLOW_GATE=off</code> disables),
+      <code class="inline">/flow save</code> forces the gate and brands the gaps into the
+      nodes.
+    </p>
+
+    <h3>4.5 · Workflow freezing & mechanical execution</h3>
+    <p>
+      <strong>Control flow is data, not prompt text.</strong>
+      <code class="inline">Workflow{slug, title, trigger, nodes}</code> nodes carry explicit
+      exit criteria (<code class="inline">always</code> / <code class="inline">command</code> /
+      exit code / <code class="inline">contains</code> marker / narrow judge) and failure
+      policies (<code class="inline">retry</code> default — bounded retries ≤3 after
+      diagnostic feedback / <code class="inline">abort</code> /
+      <code class="inline">continue</code> / <code class="inline">goto</code>, with a tick
+      budget killing infinite loops).
+      The state machine picks nodes, judges exits, bounds retries —
+      <strong>the LLM only fills in the node's <code class="inline">{{input}}</code>; it does
+      not decide control flow</strong>, so "decide-one-step-at-a-time" jitter disappears.
+      Four built-ins ship frozen with the binary:
+      <code class="inline">feature-dev</code> <code class="inline">bugfix</code>
+      <code class="inline">code-review</code> <code class="inline">release</code>;
+      user files <code class="inline">$LYON_HOME/workflows/*.json</code> override built-ins
+      by slug.
+    </p>
+    <p>
+      <strong>Freeze entry</strong> <code class="inline">/flow save &lt;slug&gt;</code>:
+      serializes this session's prompt groups into nodes, behind two gates — passing the
+      closed-book exam for that task class + the coverage gate (gaps branded in) — before
+      writing to disk.
+      <strong>Execution entry</strong>
+      <code class="inline">lyon run -flow &lt;slug&gt; "task"</code>:
+      gate → node loop (collect model output, run command criteria, narrow judge, feed
+      diagnostics back) → results scored into the leaderboard + recommendation table →
+      exit code 1 unless all pass. Failed prompts asynchronously run
+      <code class="inline">SummarizeFailure</code>, producing checkable conditions + a patch —
+      shown in the panel, recorded in audit.
+    </p>
+
+    <div class="shots" style="margin-top:20px;">
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/flow show feature-dev — the frozen flow</span>
+        </div>
+        <iframe src="screens/tui-flow.html" title="workflow screenshot" scrolling="auto"></iframe>
+        <figcaption>Every node's exit criteria and failure policy at a glance — state is inspectable and replayable.</figcaption>
+      </figure>
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/help — command cheat sheet</span>
+        </div>
+        <iframe src="screens/tui-help.html" title="help screenshot" scrolling="auto"></iframe>
+        <figcaption>The command table of chapter 3 — these 20 ship with the binary.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ════════ 5 reference ════════ -->
+  <section id="reference">
+    <h2><span class="hash">5 ·</span>Configuration reference</h2>
+
+    <h3>Launch flags (shared by run / chat, plus chat-only)</h3>
+    <table>
+      <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>-model</code></td><td><code>claude-opus-5-5</code></td><td>model id (<code>ANTHROPIC_MODEL</code> works too)</td></tr>
+        <tr><td><code>-effort</code></td><td><code>medium</code></td><td>reasoning effort: low | medium | high | xhigh | max</td></tr>
+        <tr><td><code>-workspace</code></td><td><code>.</code></td><td>confinement root for shell/file tools</td></tr>
+        <tr><td><code>-approve</code></td><td>on for interactive chat TTY</td><td>manual confirmation before shell/writes; <code>-approve=false</code> off, never pops on piped stdin (so scripts can't hang)</td></tr>
+        <tr><td><code>-max-iter</code></td><td><code>0</code> (unlimited)</td><td>API-call cap per prompt, only positive values apply (<code>LYON_MAX_ITER</code> too), see <a href="#faq">FAQ</a></td></tr>
+        <tr><td><code>-shell-allow</code></td><td>—</td><td>shell allowlist, comma-separated (<code>echo,ls,git</code>)</td></tr>
+        <tr><td><code>-web-tools</code></td><td><code>auto</code></td><td>web_search/web_fetch: server | client | off (<code>-no-web-tools</code> is shorthand for off)</td></tr>
+        <tr><td><code>-mcp</code> / <code>-mcp-http</code></td><td>—</td><td>attach MCP servers: <code>name=cmd args</code> / <code>name=url</code>, repeatable</td></tr>
+        <tr><td><code>-subagent-model</code></td><td><code>claude-haiku-5-5</code></td><td>low-quota model used by run_subagent</td></tr>
+        <tr><td><code>-compact-threshold</code></td><td><code>0.7</code></td><td>compaction trigger (fraction of context), negative disables</td></tr>
+        <tr><td><code>-context-window</code></td><td><code>200000</code></td><td>denominator for the compaction ratio</td></tr>
+        <tr><td><code>-max-turns</code></td><td>unlimited</td><td>global concurrent-turn cap</td></tr>
+        <tr><td><code>-prewarm</code></td><td>off</td><td>warm the cache before the first prompt</td></tr>
+        <tr><td><code>-system</code></td><td>—</td><td>custom system prompt file (kept frozen)</td></tr>
+        <tr><td><code>-openai</code> / <code>-openai-base</code></td><td>off</td><td>speak the OpenAI protocol to a gateway (env <code>LYON_OPENAI_BASE</code>)</td></tr>
+        <tr><td><code>-stats</code></td><td>off</td><td><em>run only:</em> print cumulative usage + tool metrics at the end</td></tr>
+        <tr><td><code>-flow &lt;slug&gt;</code></td><td>—</td><td><em>run only:</em> mechanically execute a workflow instead of free prompting</td></tr>
+        <tr><td><code>-coverage</code></td><td>off</td><td><em>run only:</em> front coverage gate, gaps injected</td></tr>
+        <tr><td><code>-exam auto|&lt;class&gt;</code></td><td>—</td><td><em>run only:</em> examine before executing (a failed exam only warns, the scorecard still records)</td></tr>
+        <tr><td><code>-c</code> / <code>-continue</code></td><td>off</td><td><em>chat only:</em> resume this workspace's last session</td></tr>
+        <tr><td><code>-plain</code></td><td>off</td><td><em>chat only:</em> line-based REPL (auto-degrades off a TTY)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Environment variables</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>ANTHROPIC_AUTH_TOKEN</code></td><td>API key (with <code>ANTHROPIC_BASE_URL</code>, any compatible endpoint works)</td></tr>
+        <tr><td><code>ANTHROPIC_BASE_URL</code></td><td>override the default API address</td></tr>
+        <tr><td><code>ANTHROPIC_MODEL</code></td><td>default model override</td></tr>
+        <tr><td><code>LYON_HOME</code></td><td>storage root (default <code>~/.lyon</code>): sessions/leaderboard/exams/workflows all live here</td></tr>
+        <tr><td><code>LYON_MAX_ITER</code></td><td>iteration budget per prompt (non-negative integer: <code>0</code>=unlimited, default uncapped)</td></tr>
+        <tr><td><code>LYON_EXAM</code></td><td><code>off</code> disables automatic exam triggering (rounds still counted)</td></tr>
+        <tr><td><code>LYON_SCORE</code></td><td><code>off</code> disables blind-judge entry for ordinary prompts (exam rounds still counted)</td></tr>
+        <tr><td><code>LYON_FLOW_GATE</code></td><td><code>off</code> disables the coverage gate on <code>-flow</code></td></tr>
+        <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> disables failure-cause summarization (SummarizeFailure)</td></tr>
+        <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI-compatible base URL (same as <code>-openai-base</code>)</td></tr>
+        <tr><td><code>LYON_SUBAGENT_MODEL</code></td><td>subagent model</td></tr>
+        <tr><td><code>LYON_LANG</code></td><td><code>zh</code> starts the UI in Chinese (default <code>en</code>; switch at runtime with <code>/lang zh|en</code>)</td></tr>
+        <tr><td><code>LYON_TITLE</code></td><td><code>off</code> disables automatic session titles (intent detection)</td></tr>
+        <tr><td><code>LYON_NOTIFY</code></td><td>completion notification channel switch</td></tr>
+        <tr><td><code>LYON_HOOKS</code> / <code>LYON_HOOK_HELPER</code></td><td>audit/stats hooks and the helper path</td></tr>
+        <tr><td><code>LYON_SYNC_URL</code> / <code>LYON_SYNC_TOKEN</code></td><td>memory cloud-sync endpoint and token</td></tr>
+        <tr><td><code>LYON_PRICE_IN</code> / <code>LYON_PRICE_OUT</code></td><td>override the built-in price table (cost display)</td></tr>
+        <tr><td><code>LYON_DEBUG</code> / <code>LYON_AUDIT</code> / <code>LYON_DISTILL</code></td><td>debug log / audit persistence / memory distillation switches</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ════════ 6 faq ════════ -->
+  <section id="faq">
+    <h2><span class="hash">6 ·</span>FAQ</h2>
+
+    <details class="faq" open>
+      <summary>With an iteration budget set, why does it stop after a few dozen API calls — do I have to press enter to continue?</summary>
+      <div class="body">
+        <p>
+          That's the <strong>iteration budget</strong> protecting you: with
+          <code class="inline">-max-iter</code> or <code class="inline">LYON_MAX_ITER</code>
+          set (positive integer), a single prompt issues at most that many API calls
+          (<code class="inline">MaxIterations</code> — runaway protection, token-burn
+          protection). <strong>By default there is no cap</strong>
+          (<code class="inline">MaxIterations=0</code>): the ReAct loop runs until the model
+          finishes on its own, or you interrupt with <code class="inline">esc</code>.
+        </p>
+        <p>
+          At the cap the transcript prints a yellow
+          <code class="inline">⚡ budget reached — 50 API calls · pending tools skipped,
+          enter to continue</code> plus a system notification; skipped steps are honestly
+          marked <code class="inline">over budget</code> in the right panel instead of being
+          disguised as failures.
+        </p>
+        <p>
+          Press <code class="inline">enter</code> and send any message to continue from the
+          breakpoint — history is already repaired (dangling tool_use calls get synthetic
+          tool_results), nothing breaks. If the cap is too tight, raise it
+          (<code class="inline">-max-iter 100</code> /
+          <code class="inline">LYON_MAX_ITER=100</code>) or don't set it at all.
+        </p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Do the steps panel and usage stats survive /resume?</summary>
+      <div class="body">
+        <p>
+          Yes. The steps panel (with per-step durations) is stored in the session snapshot
+          and returns unchanged after resume — rows that were mid-run are honestly closed as
+          <code class="inline">interrupted</code>; usage rounds are carried over with the
+          snapshot, so <code class="inline">/stats</code> and the bottom-right gauge pick up
+          where the last session left off. Snapshots saved by older versions have no step
+          data and start counting fresh like a new session (compatible degradation, no
+          errors). Also <code class="inline">/new</code> archives the current conversation and
+          clears the panel — a new session starts clean.
+        </p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Can exams or gates wedge my flow without me noticing?</summary>
+      <div class="body">
+        <p>
+          No — the design principle is <strong>never block</strong>: a coverage-gate error
+          only logs <code class="inline">gate skipped</code>;
+          <code class="inline">lyon run -exam</code> warns on a failed exam and runs anyway;
+          closed-book exams run async in the steps panel without interrupting the current
+          prompt. Set <code class="inline">LYON_EXAM=off</code> if you don't want automatic
+          exams at all.
+        </p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Where is the data stored? Does anything go to the cloud?</summary>
+      <div class="body">
+        <p>
+          All local in <code class="inline">$LYON_HOME</code> (default
+          <code class="inline">~/.lyon</code>): session archives, leaderboard, exam banks,
+          routing recommendation table, workflows. No telemetry. Memory only syncs when you
+          explicitly configure <code class="inline">LYON_SYNC_URL/TOKEN</code>.
+        </p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>How do I connect an OpenAI-compatible endpoint?</summary>
+      <div class="body">
+        <p>
+          Two equivalent ways: point <code class="inline">ANTHROPIC_BASE_URL</code> at a
+          compatible gateway (the protocol is parsed as Anthropic Messages), or use
+          <code class="inline">-openai-base https://host/v1</code> /
+          <code class="inline">LYON_OPENAI_BASE</code> to go through the built-in OpenAI
+          protocol translation layer. The key is reused as-is from the official one.
+          You can also run the local <code class="inline">lyond</code> gateway as a reverse
+          proxy.
+        </p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>Why can I keep chatting after an interrupt (esc / ctrl+c)?</summary>
+      <div class="body">
+        <p>
+          An interrupt triggers <strong>history repair</strong>: a synthetic
+          <code class="inline">tool_result</code> is queued for every dangling tool_use so the
+          next request is valid. It is also the wind-down mechanism when the iteration budget
+          tops out — so "stopped" never means "broken"; type anything and continue.
+        </p>
+      </div>
+    </details>
+
+    <details class="faq">
+      <summary>The context got compacted — where did the earlier content go?</summary>
+      <div class="body">
+        <p>
+          When one turn's usage passes 0.7×200k (<code class="inline">-compact-threshold</code>)
+          client-side compaction triggers: history is rendered as role-labeled text, one
+          separate summarize request runs, and a single summary message replaces the history
+          wholesale. The transcript shows <code class="inline">📦 compaction</code>,
+          <code class="inline">/stats</code> shows the matching
+          <code class="inline">stop=compaction</code> turn; a checkpoint exists before the
+          compaction so <code class="inline">/rollback</code> can take you back.
+        </p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ════════ 7 arch ════════ -->
+  <section id="arch">
+    <h2><span class="hash">7 ·</span>Developer map</h2>
+    <p class="lede">Start reading code here; the full version is the README's "Architecture" section.</p>
+
+    <table>
+      <thead><tr><th>Path</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>cmd/lyon</code></td><td>CLI: <code>run</code> one-shot / <code>chat</code> fullscreen TUI / <code>tools</code>; tui.go is the bubbletea main loop, steps.go the side panel</td></tr>
+        <tr><td><code>cmd/lyond</code></td><td>HTTP service: SSE streaming sessions, /metrics, admission control; also the OpenAI-compatible gateway</td></tr>
+        <tr><td><code>pkg/agent</code></td><td>engine core: Engine (connection pool / concurrency semaphore / warmup), Session (single driving goroutine + event stream), compact.go client-side compaction, snapshot.go multi-session archives</td></tr>
+        <tr><td><code>pkg/tools</code></td><td>tool system: run_shell / file read-write (workspace confinement) / view_image / web_* / memory / prompt-cache byte stabilization</td></tr>
+        <tr><td><code>pkg/eval</code></td><td>four-dimension scoring, leaderboard, closed-book exam banks, knowledge coverage, failure-cause summarization</td></tr>
+        <tr><td><code>pkg/routing</code></td><td>task classification, openness, recommendation table (confidence = mean×samples/(samples+3))</td></tr>
+        <tr><td><code>pkg/models</code></td><td>five-dimension capability profiles for 32 models</td></tr>
+        <tr><td><code>pkg/flow</code></td><td>mechanical executor: node state machine, exit criteria, bounded retries, four built-in workflows</td></tr>
+        <tr><td><code>pkg/mcp</code> / <code>pkg/server</code></td><td>MCP client / HTTP-SSE service</td></tr>
+        <tr><td><code>internal/mockapi</code></td><td>fake API for acceptance: real SSE frame order + prompt-cache simulator, what keeps the test suite green</td></tr>
+        <tr><td><code>bench/</code></td><td>performance acceptance suite (thresholds enforced)</td></tr>
+        <tr><td><code>docs/design/</code></td><td>design documents: <code>agent-evolution.md</code> is the original blueprint for the evolution mechanics</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <strong>Run the full acceptance:</strong>
+      <code class="inline">go build ./... &amp;&amp; go vet ./... &amp;&amp; go test ./... -count=1</code>.
+      Regenerate screenshots:
+      <code class="inline">LYON_GEN_SCREENS=1 go test ./cmd/lyon -run TestGenerateScreens -count=1</code>.
+    </div>
+  </section>
+
+</main>
+
+<footer class="site">
+  <div class="foot-links">
+    <a href="index.en.html">Tour</a>
+    <a href="manual.en.html">Manual</a>
+    <a href="#reference">Reference</a>
+    <a href="../README.en.md">README</a>
+    <a href="manual.html">中文</a>
+  </div>
+  <div>lyon-agent · a local-first, evolving terminal AI coding agent · docs ship with the repository, no network resources</div>
+</footer>
+
+</body>
+</html>
