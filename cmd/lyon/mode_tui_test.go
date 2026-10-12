@@ -16,12 +16,12 @@ func TestModeCommand(t *testing.T) {
 	m := newTestModel(t)
 
 	m.slash("/mode")
-	if !strings.Contains(m.renderTranscript(), "mode: default") {
-		t.Fatalf("bare /mode:\n%s", m.renderTranscript())
+	if !strings.Contains(m.cmdOutText(), "mode: default") {
+		t.Fatalf("bare /mode:\n%s", m.cmdOutText())
 	}
 
 	m.slash("/mode plan")
-	out := m.renderTranscript()
+	out := m.cmdOutText()
 	if !strings.Contains(out, "mode → plan") ||
 		!strings.Contains(out, "execution tools disabled") {
 		t.Fatalf("switch to plan:\n%s", out)
@@ -34,8 +34,8 @@ func TestModeCommand(t *testing.T) {
 	}
 
 	m.slash("/mode bogus")
-	if !strings.Contains(m.renderTranscript(), "usage: /mode") {
-		t.Fatalf("unknown mode:\n%s", m.renderTranscript())
+	if !strings.Contains(m.cmdOutText(), "usage: /mode") {
+		t.Fatalf("unknown mode:\n%s", m.cmdOutText())
 	}
 	if m.sess.Mode() != agent.ModePlan {
 		t.Fatal("failed switch must not change the mode")
@@ -67,9 +67,9 @@ func TestModeShiftTab(t *testing.T) {
 	}
 	cycle(agent.ModeBypass)
 	if !strings.Contains(m.headerLine(), "[bypass]") ||
-		!strings.Contains(m.renderTranscript(), "mode → bypass") {
+		!strings.Contains(m.cmdOutText(), "mode → bypass") {
 		t.Fatalf("bypass badge/line: head=%q\n%s",
-			stripColor(m.headerLine()), m.renderTranscript())
+			stripColor(m.headerLine()), m.cmdOutText())
 	}
 	cycle(agent.ModeDefault)
 	if h := m.headerLine(); strings.Contains(h, "[plan]") ||

@@ -47,6 +47,13 @@ func newTestModel(t *testing.T) *tuiModel {
 	return m
 }
 
+// cmdOutText joins the temporary command-output area — help text, tables
+// and action feedback render there now (pushCmd), deliberately outside
+// the chat transcript.
+func (m *tuiModel) cmdOutText() string {
+	return strings.Join(m.cmdOut, "\n")
+}
+
 // TestTUIStreamRendersTranscript: streaming deltas split on newlines, the
 // partial line shows while in flight, and non-text events flush it.
 func TestTUIStreamRendersTranscript(t *testing.T) {
@@ -137,15 +144,21 @@ func TestTUIReplayThinkingFolds(t *testing.T) {
 func TestTUISlashCommands(t *testing.T) {
 	m := newTestModel(t)
 	m.slash("/help")
-	if got := m.renderTranscript(); !strings.Contains(got, "/stats") {
-		t.Fatalf("help text missing:\n%s", got)
+	if got := m.cmdOutText(); !strings.Contains(got, "/stats") {
+		t.Fatalf("help text missing from output area:\n%s", got)
+	}
+	if strings.Contains(m.renderTranscript(), "/stats   usage table") {
+		t.Fatal("help text leaked into the chat transcript")
 	}
 	m.slash("/clear")
 	if len(m.lines) != 0 {
 		t.Fatalf("/clear left %d lines", len(m.lines))
 	}
+	if m.cmdOut != nil {
+		t.Fatalf("/clear left %d output rows", len(m.cmdOut))
+	}
 	m.slash("/frobnicate")
-	if got := m.renderTranscript(); !strings.Contains(got, "unknown command") {
+	if got := m.cmdOutText(); !strings.Contains(got, "unknown command") {
 		t.Fatalf("unknown-command feedback missing:\n%s", got)
 	}
 }
@@ -263,8 +276,8 @@ func TestTUISlashPopup(t *testing.T) {
 	if cmd := m.submit(); cmd != nil {
 		t.Fatal("running a slash command must not return a tea.Cmd")
 	}
-	if !strings.Contains(m.renderTranscript(), "no turns yet") {
-		t.Fatalf("unique match did not execute /stats:\n%s", m.renderTranscript())
+	if !strings.Contains(m.cmdOutText(), "no turns yet") {
+		t.Fatalf("unique match did not execute /stats:\n%s", m.cmdOutText())
 	}
 
 	// Ambiguous prefix + enter runs the highlighted entry — no tab-then-
@@ -284,8 +297,8 @@ func TestTUISlashPopup(t *testing.T) {
 	if len(m.sugs) != 0 {
 		t.Fatalf("popup still open after enter: %#v", m.sugs)
 	}
-	if strings.Contains(m.renderTranscript(), "no turns yet") {
-		t.Fatal("selected command did not run — transcript not cleared")
+	if len(m.cmdOut) != 0 || len(m.lines) != 0 {
+		t.Fatal("selected command did not run — /clear left content behind")
 	}
 
 	// ↑/↓ walk the list (wrapping), esc closes it, typing re-arms it.
@@ -548,7 +561,7 @@ func TestTUISessionsAndIndexedResume(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	m.slash("/sessions")
-	if got := m.renderTranscript(); !strings.Contains(got, "no saved sessions") {
+	if got := m.cmdOutText(); !strings.Contains(got, "no saved sessions") {
 		t.Fatalf("empty store notice missing:\n%s", got)
 	}
 
@@ -569,7 +582,7 @@ func TestTUISessionsAndIndexedResume(t *testing.T) {
 
 	m.lines = nil
 	m.slash("/sessions")
-	got := m.renderTranscript()
+	got := m.cmdOutText()
 	for _, want := range []string{"saved sessions (2", "2026-10-10 15:00", "2026-10-10 14:00", "/resume 2"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("/sessions missing %q:\n%s", want, got)
@@ -591,7 +604,7 @@ func TestTUISessionsAndIndexedResume(t *testing.T) {
 		t.Fatalf("out-of-range slot not reported:\n%s", got)
 	}
 	m.slash("/resume nonsense")
-	if got := m.renderTranscript(); !strings.Contains(got, "usage: /resume") {
+	if got := m.cmdOutText(); !strings.Contains(got, "usage: /resume") {
 		t.Fatalf("bad argument not reported:\n%s", got)
 	}
 }

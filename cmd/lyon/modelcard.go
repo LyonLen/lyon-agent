@@ -22,7 +22,7 @@ import (
 // showModel dispatches /model args in the TUI.
 func (m *tuiModel) showModel(args string) {
 	m.flushPend()
-	m.pushStyled(modelLines(m.cfg, strings.TrimSpace(args))...)
+	m.pushCmd(modelLines(m.cfg, strings.TrimSpace(args))...)
 	m.refresh()
 }
 

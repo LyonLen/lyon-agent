@@ -43,7 +43,7 @@ func TestTUIMemoryCommands(t *testing.T) {
 	if len(m.memRows) != 2 {
 		t.Fatalf("memRows = %d, want 2", len(m.memRows))
 	}
-	got := m.renderTranscript()
+	got := m.cmdOutText()
 	if !strings.Contains(got, "memory  team=") || !strings.Contains(got, "hot=0") {
 		t.Fatalf("header missing or wrong:\n%s", got)
 	}
@@ -62,8 +62,8 @@ func TestTUIMemoryCommands(t *testing.T) {
 	if f, _ := st.Get(memory.ScopePersonal, "toast-pref"); f.Hot {
 		t.Fatal("row 2 must stay cold")
 	}
-	if !strings.Contains(m.renderTranscript(), "hot=1") {
-		t.Fatalf("table after toggle:\n%s", m.renderTranscript())
+	if !strings.Contains(m.cmdOutText(), "hot=1") {
+		t.Fatalf("table after toggle:\n%s", m.cmdOutText())
 	}
 
 	// Forget the second row (project fact is still row 1 after re-render).

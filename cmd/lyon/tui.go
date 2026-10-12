@@ -150,6 +150,11 @@ type tuiModel struct {
 	// the overlay) — approvals now default on, so a long run must not ask
 	// the same question ten times. Deny decisions never persist.
 	allowAll map[string]bool
+	// cmdOut is the latest command's answer, rendered in the temporary
+	// area below the transcript (pushCmd) — the chat region itself keeps
+	// only questions, answers and call activity. Slash dispatch, prompt
+	// submit and esc reset it so the newest answer stands alone.
+	cmdOut []string
 
 	hist    []string
 	histIdx int // len(hist) = not recalling; up decrements, down increments
@@ -256,6 +261,7 @@ func (m *tuiModel) resetTranscript() {
 	m.stepSeq = 0
 	m.stepSel = 0
 	m.stepOpen = false
+	m.cmdOut = nil
 }
 
 func (m *tuiModel) Init() tea.Cmd { return m.ti.Focus() }
@@ -310,6 +316,18 @@ func (m *tuiModel) pushStyled(lines ...string) {
 	for _, l := range lines {
 		m.lines = append(m.lines, tline{kind: lineStyled, raw: l})
 	}
+}
+
+// pushCmd routes command output to the temporary area under the
+// transcript instead of the conversation itself: tables, help text and
+// action feedback are explanations of the UI, not things that happened
+// in the chat. Lines accumulate within one command (loops append); the
+// clear points (slash dispatch, prompt submit, esc) guarantee the area
+// shows the newest answer alone.
+func (m *tuiModel) pushCmd(lines ...string) {
+	m.flushPend() // a half-streamed answer line still belongs to the chat
+	m.curBlk = 0
+	m.cmdOut = append(m.cmdOut, lines...)
 }
 
 // pushText commits a finished (non-streaming) text block as transcript
@@ -633,23 +651,22 @@ func (m *tuiModel) updatePick(msg tea.KeyMsg) {
 // target. Read-only — runs even while a prompt is in flight.
 func (m *tuiModel) showSessions() {
 	refs, err := agent.ListSnapshots(m.workspace)
-	m.flushPend()
 	switch {
 	case err != nil:
-		m.pushStyled(paint(cRed, "sessions: "+err.Error()))
+		m.pushCmd(paint(cRed, "sessions: "+err.Error()))
 	case len(refs) == 0:
-		m.pushStyled(paint(cYellow, "no saved sessions for this workspace"))
+		m.pushCmd(paint(cYellow, "no saved sessions for this workspace"))
 	default:
-		m.pushStyled(paint(cBold, fmt.Sprintf("saved sessions (%d, newest first)", len(refs))))
+		m.pushCmd(paint(cBold, fmt.Sprintf("saved sessions (%d, newest first)", len(refs))))
 		for i, r := range refs {
-			m.pushStyled(fmt.Sprintf("  %2d  %s  %d messages %s", i+1,
+			m.pushCmd(fmt.Sprintf("  %2d  %s  %d messages %s", i+1,
 				r.SavedAt.Format("2006-01-02 15:04"), r.Messages,
 				paint(cDim, fmt.Sprintf("— /resume %d", i+1))))
 		}
 		if len(refs) > 1 {
-			m.pushStyled(paint(cDim, "/resume opens the picker — ↑/↓ choose"))
+			m.pushCmd(paint(cDim, "/resume opens the picker — ↑/↓ choose"))
 		} else {
-			m.pushStyled(paint(cDim, "/resume alone restores the newest"))
+			m.pushCmd(paint(cDim, "/resume alone restores the newest"))
 		}
 	}
 	m.refresh()
@@ -665,28 +682,28 @@ func (m *tuiModel) showSessions() {
 // Caller guarantees no prompt is in flight (idle, or right after prompt_end).
 func (m *tuiModel) rollbackAction(idx int) {
 	cps := m.sess.Checkpoints()
-	m.flushPend()
 	switch {
 	case len(cps) == 0:
-		m.pushStyled(paint(cYellow, "no checkpoint yet — one is captured before each prompt that had history"))
+		m.pushCmd(paint(cYellow, "no checkpoint yet — one is captured before each prompt that had history"))
 	case idx == 0:
-		m.pushStyled(paint(cBold, fmt.Sprintf("checkpoints (%d, newest first)", len(cps))))
+		m.pushCmd(paint(cBold, fmt.Sprintf("checkpoints (%d, newest first)", len(cps))))
 		for i, cp := range cps {
 			mark := "•"
 			if cp.Kind == "compact" {
 				mark = "📦"
 			}
-			m.pushStyled(fmt.Sprintf("  %2d  %s %s  %s  %s", i+1, mark,
+			m.pushCmd(fmt.Sprintf("  %2d  %s %s  %s  %s", i+1, mark,
 				paint(cYellow, cp.Label), paint(cDim, fmt.Sprintf("%d msgs · %s",
 					cp.Messages, cp.At.Format("15:04:05"))),
 				paint(cDim, fmt.Sprintf("— /rollback %d", i+1))))
 		}
-		m.pushStyled(paint(cDim, "rolling back keeps turn stats & usage — only the conversation rewinds"))
+		m.pushCmd(paint(cDim, "rolling back keeps turn stats & usage — only the conversation rewinds"))
 	case idx > len(cps):
-		m.pushStyled(paint(cRed, fmt.Sprintf("no slot %d — /rollback lists %d checkpoints", idx, len(cps))))
+		m.pushCmd(paint(cRed, fmt.Sprintf("no slot %d — /rollback lists %d checkpoints", idx, len(cps))))
 	default:
 		target := cps[idx-1]
 		info, err := m.sess.Rollback(target.ID)
+		m.flushPend() // the audit belongs in the chat, after any pending text
 		if err != nil {
 			m.pushStyled(paint(cRed, "rollback: "+err.Error()))
 			break
@@ -1145,7 +1162,12 @@ func styleTextLine(raw string) string {
 // (stale rows at the bottom, top rows pushed off).
 func (m *tuiModel) View() string {
 	rows := m.suggestionRows()
-	vh := m.height - 3 - len(rows) // header + status + input
+	avail := m.height - 3 - len(rows) // header + status + input
+	if avail < 1 {
+		avail = 1
+	}
+	cmd := m.cmdOutView(avail) // the temporary area claims its rows first…
+	vh := avail - len(cmd)     // …and the transcript gets whatever remains
 	if vh < 1 {
 		vh = 1
 	}
@@ -1159,6 +1181,10 @@ func (m *tuiModel) View() string {
 	} else {
 		b.WriteString(m.vp.View())
 	}
+	for _, l := range cmd {
+		b.WriteByte('\n')
+		b.WriteString(l)
+	}
 	b.WriteByte('\n')
 	b.WriteString(m.clip(m.statusLine()))
 	b.WriteByte('\n')
@@ -1168,6 +1194,38 @@ func (m *tuiModel) View() string {
 	}
 	b.WriteString(m.clip(m.inputLine()))
 	return b.String()
+}
+
+// cmdOutMaxRows caps the temporary area's content rows — the "+N more"
+// hint keeps long answers discoverable without ever hiding the chat.
+const cmdOutMaxRows = 10
+
+// cmdOutView renders the temporary command area: a dim rule plus the
+// latest command's answer, head-clamped with a "+N more" hint so a long
+// table can never swallow the transcript. Returns nil when the terminal
+// is too short to spare the rows — the conversation always wins.
+func (m *tuiModel) cmdOutView(budget int) []string {
+	if len(m.cmdOut) == 0 {
+		return nil
+	}
+	max := cmdOutMaxRows
+	if budget-4 < max { // rule + hint, and 4 rows of transcript floor
+		max = budget - 4
+	}
+	if max > len(m.cmdOut) {
+		max = len(m.cmdOut)
+	}
+	if max < 1 {
+		return nil
+	}
+	out := []string{m.clip(paint(cDim, "── output ──"))}
+	for _, l := range m.cmdOut[:max] {
+		out = append(out, m.clip(l))
+	}
+	if n := len(m.cmdOut) - max; n > 0 {
+		out = append(out, m.clip(paint(cDim, fmt.Sprintf("…(+%d more)", n))))
+	}
+	return out
 }
 
 // composeSplit joins the transcript viewport with the steps panel row by
@@ -1285,11 +1343,11 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		switch {
 		case msg.err != nil:
-			m.pushStyled(paint(cYellow, "remember: "+sanitizeText(msg.err.Error())))
+			m.pushCmd(paint(cYellow, "remember: "+sanitizeText(msg.err.Error())))
 		case msg.n == 0:
-			m.pushStyled(paint(cDim, "remember: nothing durable to add"))
+			m.pushCmd(paint(cDim, "remember: nothing durable to add"))
 		default:
-			m.pushStyled(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
+			m.pushCmd(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
 				paint(cCyan, "🧠 memory"), msg.n))
 		}
 		m.refresh()
@@ -1297,9 +1355,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case memSyncDone:
 		m.status = ""
 		if msg.err != nil {
-			m.pushStyled(paint(cYellow, "memory sync: "+sanitizeText(msg.err.Error())))
+			m.pushCmd(paint(cYellow, "memory sync: "+sanitizeText(msg.err.Error())))
 		} else {
-			m.pushStyled(fmt.Sprintf("%s sync: pushed %d, pulled %d",
+			m.pushCmd(fmt.Sprintf("%s sync: pushed %d, pulled %d",
 				paint(cCyan, "🧠 memory"), msg.pushed, msg.pulled))
 		}
 		m.refresh()
@@ -1332,6 +1390,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
+			m.cmdOut = nil // dismiss the command-output area too
 			if m.busy && m.sess.Interrupt() {
 				m.status = "interrupting…"
 				return m, nil
@@ -1356,7 +1415,8 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.armedQuit = false
 			prev := m.sess.Mode()
 			if _, err := m.sess.SetMode(cycleMode(prev)); err == nil {
-				m.pushStyled(modeSwitchLine(prev, m.sess.Mode()))
+				m.cmdOut = nil // feedback replaces, never stacks under, an old answer
+				m.pushCmd(modeSwitchLine(prev, m.sess.Mode()))
 				m.status = "mode: " + string(m.sess.Mode())
 				m.refresh()
 			}
@@ -1530,6 +1590,7 @@ func (m *tuiModel) submit() tea.Cmd {
 
 	m.ti.SetValue("")
 	m.updateSuggestions()
+	m.cmdOut = nil // a new round clears the temporary answer area
 	m.hist = append(m.hist, line)
 	m.histIdx = len(m.hist)
 	m.curBlk = 0 // a fresh prompt line closes any dangling thinking block
@@ -1552,6 +1613,7 @@ func (m *tuiModel) submit() tea.Cmd {
 
 func (m *tuiModel) slash(line string) tea.Cmd {
 	head, args, _ := strings.Cut(line, " ")
+	m.cmdOut = nil // each command answers into a freshly cleared area
 	switch head {
 	case "/quit", "/exit", ":q":
 		return tea.Quit
@@ -1559,13 +1621,12 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		var b strings.Builder
 		printStats(&b, m.sess.Stats(), m.metrics, m.sess.Hooks(),
 			newGauge(m.cfg, m.sess.Stats(), m.sess.SubUsage()))
-		m.flushPend()
-		m.pushStyled("")
-		m.pushStyled(strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)
+		m.pushCmd(strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")...)
 	case "/clear":
 		m.lines = nil
 		m.pend = ""
 		m.curBlk = 0
+		m.cmdOut = nil
 	case "/sessions":
 		m.showSessions() // read-only: safe even while a prompt runs
 	case "/resume", "/new":
@@ -1578,7 +1639,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			if a := strings.TrimSpace(args); a != "" {
 				var ok bool
 				if idx, ok = parseResumeIndex(a); !ok {
-					m.pushStyled(paint(cYellow, "usage: /resume [N] — /sessions lists saved sessions"))
+					m.pushCmd(paint(cYellow, "usage: /resume [N] — /sessions lists saved sessions"))
 					m.refresh()
 					return nil
 				}
@@ -1614,11 +1675,10 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		if arg == "save" || strings.HasPrefix(arg, "save ") {
 			label := strings.TrimSpace(strings.TrimPrefix(arg, "save"))
 			info, err := m.sess.Checkpoint(label)
-			m.flushPend()
 			if err != nil {
-				m.pushStyled(paint(cRed, "checkpoint: "+err.Error()))
+				m.pushCmd(paint(cRed, "checkpoint: "+err.Error()))
 			} else {
-				m.pushStyled(fmt.Sprintf("%s %s",
+				m.pushCmd(fmt.Sprintf("%s %s",
 					paint(cGreen, "★ checkpoint #"+fmt.Sprint(info.ID)+" saved"),
 					paint(cDim, fmt.Sprintf("%s · %d msgs", info.Label, info.Messages))))
 			}
@@ -1629,7 +1689,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		if arg != "" {
 			var ok bool
 			if idx, ok = parseResumeIndex(arg); !ok {
-				m.pushStyled(paint(cYellow, "usage: /rollback [N] — lists, restores slot N; /rollback save [text] marks a point"))
+				m.pushCmd(paint(cYellow, "usage: /rollback [N] — lists, restores slot N; /rollback save [text] marks a point"))
 				m.refresh()
 				return nil
 			}
@@ -1648,8 +1708,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 	case "/model":
 		m.showModel(args)
 	case "/mode":
-		m.flushPend()
-		m.pushStyled(modeAction(m.sess, args))
+		m.pushCmd(modeAction(m.sess, args))
 		m.status = "mode: " + string(m.sess.Mode())
 	case "/think":
 		m.toggleThinking()
@@ -1693,8 +1752,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.refresh()
 		return nil
 	case "/help":
-		m.flushPend()
-		m.pushStyled(
+		m.pushCmd(
 			paint(cBold, "commands"),
 			"  /stats   usage table: tokens, cache hits, tool latencies",
 			"  /clear   clear the transcript view (session history kept)",
@@ -1717,7 +1775,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
 		)
 	default:
-		m.pushStyled(paint(cRed, "unknown command: "+head), paint(cDim, "try /help"))
+		m.pushCmd(paint(cRed, "unknown command: "+head), paint(cDim, "try /help"))
 	}
 	m.refresh()
 	return nil
@@ -1732,12 +1790,7 @@ func (m *tuiModel) showMemory(args string) {
 	render := func(extra ...string) {
 		lines, rows := memoryTable(m.workspace)
 		m.memRows = rows
-		m.flushPend()
-		m.pushStyled("")
-		if len(extra) > 0 {
-			m.pushStyled(extra...)
-		}
-		m.pushStyled(lines...)
+		m.pushCmd(append(extra, lines...)...)
 	}
 	switch {
 	case args == "":

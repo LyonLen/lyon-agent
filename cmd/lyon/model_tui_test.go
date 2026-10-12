@@ -15,7 +15,7 @@ func TestModelCommand(t *testing.T) {
 	// outside the registry) — assert the shape, not the content: card
 	// header + effective config line, known or not.
 	m.slash("/model")
-	out := m.renderTranscript()
+	out := m.cmdOutText()
 	if !strings.Contains(out, "model card") ||
 		!strings.Contains(out, "effective:") {
 		t.Fatalf("current model card:\n%s", out)
@@ -23,14 +23,14 @@ func TestModelCommand(t *testing.T) {
 
 	// A registered id always renders the full parameter set.
 	m.slash("/model deepseek-reasoner")
-	out = m.renderTranscript()
+	out = m.cmdOutText()
 	if !strings.Contains(out, "context") ||
 		!strings.Contains(out, "DeepSeek R1") {
 		t.Fatalf("known card missing params:\n%s", out)
 	}
 
 	m.slash("/model deepseek-chat")
-	out = m.renderTranscript()
+	out = m.cmdOutText()
 	if !strings.Contains(out, "DeepSeek V3") ||
 		!strings.Contains(out, "$0.27") {
 		t.Fatalf("lookup card:\n%s", out)
@@ -41,14 +41,14 @@ func TestModelCommand(t *testing.T) {
 	}
 
 	m.slash("/model list")
-	out = m.renderTranscript()
+	out = m.cmdOutText()
 	if !strings.Contains(out, "known models") ||
 		!strings.Contains(out, "gpt-4o") {
 		t.Fatalf("model list:\n%s", out)
 	}
 
 	m.slash("/model totally-unknown-9000")
-	out = m.renderTranscript()
+	out = m.cmdOutText()
 	if !strings.Contains(out, "未收录") {
 		t.Fatalf("unknown id fallback:\n%s", out)
 	}
