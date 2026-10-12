@@ -18,6 +18,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/anthropics/anthropic-sdk-go"
+
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/eval"
 	"lyon-agent/pkg/flow"
@@ -31,6 +33,9 @@ const examMaxTokens = 350
 // flowSaveMaxTokens bounds the gate's checklist generation and blind
 // answers during a /flow save.
 const flowSaveMaxTokens = 700
+
+// judgeMaxTokens bounds one blind grade: a number, nothing more.
+const judgeMaxTokens = 16
 
 // examDone carries an async closed-book exam back into the loop.
 type examDone struct {
@@ -49,6 +54,14 @@ type flowSaved struct {
 	gateNote string
 	err      error
 	step     int
+}
+
+// scoreDone carries an async production grade (design §1.2 blind judge)
+// back into the loop.
+type scoreDone struct {
+	step int
+	line string
+	err  error
 }
 
 // ── model-call adapters ───────────────────────────────────────────
@@ -240,6 +253,78 @@ func (m *tuiModel) countRound() {
 	}
 	m.kickExam(class, fmt.Sprintf("round %d/%d — exam due",
 		rounds, eval.ExamInterval))
+}
+
+// ── production scoring ────────────────────────────────────────────
+
+// lastAssistantText pulls the newest assistant prose for the judge —
+// scanning back past tool-only turns. An all-tools run yields "" (the
+// judge is told the run produced no text).
+func lastAssistantText(msgs []anthropic.BetaMessageParam) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != anthropic.BetaMessageParamRoleAssistant {
+			continue
+		}
+		var parts []string
+		for _, blk := range msgs[i].Content {
+			if blk.OfText != nil && strings.TrimSpace(blk.OfText.Text) != "" {
+				parts = append(parts, blk.OfText.Text)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n")
+		}
+	}
+	return ""
+}
+
+// bookPlainRun grades a completed free-form prompt (design §1.2: no
+// ground truth → the judge model blind-grades), files the production
+// scorecard to the leaderboard and the total to the routing table —
+// the evidence both the on-duty election and /route read. The TUI's
+// kickScore and the CLI's scorePlainCLI share it; a judge failure
+// files nothing, because a score of convenience is worse than no
+// score. Returns a display line.
+func bookPlainRun(ctx context.Context, sess *agent.Session, model, prompt string, steps int) (string, error) {
+	answer := lastAssistantText(sess.Export().Messages)
+	class := string(routing.Classify(prompt))
+	judge, err := eval.JudgeRun(ctx, func(ctx context.Context, system, user string) (string, error) {
+		return sess.Ask(ctx, system, user, judgeMaxTokens)
+	}, prompt, answer)
+	if err != nil {
+		return "", err
+	}
+	sc := eval.Score(model, class, eval.RunMetrics{
+		Correctness: judge,
+		Steps:       steps,
+	})
+	eval.OpenLeaderboard().Record(class, sc)
+	routing.Open().Record(class, model, model, sc.Total)
+	return fmt.Sprintf("score %.2f (judge %.0f%%) → leaderboard [%s]",
+		sc.Total, judge*100, class), nil
+}
+
+// kickScore grades the prompt that just finished: one cheap
+// subagent-tier judge call off the event stream, then the card files
+// itself inside bookPlainRun. The panel's stepEval row opens here and
+// closes on scoreDone; LYON_SCORE=off skips the grade (the exam clock
+// still ticks via countRound — the split mirrors LYON_EXAM).
+func (m *tuiModel) kickScore(iterations int) {
+	if strings.EqualFold(os.Getenv("LYON_SCORE"), "off") || len(m.hist) == 0 {
+		return
+	}
+	prompt := m.hist[len(m.hist)-1]
+	model := m.cfg.Model
+	step := m.pushAsyncStep(stepEval, "score", "blind judge grading this run…")
+	sess := m.sess
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		line, err := bookPlainRun(ctx, sess, model, prompt, iterations)
+		if p := tuiProg.Load(); p != nil {
+			p.Send(scoreDone{step: step, line: line, err: err})
+		}
+	}()
 }
 
 // ── /flow ─────────────────────────────────────────────────────────

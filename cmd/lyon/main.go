@@ -124,7 +124,7 @@ func registerFlags(fs *flag.FlagSet) commonFlags {
 		effort:     fs.String("effort", "", "effort level: low|medium|high|xhigh|max (default medium)"),
 		workspace:  fs.String("workspace", "", "workspace root for shell/file tools (default .)"),
 		system:     fs.String("system", "", "path to a custom system prompt file (kept frozen)"),
-		maxIter:    fs.Int("max-iter", 0, "max API calls per prompt (default 50, env LYON_MAX_ITER)"),
+		maxIter:    fs.Int("max-iter", 0, "max API calls per prompt (default unlimited, env LYON_MAX_ITER)"),
 		shellAllow: fs.String("shell-allow", "", "comma-separated shell command allowlist (e.g. echo,ls,git)"),
 		webTools:   fs.String("web-tools", "", "web tool mode: server|client|off (default: auto)"),
 		noWebTools: fs.Bool("no-web-tools", false, "disable web tools (shorthand for -web-tools=off)"),
@@ -382,6 +382,9 @@ func cmdRun(args []string) int {
 		}
 		return code
 	}
+	// §1.2 production score: file the blind-judged card + tick the
+	// exam clock, exactly like a successful prompt in the TUI.
+	scorePlainCLI(sess, cfg.Model, prompt)
 	if *stats {
 		printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks(),
 			newGauge(cfg, sess.Stats(), sess.SubUsage()))
@@ -528,6 +531,23 @@ func cmdChat(args []string) int {
 				}
 			case "/mode":
 				fmt.Println(modeAction(sess, args))
+			case "/paste":
+				// Plain-REPL twin of alt+v: same clipboard read, only the
+				// delivery differs — here the token is printed to be typed
+				// into the next prompt (there is no input line to fill).
+				p := readPaste(cfg.Workspace)
+				switch {
+				case p.err != nil:
+					fmt.Fprintln(os.Stderr, paint(cYellow, "paste: "+p.err.Error()))
+				case p.rel == "":
+					fmt.Fprintln(os.Stderr, paint(cYellow, "paste: nothing to attach"))
+				case p.w > 0 && p.h > 0:
+					fmt.Printf("%s attached @%s (%dx%d) — include it in your next prompt\n",
+						paint(cCyan, "paste"), p.rel, p.w, p.h)
+				default:
+					fmt.Printf("%s attached @%s — include it in your next prompt\n",
+						paint(cCyan, "paste"), p.rel)
+				}
 			case "/sessions":
 				listSessions(cfg.Workspace)
 			case "/resume":

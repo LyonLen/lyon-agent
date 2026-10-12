@@ -76,6 +76,30 @@ func runExamCLI(sess *agent.Session, model, class string) int {
 	return 1
 }
 
+// scorePlainCLI books a completed free prompt the way the TUI's
+// kickScore does: blind judge → production card in the leaderboard +
+// score in the routing table, then the exam clock tick with a hint
+// when it strikes ten. LYON_SCORE=off skips the grade but the round
+// still counts — the split mirrors LYON_EXAM.
+func scorePlainCLI(sess *agent.Session, model, prompt string) {
+	if !strings.EqualFold(os.Getenv("LYON_SCORE"), "off") {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		line, err := bookPlainRun(ctx, sess, model, prompt, len(sess.Stats()))
+		switch {
+		case err != nil:
+			fmt.Println(paint(cYellow, "  score: "+err.Error()))
+		default:
+			fmt.Println(paint(cCyan, "  ✎ "+line))
+		}
+	}
+	class := string(routing.Classify(prompt))
+	if rounds, due := eval.OpenLeaderboard().CountRound(class); due {
+		fmt.Printf("  exam due (%d/%d rounds) — lyon run -exam %s …\n",
+			rounds, eval.ExamInterval, class)
+	}
+}
+
 // gatePromptCLI runs the §2 coverage pre-flight over a plain prompt and
 // returns the prompt to actually send: gaps folded in when the blind
 // answers missed (§2.2 定向注入). A broken gate prints a note and sends

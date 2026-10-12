@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"strconv"
@@ -23,11 +24,13 @@ type Config struct {
 	Effort string
 	// MaxTokens is the per-response output cap (streaming default: 64000).
 	MaxTokens int64
-	// MaxIterations caps API calls per human prompt (tool-loop budget).
-	// A runaway loop protection, not a performance knob: when it is hit,
-	// the last turn's tool calls are skipped (history is repaired) and the
-	// prompt ends with stop_reason "max_iterations" so renderers can say
-	// why. Default 50; override with -max-iter or LYON_MAX_ITER.
+	// MaxIterations caps API calls per human prompt (the ReAct tool-loop
+	// budget). 0 — the default — means no cap: the loop keeps calling
+	// tools until the model stops on its own, or esc interrupts. A
+	// positive value is a hard ceiling, not a performance knob: when it is
+	// hit, the last turn's tool calls are skipped (history is repaired) and
+	// the prompt ends with stop_reason "max_iterations" so renderers can
+	// say why. Override with -max-iter or LYON_MAX_ITER.
 	MaxIterations int
 	// SystemPrompt is the frozen system prompt. Never interpolate dynamic
 	// values into it — any byte change invalidates the prompt cache prefix.
@@ -109,19 +112,33 @@ func defaultModel() string {
 }
 
 // maxIterations resolves the per-prompt tool-loop budget:
-// LYON_MAX_ITER when set to a positive integer, else defaultMaxIterations.
+// LYON_MAX_ITER when set to a non-negative integer (0 = no cap), else
+// defaultMaxIterations. Something that doesn't parse is reported instead
+// of silently dropped — whoever typed LYON_MAX_ITER meant to set a
+// ceiling, and losing it without a word would be the dishonest failure
+// this engine tries not to have.
 func maxIterations() int {
-	if v := strings.TrimSpace(os.Getenv("LYON_MAX_ITER")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
+	v := strings.TrimSpace(os.Getenv("LYON_MAX_ITER"))
+	if v == "" {
+		return defaultMaxIterations
 	}
-	return defaultMaxIterations
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		fmt.Fprintf(os.Stderr,
+			"lyon: LYON_MAX_ITER=%q is not a whole number — ignoring it (no iteration cap)\n", v)
+		return defaultMaxIterations
+	}
+	return n
 }
 
-// defaultMaxIterations is the per-prompt API-call budget: generous enough
-// for real agent work, small enough to stop a stuck loop.
-const defaultMaxIterations = 50
+// defaultMaxIterations is the per-prompt API-call budget: 0, meaning none.
+// An agent that stops when the work is done needs no ceiling, and one
+// imposed by default would silently cut real work short; a hard limit is
+// opt-in (-max-iter, LYON_MAX_ITER) for whoever actually needs it — a
+// metered proxy, a CI job that must not hang. The SDK reads 0 the same
+// way: only MaxIterations > 0 is enforced, and the loop then ends with
+// stop_reason "max_iterations".
+const defaultMaxIterations = 0
 
 // DefaultConfig returns the engine defaults: Claude Opus 5.5 (or the
 // ANTHROPIC_MODEL override), medium effort, streaming-sized output budget.

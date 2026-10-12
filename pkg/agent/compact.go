@@ -123,9 +123,16 @@ func (s *Session) compactNow(pctx context.Context, prompt string, trigger Usage,
 	}
 	msgs := s.runner.Messages()
 	pendingTools := historyEndsWithToolUse(msgs)
-	remaining := s.eng.cfg.MaxIterations - *turnIdx
-	if pendingTools && remaining <= 0 {
-		return // at the iteration cap: repairInterruptedHistory closes the call
+	// remaining is the recreated runner's budget: what the prompt has left
+	// of a set cap, or 0 (unlimited) when no cap is configured — passing
+	// "cfg − spent" through unchanged would read as a negative, i.e. cut,
+	// budget where none exists.
+	remaining := 0
+	if s.eng.cfg.MaxIterations > 0 {
+		remaining = s.eng.cfg.MaxIterations - *turnIdx
+		if pendingTools && remaining <= 0 {
+			return // at the iteration cap: repairInterruptedHistory closes the call
+		}
 	}
 	rendered := renderHistory(msgs)
 	if rendered == "" {

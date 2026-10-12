@@ -18,7 +18,7 @@ go test ./bench -run 'TestLoad|TestCache|TestSSE' -v   # 性能验收（打印�
 
 ```
 cmd/lyon            CLI：run（一次性）/ chat（全屏 TUI）/ tools（工具清单）
-  tui.go             chat 的 bubbletea TUI：流式转录、滚动视口、y/n 审批浮层、thinking 折叠、斜杠候选弹层
+  tui.go             chat 的 bubbletea TUI：流式转录、滚动视口、y/n 审批浮层、thinking 折叠、斜杠候选弹层、alt+v 剪贴板贴图
 cmd/lyond           HTTP 服务：SSE 流式会话、/metrics、准入控制
 pkg/agent           引擎核心
   engine.go           Engine：单进程调优 HTTP 连接池、全局并发 turn 信号量、Warmup
@@ -33,6 +33,7 @@ pkg/tools           工具系统
   registry.go         注册/适配/并行安全标注
   shell.go files.go   run_shell / read_file / write_file / edit_file（工作区禁闭）
   image.go            view_image / @path 图片附件（magic 校验、大小与像素上限）
+  paste.go            ★ PasteImage/PasteFile：alt+v 落盘 .lyon/paste + 超限重编码 + 轮转
   web.go              web_search / web_fetch（客户端实现，共享连接池）
   memory.go           ★ save/read/forget_memory：跨会话记忆（<工作区>/.lyon/memory.json）
   stable.go           ★ prompt-cache 字节稳定化（见下文）
@@ -44,8 +45,10 @@ bench               性能验收套件（阈值强制）
 ```
 
 默认配置：模型 `claude-opus-5-5`（`ANTHROPIC_MODEL` 可覆盖）、effort medium、
-`MaxIterations=50`（单 prompt 的 API 调用预算，防跑飞；`-max-iter` 或
-`LYON_MAX_ITER` 可调）、压缩阈值 0.7×200k、子代理默认低配额档。
+`MaxIterations=0`（单 prompt 的 ReAct 轮次**默认不设上限**，跑到模型自己收工为止；
+要硬顶就 `-max-iter N` 或 `LYON_MAX_ITER=N`，到顶以
+`prompt_end.stop_reason="max_iterations"` 如实收尾）、压缩阈值 0.7×200k、
+子代理默认低配额档（子代理仍固定 6 轮）。
 
 ## 快速开始
 
@@ -71,6 +74,14 @@ image block 随消息一起发给模型（`看看 @screenshot.png`；文件名�
 随时可把工作区图片读进上下文——`read_file` 只读 UTF-8 文本，遇到二进制会提示改用
 它。大小/像素上限按 API 限制执行（约 3.5 MB、单边 8000 px）。
 
+**`alt+v` 贴图**（或 `/paste`）：从系统剪贴板读图——截屏、浏览器「复制图片」，
+或在资源管理器里复制的图片文件——存进 `<workspace>/.lyon/paste/` 并在输入框里
+插入对应 `@path`，回车即随消息发出。读取在后台线程（剪贴板可能被别的程序短暂
+占用），超限图片会**先重编码缩小**再落盘（PNG 优先保真，实在压不下才转 JPEG），
+目录按 32 份轮转、只删最旧，历史回放不会因此断链；剪贴板没有图时在状态行如实
+说明，不留半截 token。目前仅 Windows（Win32 直读，无子进程），其他平台给出
+明确提示并建议直接 `@path`。
+
 ### chat TUI
 
 `lyon chat` 在真实终端里进全屏 TUI：流式转录（markdown-lite 高亮、代码块着色、
@@ -92,6 +103,7 @@ lines` 头部），下一个非思考内容一到就把整块折成一行
 | `alt+↑` / `alt+↓` | 步骤面板选步（首下选中最新，走到底回到实时跟随） |
 | `alt+enter` | 展开/折叠选中步骤的完整操作 |
 | `alt+←` / `alt+→` | 面板加宽/变窄（28–72，转录列同步重排） |
+| `alt+v` | 粘贴剪贴板图片：落到 `<workspace>/.lyon/paste/` 并在输入框插入 `@path`（等价命令 `/paste`） |
 | `pgup` / `pgdn` / 滚轮 | 滚动转录（滚离底部即停止跟随，回底部恢复） |
 
 **斜杠候选弹层**：输入 `/` 即在输入框上方弹出命令列表，随输入实时过滤，末行提示
@@ -258,7 +270,8 @@ go test ./bench -run 'TestLoad|TestCache|TestSSE' -v
 上（工具没跑完就被打断，或 `MaxIterations` 在派发前切断），`repairInterrupted-
 History` 会给每个悬空调用排入合成 `tool_result`，与下一条用户消息合并进同一条
 user message，保证 role 交替完整、API 不会拒绝。若干净收尾却仍需补偿，说明是
-迭代预算到顶（`prompt_end.stop_reason="max_iterations"`）：TUI 显示
+迭代预算到顶（`prompt_end.stop_reason="max_iterations"`，只在设了
+`-max-iter`/`LYON_MAX_ITER` 时会发生——默认无上限）：TUI 显示
 `⚡ budget reached` 并提示回车继续，被跳过的 step 如实标 `over budget`。
 busy 锁在发出 prompt_end **之前**
 释放，避免事件缓冲消费者立刻重投时撞上 `ErrPromptInProgress`。
@@ -500,8 +513,13 @@ hits: 3
 - **榜单** `$LYON_HOME/leaderboard.json` 按任务类（coding/fix/review/research/
   writing/design/data/general）分别记账：每个 Agent 保留最近 50 张记分卡，
   每张生产记录都会重新推选 on-duty（证据最新且达标的当选）。
-- 生产记分来源：普通 run 完成后按类记账；`lyon run -flow` 的流程结果以
-  `source=flow` 入榜（correctness = 节点通过率，steps 对比节点数出效率分）。
+- 生产记分来源：**普通 prompt 跑完自动入榜**——无标准答案按设计 §1.2 交
+  **盲评裁判**（`eval.JudgeRun`，一次低价调用给 0..1 的 correctness）：
+  TUI 每次成功 prompt_end 后台判分（步骤面板 `score` 行），`lyon run`
+  收尾同款打印 `✎ score … → leaderboard [class]`；`LYON_SCORE=off` 关
+  （考核轮次照记），判分失败**不入账**（宁缺毋滥）。
+  `lyon run -flow` 的流程结果以 `source=flow` 入榜（correctness = 节点通过率，
+  steps 对比节点数出效率分）。
 
 ### 闭卷考核（每 10 轮）
 
@@ -572,6 +590,7 @@ hits: 3
 | `lyon run -exam auto\|<class>` | 先考核后执行 |
 | `lyon run -coverage` | 覆盖率门禁 + 缺口注入 |
 | `lyon run -flow <slug>` | 机械执行 workflow，结果入榜 |
+| `LYON_SCORE=off` | 关闭普通 prompt 的盲评入榜（考核轮次照记） |
 
 ## 测试
 

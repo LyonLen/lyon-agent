@@ -140,6 +140,9 @@ type tuiModel struct {
 
 	busy      bool
 	armedQuit bool
+	// pasting guards the alt+v clipboard read: one at a time, so a held
+	// key can't stack reads (and the status line can say it is working).
+	pasting bool
 	// pending is a slash action deferred until prompt_end lands ("/resume"
 	// or "/new"): it interrupted an in-flight prompt, and the restore/reset
 	// must never race a live drive holding histMu. pendingIdx carries the
@@ -194,7 +197,7 @@ func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) 
 	ti := textinput.New()
 	ti.Prompt = "❯ "
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	ti.Placeholder = "ask anything — /help for commands"
+	ti.Placeholder = "ask anything — /help for commands · alt+v paste image"
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ti.CharLimit = 8192
 	ti.Focus()
@@ -577,6 +580,9 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 				paint(cDim, fmt.Sprintf("%d API calls — pending tools skipped, enter to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations)))
 			m.status = idleStatus
 			m.countRound()
+			// The grade sees the partial answer as it stands — honest,
+			// not withheld: a cut run that answered nothing scores low.
+			m.kickScore(ev.Iterations)
 		} else {
 			m.pushStyled(paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
 			m.status = idleStatus
@@ -584,6 +590,9 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			// round the on-duty agent sits a closed-book exam
 			// (LYON_EXAM=off opts out of the trigger).
 			m.countRound()
+			// §1.2 production score: blind-judge this run and file the
+			// card (LYON_SCORE=off opts out) — scoring is automatic.
+			m.kickScore(ev.Iterations)
 		}
 		if m.pending != "" { // deferred /resume, /new or /rollback: prompt ended
 			act, idx := m.pending, m.pendingIdx
@@ -813,6 +822,7 @@ var slashCommands = []sugItem{
 	{"/model", "model card: context window, official params, pricing"},
 	{"/mode", "switch plan (read-only) / bypass (auto-approve) / default"},
 	{"/think", "expand/collapse thinking blocks"},
+	{"/paste", "attach the clipboard image to your next prompt (alt+v)"},
 	{"/steps", "action audit panel: bare toggles, open/close/width N"},
 	{"/route", "task classifier + model profile — /route <text> routes a task"},
 	{"/exam", "closed-book exam — /exam [class], auto every 10 rounds"},
@@ -1398,6 +1408,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.kickTitleCheck()
 		}
 
+	case pasteMsg:
+		m.attachPaste(msg)
+
 	case rememberDone:
 		m.status = ""
 		switch {
@@ -1463,6 +1476,20 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Event:  hooks.EvDiagnosis,
 				Output: sanitizeText(d.String()),
 			})
+		}
+		m.refresh()
+
+	case scoreDone:
+		m.status = ""
+		switch {
+		case msg.err != nil:
+			// A failed grade files nothing — say so and move on.
+			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
+			m.pushCmd(paint(cYellow, "✎ score"),
+				"  "+sanitizeText(msg.err.Error()))
+		default:
+			m.finishStep(msg.step, stepDone, msg.line, "")
+			m.pushCmd(paint(cCyan, "✎ score"), "  "+msg.line)
 		}
 		m.refresh()
 
@@ -1617,6 +1644,19 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepResize(-4)
 			}
 			return m, nil
+
+		// alt+v pastes a picture from the clipboard (clip_windows.go): the
+		// pixels land in the workspace and the @path token naming them is
+		// typed into the input. The read is async — it may wait out another
+		// program's hold on the clipboard — so the TUI keeps painting.
+		case "alt+v":
+			m.armedQuit = false
+			if m.pasting {
+				return m, nil // one read at a time
+			}
+			m.pasting = true
+			m.status = "pasting image…"
+			return m, pasteCmd(m.workspace)
 
 		case "enter":
 			m.armedQuit = false
@@ -1910,6 +1950,15 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		}
 		m.refresh()
 		return nil
+	case "/paste":
+		// The keyless twin of alt+v — discoverable in the popup, and the
+		// only way to paste in the plain REPL (main.go has its own case).
+		if m.pasting {
+			return nil
+		}
+		m.pasting = true
+		m.status = "pasting image…"
+		return pasteCmd(m.workspace)
 	case "/help":
 		m.pushCmd(
 			paint(cBold, "commands"),
@@ -1924,6 +1973,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /model   model card: /model current · /model list · /model <id>",
 			"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
 			"  /think   expand/collapse thinking blocks",
+			"  /paste   attach the clipboard image to your next prompt (same as alt+v)",
 			"  /steps   right-hand action audit panel: bare toggles, /steps open|close|width N",
 			"  /route   task classifier: bare shows the evidence table + model profile, /route <text> routes a task",
 			"  /exam    closed-book exam: bare classifies from last prompt, /exam <class> — auto every 10 rounds (LYON_EXAM=off)",
@@ -1931,7 +1981,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /help    this help",
 			"  /quit    exit",
 			paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),
-			paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt"),
+			paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt · alt+v paste image"),
 			paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+←/→ resize"),
 			paint(cDim, "approve overlay (shell/write/edit, on by default): y once · a allow this tool all session · n deny"),
 			paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),

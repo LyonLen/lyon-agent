@@ -38,6 +38,10 @@ func tempDir(t *testing.T) string {
 // events are injected directly, so no API call is involved.
 func newTestModel(t *testing.T) *tuiModel {
 	t.Helper()
+	// Injection tests reach prompt_end without ever prompting; scoring
+	// must not take that as license to judge — tests that want it
+	// enable it deliberately.
+	t.Setenv("LYON_SCORE", "off")
 	cfg := agent.DefaultConfig()
 	eng := agent.NewEngine(cfg, nil)
 	sess := eng.NewSession(nil)

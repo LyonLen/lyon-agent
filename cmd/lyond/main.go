@@ -35,7 +35,7 @@ func main() {
 		workspace  = flag.String("workspace", ".", "tool confinement root")
 		model      = flag.String("model", "", "model id (default: engine default / ANTHROPIC_MODEL)")
 		effort     = flag.String("effort", "", "output effort: low|medium|high|xhigh|max")
-		maxIter    = flag.Int("max-iter", 0, "max API iterations per prompt (default 50, env LYON_MAX_ITER)")
+		maxIter    = flag.Int("max-iter", 0, "max API iterations per prompt (default unlimited, env LYON_MAX_ITER)")
 		maxSess    = flag.Int("max-sessions", 1024, "admission cap (429 beyond)")
 		ttl        = flag.Duration("session-ttl", 30*time.Minute, "idle session eviction (0 disables)")
 		shellAllow = flag.String("shell-allow", "", "comma-separated shell command allowlist")

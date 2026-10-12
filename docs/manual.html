@@ -127,7 +127,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       单行输入，跟随滚动。<code class="inline">enter</code> 发送；
       <code class="inline">/</code> 开头走本地命令并弹出候选层（↑↓ 选、回车执行高亮项、tab 补全、esc 关闭）；
       唯一匹配的前缀直接执行（<code class="inline">/st</code> → <code class="inline">/stats</code>）。
-      <code class="inline">@路径</code> 引用工作区图片随消息发送，<code class="inline">↑/↓</code> 空闲时回忆输入历史。
+      <code class="inline">@路径</code> 引用工作区图片随消息发送，<code class="inline">alt+v</code> 直接把剪贴板里的截图存成
+      <code class="inline">.lyon/paste/</code> 下的文件并填好 <code class="inline">@路径</code>，<code class="inline">↑/↓</code> 空闲时回忆输入历史。
     </p>
 
     <h3>③ 临时输出区（转录下方，<code class="inline">── output ──</code>）</h3>
@@ -173,6 +174,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>步骤面板选步（首下选中最新，走到底回到实时跟随）</td></tr>
         <tr><td><code>alt+enter</code></td><td>展开/折叠选中步骤的完整操作</td></tr>
         <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>面板加宽/变窄（28–72，转录列同步重排）</td></tr>
+        <tr><td><code>alt+v</code></td><td>粘贴剪贴板图片：落到 <code>.lyon/paste/</code> 并在输入框插入 <code>@path</code>（等价 <code>/paste</code>）</td></tr>
         <tr><td><code>pgup</code> / <code>pgdn</code> / 滚轮</td><td>滚动转录（滚离底部停止跟随，回底部恢复）</td></tr>
       </tbody>
     </table>
@@ -229,6 +231,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       在岗的必须都是达标的。榜单写在 <code class="inline">$LYON_HOME/leaderboard.json</code>，
       按任务类（coding / fix / review / research / writing / design / data / general）分别记账，
       每个 Agent 保留最近 50 张记分卡；每来一张新卡就重新推选 on-duty（证据最新且达标的当选）。
+      <strong>普通 prompt 跑完自动入榜：</strong>无标准答案时由<strong>盲评裁判</strong>打分
+      （一次低价调用给出 0–1 的 correctness，TUI 后台判分、<code class="inline">lyon run</code> 收尾入账，
+      <code class="inline">LYON_SCORE=off</code> 可关），判分失败不入账——宁缺毋滥。
       <code class="inline">lyon run -flow</code> 的流程结果以 <code class="inline">source=flow</code> 入榜，
       correctness 直接取节点通过率。
     </p>
@@ -345,7 +350,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>-effort</code></td><td><code>medium</code></td><td>推理档位：low | medium | high | xhigh | max</td></tr>
         <tr><td><code>-workspace</code></td><td><code>.</code></td><td>shell/文件工具的禁闭根</td></tr>
         <tr><td><code>-approve</code></td><td>chat TTY 默认开</td><td>shell/写文件前人工确认；<code>-approve=false</code> 关，管道 stdin 不弹（防脚本卡死）</td></tr>
-        <tr><td><code>-max-iter</code></td><td><code>50</code></td><td>单 prompt 的 API 调用预算（<code>LYON_MAX_ITER</code> 同效），见 <a href="#faq">FAQ</a></td></tr>
+        <tr><td><code>-max-iter</code></td><td><code>0</code>（无限）</td><td>单 prompt 的 API 调用上限，正整数才生效（<code>LYON_MAX_ITER</code> 同效），见 <a href="#faq">FAQ</a></td></tr>
         <tr><td><code>-shell-allow</code></td><td>—</td><td>shell 命令白名单，逗号分隔（<code>echo,ls,git</code>）</td></tr>
         <tr><td><code>-web-tools</code></td><td><code>auto</code></td><td>web_search/web_fetch：server | client | off（<code>-no-web-tools</code> 是 off 的简写）</td></tr>
         <tr><td><code>-mcp</code> / <code>-mcp-http</code></td><td>—</td><td>接 MCP 服务器：<code>name=cmd args</code> / <code>name=url</code>，可重复</td></tr>
@@ -373,8 +378,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>ANTHROPIC_BASE_URL</code></td><td>覆盖默认 API 地址</td></tr>
         <tr><td><code>ANTHROPIC_MODEL</code></td><td>默认模型覆盖</td></tr>
         <tr><td><code>LYON_HOME</code></td><td>存储根（默认 <code>~/.lyon</code>）：会话/榜单/考核/ workflow 全在这</td></tr>
-        <tr><td><code>LYON_MAX_ITER</code></td><td>单 prompt 迭代预算（正整数；默认 50）</td></tr>
+        <tr><td><code>LYON_MAX_ITER</code></td><td>单 prompt 迭代预算（非负整数：<code>0</code>=不限，默认不设上限）</td></tr>
         <tr><td><code>LYON_EXAM</code></td><td><code>off</code> 关闭自动考核触发（轮次照记）</td></tr>
+        <tr><td><code>LYON_SCORE</code></td><td><code>off</code> 关闭普通 prompt 的盲评入榜（考核轮次照记）</td></tr>
         <tr><td><code>LYON_FLOW_GATE</code></td><td><code>off</code> 关闭 <code>-flow</code> 的覆盖率门禁</td></tr>
         <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> 关闭失败错因归纳（SummarizeFailure）</td></tr>
         <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI 兼容 base URL（等价 <code>-openai-base</code>）</td></tr>
@@ -394,11 +400,16 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <h2><span class="hash">6 ·</span>常见问题</h2>
 
     <details class="faq" open>
-      <summary>为什么跑到几十次 API 调用就停了，还要回车继续？</summary>
+      <summary>设了迭代预算后，为什么跑到几十次 API 调用就停了，还要回车继续？</summary>
       <div class="body">
         <p>
-          那是<strong>迭代预算</strong>在保护你：单个 prompt 最多发
-          <strong>50 次</strong> API 调用（<code class="inline">MaxIterations</code>，防跑飞、防刷 token）。
+          那是<strong>迭代预算</strong>在保护你：设了 <code class="inline">-max-iter</code> 或
+          <code class="inline">LYON_MAX_ITER</code>（正整数）时，单个 prompt 最多发那么多次
+          API 调用（<code class="inline">MaxIterations</code>，防跑飞、防刷 token）。
+          <strong>默认不设上限</strong>（<code class="inline">MaxIterations=0</code>）：
+          ReAct 轮次一路跑到模型自己收工，或 <code class="inline">esc</code> 中断为止。
+        </p>
+        <p>
           到顶时转录会打印黄色的 <code class="inline">⚡ budget reached — 50 API calls ·
           pending tools skipped, enter to continue</code>，同时系统通知；被跳过的步骤在右侧面板
           诚实地标 <code class="inline">over budget</code> 而不是伪装成失败。
@@ -406,8 +417,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <p>
           按 <code class="inline">enter</code> 发任意一条消息即可从断点继续——历史已自动修复
           （悬空的 tool_use 会补上 synthetic tool_result），不会坏。
-          想一次跑更久：<code class="inline">-max-iter 100</code> 或
-          <code class="inline">LYON_MAX_ITER=100</code>。
+          顶太紧就调大（<code class="inline">-max-iter 100</code> /
+          <code class="inline">LYON_MAX_ITER=100</code>）或干脆不设该变量。
         </p>
       </div>
     </details>

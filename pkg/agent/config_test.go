@@ -61,6 +61,24 @@ func TestMaxIterationsEnv(t *testing.T) {
 	}
 }
 
+// TestDefaultIterationsUnlimited: the ReAct loop runs until the model
+// stops — no per-prompt cap unless one is asked for. A cap is opt-in
+// (LYON_MAX_ITER / -max-iter, positive integer); 0 keeps it open.
+func TestDefaultIterationsUnlimited(t *testing.T) {
+	t.Setenv("LYON_MAX_ITER", "")
+	if got := NewEngine(Config{}, nil).Config().MaxIterations; got != 0 {
+		t.Fatalf("default MaxIterations = %d, want 0 (unlimited)", got)
+	}
+	t.Setenv("LYON_MAX_ITER", "0")
+	if got := NewEngine(Config{}, nil).Config().MaxIterations; got != 0 {
+		t.Fatalf("LYON_MAX_ITER=0 → %d, want 0 (unlimited)", got)
+	}
+	t.Setenv("LYON_MAX_ITER", "40")
+	if got := NewEngine(Config{}, nil).Config().MaxIterations; got != 40 {
+		t.Fatalf("LYON_MAX_ITER=40 → %d, want 40", got)
+	}
+}
+
 // TestOpenAIBaseDefaults: LYON_OPENAI_BASE enables the translation layer
 // with gateway-friendly defaults (client web tools, single subagent model),
 // explicit values win, and leaving it unset keeps the Anthropic path.

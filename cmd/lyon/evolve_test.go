@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
 
 	"lyon-agent/internal/mockapi"
 	"lyon-agent/pkg/agent"
@@ -239,6 +242,157 @@ func TestCountRoundClock(t *testing.T) {
 			t.Fatalf("exam goroutine never seeded %s", seedPath)
 		}
 		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// stepByN finds a row by its step number — stepByKind returns the first
+// of a kind, which collides once two score rows coexist.
+func stepByN(m *tuiModel, n int) *execStep {
+	for i := range m.steps {
+		if m.steps[i].n == n {
+			return &m.steps[i]
+		}
+	}
+	return nil
+}
+
+// TestScoreDoneClosesStep: the async grade lands as a closed stepEval
+// row plus a score line in the answer area; a failed grade says why
+// instead of pretending a number exists.
+func TestScoreDoneClosesStep(t *testing.T) {
+	t.Setenv("LYON_HOME", t.TempDir())
+	m := newTestModel(t)
+
+	step := m.pushAsyncStep(stepEval, "score", "blind judge grading this run…")
+	m.Update(scoreDone{step: step, line: "score 0.93 (judge 85%) → leaderboard [coding]"})
+	if row := stepByN(m, step); row == nil || row.status != stepDone ||
+		!strings.Contains(row.detail, "leaderboard [coding]") {
+		t.Fatalf("grade must close its row with the line: %+v", row)
+	}
+	out := m.cmdOutText()
+	if !strings.Contains(out, "✎ score") || !strings.Contains(out, "0.93") {
+		t.Fatalf("score line missing from the answer area:\n%s", out)
+	}
+
+	// Failure leg: honest error on the row, in the answer area.
+	m.cmdOut = nil
+	step2 := m.pushAsyncStep(stepEval, "score", "blind judge grading this run…")
+	m.Update(scoreDone{step: step2, err: errors.New("grade: no number in judge reply")})
+	if row := stepByN(m, step2); row == nil || row.status != stepError ||
+		!strings.Contains(row.err, "no number") {
+		t.Fatalf("failed grade must mark its row: %+v", row)
+	}
+	if out := m.cmdOutText(); !strings.Contains(out, "no number") {
+		t.Fatalf("failed grade must explain itself:\n%s", out)
+	}
+	// The success row is untouched by its sibling's failure.
+	if row := stepByN(m, step); row == nil || row.status != stepDone {
+		t.Fatalf("earlier row mutated: %+v", row)
+	}
+}
+
+// TestKickScoreFilesCard: with the guard open, kickScore grades off the
+// event stream — the card reaches the leaderboard and the routing table
+// even though no program is around to receive scoreDone (the filing
+// lives inside the goroutine's bookPlainRun).
+func TestKickScoreFilesCard(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LYON_HOME", dir)
+	m := mockTUI(t, []mockapi.Turn{{Text: []string{"0.85"}}})
+	t.Setenv("LYON_SCORE", "on") // newTestModel parks tests at off
+	m.hist = append(m.hist, "implement a login form")
+	m.kickScore(3)
+
+	class := string(routing.Classify("implement a login form"))
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if b, ok := eval.OpenLeaderboard().Classes[class]; ok &&
+			len(b.Agents[m.cfg.Model]) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("judge goroutine never filed a card for %q", class)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	b := eval.OpenLeaderboard().Classes[class]
+	hist := b.Agents[m.cfg.Model]
+	sc := hist[len(hist)-1] // appended chronologically: newest last
+	if sc.Source != "production" {
+		t.Errorf("source = %q, want production", sc.Source)
+	}
+	if sc.Dims.Correctness != 0.85 {
+		t.Errorf("correctness = %v, want 0.85 (the judge's number)", sc.Dims.Correctness)
+	}
+	// No baseline/budget → the other three dims pass at 1.0:
+	// total = 0.5·0.85 + 0.2 + 0.15 + 0.15 = 0.925.
+	if sc.Total != 0.925 {
+		t.Errorf("total = %v, want 0.925", sc.Total)
+	}
+	if !sc.Passed {
+		t.Errorf("0.85 judge must clear the 0.80 threshold: %+v", sc)
+	}
+	if e, ok := routing.Open().Lookup(class); !ok || e.MeanScore != sc.Total {
+		t.Errorf("routing evidence missing: ok=%v entry=%+v", ok, e)
+	}
+}
+
+// TestScorePlainCLIClock: the CLI leg grades the same way and always
+// ticks the exam clock — even with the judge switched off, the round
+// still counts (the LYON_EXAM split mirrored).
+func TestScorePlainCLIClock(t *testing.T) {
+	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_SCORE", "off")
+	sess := mockSession(t, nil)
+	const prompt = "write a changelog entry for the release"
+	class := string(routing.Classify(prompt))
+
+	scorePlainCLI(sess, "claude-opus-5-5", prompt)
+	if _, rounds, _ := eval.OpenLeaderboard().Status(class); rounds != 1 {
+		t.Fatalf("rounds = %d, want 1 (the clock ticks with the judge off)", rounds)
+	}
+	// Judge off → no card filed.
+	if b, ok := eval.OpenLeaderboard().Classes[class]; ok && len(b.Agents) > 0 {
+		t.Fatalf("LYON_SCORE=off must not file cards: %+v", b.Agents)
+	}
+}
+
+// TestLastAssistantText: the judge sees the newest assistant prose,
+// skipping tool-only turns and empty blocks; no prose anywhere is "".
+func TestLastAssistantText(t *testing.T) {
+	text := func(role anthropic.BetaMessageParamRole, parts ...string) anthropic.BetaMessageParam {
+		m := anthropic.BetaMessageParam{Role: role}
+		for _, p := range parts {
+			m.Content = append(m.Content, anthropic.BetaContentBlockParamUnion{
+				OfText: &anthropic.BetaTextBlockParam{Text: p},
+			})
+		}
+		return m
+	}
+	msgs := []anthropic.BetaMessageParam{
+		text(anthropic.BetaMessageParamRoleUser, "question"),
+		text(anthropic.BetaMessageParamRoleAssistant), // tool-only: no blocks
+		text(anthropic.BetaMessageParamRoleAssistant, "first answer"),
+		text(anthropic.BetaMessageParamRoleAssistant, "line one", "line two"),
+	}
+	if got := lastAssistantText(msgs); got != "line one\nline two" {
+		t.Fatalf("got %q, want the newest assistant's blocks joined", got)
+	}
+	// Empty/whitespace text must not shadow real prose underneath.
+	msgs = []anthropic.BetaMessageParam{
+		text(anthropic.BetaMessageParamRoleAssistant, "the real answer"),
+		text(anthropic.BetaMessageParamRoleAssistant, "   "),
+	}
+	if got := lastAssistantText(msgs); got != "the real answer" {
+		t.Fatalf("got %q, want the older real answer", got)
+	}
+
+	// User-only history yields nothing to judge.
+	msgs = []anthropic.BetaMessageParam{
+		text(anthropic.BetaMessageParamRoleUser, "q"),
+	}
+	if got := lastAssistantText(msgs); got != "" {
+		t.Fatalf("user-only history = %q, want empty", got)
 	}
 }
 
