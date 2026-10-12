@@ -139,6 +139,12 @@ type Session struct {
 	firstPrompt string
 	lastPrompt  string
 
+	// uiState is an opaque renderer-side blob (the TUI's steps panel)
+	// riding into snapshots so /resume restores the audit trail. The
+	// engine never interprets it; SetUIState attaches it before Export.
+	// Guarded by mu; cleared by Reset, carried by Restore.
+	uiState json.RawMessage
+
 	// distillHash fingerprints the last rendering the extractor handled
 	// successfully (distill.go): exit right after /remember skips the
 	// duplicate LLM pass. Guarded by mu.
@@ -519,7 +525,14 @@ func (s *Session) drive(prompt string) {
 
 	// Before the next prompt can observe it, close a history that ends mid
 	// tool-call (interrupt raced the tool dispatch, or MaxIterations cut it).
-	s.repairInterruptedHistory()
+	repaired := s.repairInterruptedHistory()
+	budgetStop := ""
+	if promptErr == "" && repaired {
+		// Clean end that still needed repair: the iteration budget cut the
+		// loop before the last turn's tools could run. Renderers surface it
+		// instead of showing a silent "done".
+		budgetStop = "max_iterations"
+	}
 
 	// Release the submit lock and the interrupt handle BEFORE announcing
 	// completion: events is buffered, so a consumer can receive prompt_end
@@ -532,6 +545,7 @@ func (s *Session) drive(prompt string) {
 	s.emit(Event{
 		Type:       EventPromptEnd,
 		Err:        promptErr,
+		StopReason: budgetStop,
 		Iterations: s.iterOffset + s.runner.IterationCount(),
 		TS:         time.Now(),
 	})
@@ -541,27 +555,32 @@ func (s *Session) drive(prompt string) {
 // history ends mid tool-call: the last message is an assistant tool_use with
 // no tool_result following it. The API rejects tool_use blocks without their
 // results, so the answers are merged into the next prompt's user message by
-// buildHistory. Runs only on the drive goroutine.
-func (s *Session) repairInterruptedHistory() {
+// buildHistory. Reports whether anything was repaired — with no prompt error
+// in flight that means MaxIterations cut the loop before the last turn's
+// tools could run. Runs only on the drive goroutine.
+func (s *Session) repairInterruptedHistory() bool {
 	if s.runner == nil {
-		return
+		return false
 	}
 	msgs := s.runner.Params.Messages
 	if len(msgs) == 0 {
-		return
+		return false
 	}
 	last := msgs[len(msgs)-1]
 	if last.Role != anthropic.BetaMessageParamRoleAssistant {
-		return
+		return false
 	}
+	repaired := false
 	for _, b := range last.Content {
 		if tu := b.OfToolUse; tu != nil {
 			res := anthropic.NewBetaToolResultTextBlockParam(
 				tu.ID, "prompt interrupted before the tool finished", true)
 			s.pendingToolResults = append(s.pendingToolResults,
 				anthropic.BetaContentBlockParamUnion{OfToolResult: &res})
+			repaired = true
 		}
 	}
+	return repaired
 }
 
 // maybeCompact reports whether the latest turn's usage crosses the

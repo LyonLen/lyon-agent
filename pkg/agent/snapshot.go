@@ -36,6 +36,19 @@ type Snapshot struct {
 	Messages           []anthropic.BetaMessageParam
 	PendingToolResults []anthropic.BetaContentBlockParamUnion
 	Turns              []TurnStat
+	// Steps is opaque renderer state — the TUI's steps panel — so /resume
+	// restores the audit trail alongside the conversation. Additive like
+	// Title: empty on old files, ignored by readers that don't need it.
+	Steps json.RawMessage
+}
+
+// SetUIState attaches renderer-side state (the TUI's steps panel) so the
+// next Export carries it into the snapshot. Callers settle any in-flight
+// prompt first — this is a plain field write on the exit path.
+func (s *Session) SetUIState(raw []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.uiState = append(json.RawMessage(nil), raw...)
 }
 
 // Export captures the conversation history. histMu makes it wait for an
@@ -53,6 +66,7 @@ func (s *Session) Export() Snapshot {
 	}
 	s.mu.Lock()
 	title, first := s.title, s.firstPrompt
+	uiState := append(json.RawMessage(nil), s.uiState...)
 	s.mu.Unlock()
 	return Snapshot{
 		Version:            snapshotVersion,
@@ -64,6 +78,7 @@ func (s *Session) Export() Snapshot {
 		Messages:           msgs,
 		PendingToolResults: append([]anthropic.BetaContentBlockParamUnion(nil), s.pendingToolResults...),
 		Turns:              s.Stats(),
+		Steps:              uiState,
 	}
 }
 
@@ -89,6 +104,7 @@ func (s *Session) Restore(snap Snapshot) {
 	s.subUsage = nil // subagent lines aren't snapshotted — reset with turns
 	s.title = snap.Title
 	s.firstPrompt = snap.FirstPrompt
+	s.uiState = append(json.RawMessage(nil), snap.Steps...) // nil on Reset
 	s.mu.Unlock()
 }
 

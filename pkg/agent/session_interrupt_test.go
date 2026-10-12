@@ -120,6 +120,8 @@ func TestRepairAfterMaxIterations(t *testing.T) {
 	}
 	if pe := waitEvent(t, sess, EventPromptEnd); pe.Err != "" {
 		t.Fatalf("first prompt (max-iter cut): %s", pe.Err)
+	} else if pe.StopReason != "max_iterations" {
+		t.Fatalf("cut prompt_end stop_reason = %q, want max_iterations", pe.StopReason)
 	}
 
 	if err := sess.Submit("next"); err != nil {
@@ -127,6 +129,8 @@ func TestRepairAfterMaxIterations(t *testing.T) {
 	}
 	if pe := waitEvent(t, sess, EventPromptEnd); pe.Err != "" {
 		t.Fatalf("second prompt: %s", pe.Err)
+	} else if pe.StopReason != "" {
+		t.Fatalf("natural end stop_reason = %q, want empty", pe.StopReason)
 	}
 
 	body := string(mock.LastBody())

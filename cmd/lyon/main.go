@@ -124,7 +124,7 @@ func registerFlags(fs *flag.FlagSet) commonFlags {
 		effort:     fs.String("effort", "", "effort level: low|medium|high|xhigh|max (default medium)"),
 		workspace:  fs.String("workspace", "", "workspace root for shell/file tools (default .)"),
 		system:     fs.String("system", "", "path to a custom system prompt file (kept frozen)"),
-		maxIter:    fs.Int("max-iter", 0, "max API calls per prompt (default 20)"),
+		maxIter:    fs.Int("max-iter", 0, "max API calls per prompt (default 50, env LYON_MAX_ITER)"),
 		shellAllow: fs.String("shell-allow", "", "comma-separated shell command allowlist (e.g. echo,ls,git)"),
 		webTools:   fs.String("web-tools", "", "web tool mode: server|client|off (default: auto)"),
 		noWebTools: fs.Bool("no-web-tools", false, "disable web tools (shorthand for -web-tools=off)"),
@@ -816,9 +816,13 @@ func render(ev agent.Event) {
 		fmt.Printf("\n%s %s\n", paint(cRed, "error:"), ev.Err)
 
 	case agent.EventPromptEnd:
-		if ev.Err != "" {
+		switch {
+		case ev.Err != "":
 			fmt.Printf("\n%s %s\n", paint(cRed, "✗ prompt failed"), paint(cDim, ev.Err))
-		} else {
+		case ev.StopReason == "max_iterations":
+			fmt.Printf("\n%s %s\n", paint(cYellow, "⚡ budget reached"),
+				paint(cDim, fmt.Sprintf("%d API calls — run again to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations)))
+		default:
 			fmt.Printf("\n%s %s\n", paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
 		}
 	}

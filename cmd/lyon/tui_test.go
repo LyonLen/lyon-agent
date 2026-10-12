@@ -54,6 +54,158 @@ func (m *tuiModel) cmdOutText() string {
 	return strings.Join(m.cmdOut, "\n")
 }
 
+// TestPromptEndBudgetNotice: a clean prompt_end that still needed history
+// repair is MaxIterations cutting the loop before the last turn's tools
+// ran — the transcript says how to continue, and the pending step is
+// labeled "over budget" instead of a vague "unfinished".
+func TestPromptEndBudgetNotice(t *testing.T) {
+	t.Setenv("LYON_HOME", t.TempDir())
+	m := newTestModel(t)
+	m.startPromptStep("long refactor across the repo")
+	m.applyEvent(agent.Event{
+		Type: agent.EventToolUseStart, ToolID: "t1", ToolName: "run_shell",
+		Input: json.RawMessage(`{"command":"go test ./..."}`),
+	})
+	m.applyEvent(agent.Event{Type: agent.EventPromptEnd,
+		StopReason: "max_iterations", Iterations: 50})
+
+	if out := stripANSI(m.renderTranscript()); !strings.Contains(out, "budget reached") ||
+		!strings.Contains(out, "LYON_MAX_ITER") {
+		t.Fatalf("budget notice missing:\n%s", out)
+	}
+	row := m.stepByKind(stepTool)
+	if row == nil || row.status != stepError || row.err != "over budget" {
+		t.Fatalf("pending step after budget cut: %+v", row)
+	}
+
+	// A normal end still reads as a plain done.
+	m.applyEvent(agent.Event{Type: agent.EventPromptEnd, Iterations: 3})
+	if out := stripANSI(m.renderTranscript()); !strings.Contains(out, "✓ done") {
+		t.Fatalf("normal end missing done line:\n%s", out)
+	}
+	if rows := strings.Count(stripANSI(m.renderTranscript()), "budget reached"); rows != 1 {
+		t.Fatalf("normal end must not repeat the budget notice (%d)", rows)
+	}
+}
+
+// TestResumeRestoresStepsAndTurns: the audit panel and the [turn N]
+// accounting lines ride into the snapshot — /resume brings both back
+// (durations included), and a row that was still running when the save
+// interrupted the prompt closes as interrupted, not as a phantom spinner.
+func TestResumeRestoresStepsAndTurns(t *testing.T) {
+	t.Setenv("LYON_HOME", tempDir(t)) // keep the store out of ~/.lyon
+	cfg := agent.DefaultConfig()
+	cfg.Workspace = tempDir(t)
+	eng := agent.NewEngine(cfg, nil)
+	sess := eng.NewSession(nil)
+	t.Cleanup(sess.Close)
+	m := newTUIModel(cfg, sess, tools.NewMetrics())
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+
+	now := time.Now()
+	snap := agent.Snapshot{
+		Version:   1,
+		Workspace: cfg.Workspace,
+		Model:     cfg.Model,
+		SavedAt:   time.Date(2026, 10, 12, 9, 15, 0, 0, time.Local),
+		Messages: []anthropic.BetaMessageParam{
+			{Role: anthropic.BetaMessageParamRoleUser, Content: []anthropic.BetaContentBlockParamUnion{
+				{OfText: &anthropic.BetaTextBlockParam{Text: "fix the widget"}},
+			}},
+			{Role: anthropic.BetaMessageParamRoleAssistant, Content: []anthropic.BetaContentBlockParamUnion{
+				{OfText: &anthropic.BetaTextBlockParam{Text: "widget fixed"}},
+			}},
+		},
+		Turns: []agent.TurnStat{{
+			Turn: 1, StopReason: "end_turn",
+			Usage:    agent.Usage{Input: 42, Output: 7, CacheRead: 900},
+			Duration: 1500 * time.Millisecond,
+		}},
+		Steps: stepsState([]execStep{
+			{n: 1, kind: stepPrompt, detail: "fix the widget", status: stepDone, ts: now},
+			{n: 2, kind: stepTool, name: "run_shell", detail: "go test ./...", status: stepDone, durMS: 1234, ts: now},
+			{n: 3, kind: stepTool, name: "edit_file", status: stepRunning, ts: now},
+		}),
+	}
+	if err := agent.SaveSnapshot(snap); err != nil {
+		t.Fatal(err)
+	}
+	m.slash("/resume")
+
+	// Transcript: the turn marker replays with its usage accounting.
+	got := m.renderTranscript()
+	for _, want := range []string{"[turn 1]", "in=42 out=7", "cache_read=900", "stop=end_turn", "1500ms"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("replay missing turn marker part %q:\n%s", want, got)
+		}
+	}
+
+	// Panel: all three rows restored with durations; the running row was
+	// captured as interrupted; numbering resumes for new steps.
+	if len(m.steps) != 3 {
+		t.Fatalf("restored steps = %d, want 3", len(m.steps))
+	}
+	if s := m.steps[0]; s.kind != stepPrompt || s.detail != "fix the widget" {
+		t.Fatalf("prompt row: %+v", s)
+	}
+	if s := m.steps[1]; s.name != "run_shell" || s.status != stepDone || s.durMS != 1234 {
+		t.Fatalf("tool row: %+v", s)
+	}
+	if s := m.steps[2]; s.status != stepError || s.err != "interrupted" {
+		t.Fatalf("running row at save must restore as interrupted: %+v", s)
+	}
+	if m.stepSeq != 3 {
+		t.Fatalf("stepSeq = %d, want 3 (resume past restored rows)", m.stepSeq)
+	}
+	m.addStep(stepTool, "", "run_shell", "echo next")
+	if got := m.steps[len(m.steps)-1].n; got != 4 {
+		t.Fatalf("new step n = %d, want 4", got)
+	}
+}
+
+// TestStepsStateRoundTrip: capture → load preserves every field, running
+// rows close at capture time without mutating the live panel, and broken
+// or empty blobs are rejected without clobbering the current panel.
+func TestStepsStateRoundTrip(t *testing.T) {
+	live := []execStep{
+		{n: 5, kind: stepEval, name: "exam.coding", detail: "PASS 3/4", status: stepDone, durMS: 9},
+		{n: 6, kind: stepTool, name: "run_shell", detail: "sleep 1", status: stepRunning},
+	}
+	raw := stepsState(live)
+	if len(raw) == 0 {
+		t.Fatal("stepsState returned nothing for a non-empty panel")
+	}
+	if live[1].status != stepRunning {
+		t.Fatal("stepsState must not mutate the live panel")
+	}
+
+	m := newTestModel(t)
+	if !m.applySteps(raw) {
+		t.Fatal("applySteps rejected a valid capture")
+	}
+	if len(m.steps) != 2 || m.stepSeq != 6 {
+		t.Fatalf("round trip: %d rows, stepSeq=%d", len(m.steps), m.stepSeq)
+	}
+	if s := m.steps[0]; s.kind != stepEval || s.name != "exam.coding" ||
+		s.detail != "PASS 3/4" || s.durMS != 9 {
+		t.Fatalf("field loss: %+v", s)
+	}
+	if s := m.steps[1]; s.status != stepError || s.err != "interrupted" {
+		t.Fatalf("running row not closed at capture: %+v", s)
+	}
+
+	keep := m.steps
+	if m.applySteps(json.RawMessage("{broken")) {
+		t.Fatal("broken blob accepted")
+	}
+	if m.applySteps(nil) {
+		t.Fatal("empty blob accepted")
+	}
+	if len(m.steps) != len(keep) {
+		t.Fatal("rejected blobs must leave the panel untouched")
+	}
+}
+
 // TestTUIStreamRendersTranscript: streaming deltas split on newlines, the
 // partial line shows while in flight, and non-text events flush it.
 func TestTUIStreamRendersTranscript(t *testing.T) {

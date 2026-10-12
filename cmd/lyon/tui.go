@@ -258,8 +258,8 @@ func (m *tuiModel) resetTranscript() {
 		{kind: lineStyled, raw: paint(cDim, "commands: /stats  /clear  /resume  /sessions  /new  /think  /help  /quit")},
 		{kind: lineStyled, raw: ""},
 	}
-	// /new starts a fresh audit; /resume cannot re-derive durations from
-	// the snapshot, so the panel restarts with the replayed transcript.
+	// /new starts a fresh audit. /resume wipes here too, then reloads the
+	// saved panel from Snapshot.Steps (applySteps) — durations and all.
 	m.steps = nil
 	m.stepSeq = 0
 	m.stepSel = 0
@@ -359,7 +359,28 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 			snap.SavedAt.Format("2006-01-02 15:04"))),
 		"",
 	)
+	// Turn markers: recorded turns are suffix-aligned with the assistant
+	// messages still in the history — compaction replaces a prefix of both
+	// with one summary line, and the compaction call itself is recorded
+	// with stop="compaction" but has no assistant message to pair with.
+	turns := make([]agent.TurnStat, 0, len(snap.Turns))
+	for _, t := range snap.Turns {
+		if t.StopReason != "compaction" {
+			turns = append(turns, t)
+		}
+	}
+	astTotal := 0
 	for _, msg := range snap.Messages {
+		if msg.Role == anthropic.BetaMessageParamRoleAssistant {
+			astTotal++
+		}
+	}
+	turnBase := len(turns) - astTotal
+	astSeen := 0
+	for _, msg := range snap.Messages {
+		if msg.Role == anthropic.BetaMessageParamRoleAssistant {
+			astSeen++
+		}
 		for _, b := range msg.Content {
 			switch {
 			case b.OfText != nil:
@@ -408,9 +429,15 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 				}
 				m.pushStyled(fmt.Sprintf("%s %s", marker,
 					paint(cDim, clipReplay(strings.Join(txt, " "), 200))))
-
 			case b.OfImage != nil:
 				m.pushStyled(paint(cDim, "🖼 image"))
+			}
+		}
+		// The live stream prints [turn N] right after that turn's content;
+		// replay does the same so a resumed session reads like the one saved.
+		if msg.Role == anthropic.BetaMessageParamRoleAssistant {
+			if i := turnBase + astSeen - 1; i >= 0 && i < len(turns) {
+				m.pushStyled("", turnLine(turns[i]))
 			}
 		}
 	}
@@ -425,6 +452,16 @@ func clipReplay(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// turnLine renders one [turn N] accounting line — shared by the live
+// stream (EventTurnEnd) and snapshot replay, so a resumed session shows
+// the same turn markers as the conversation that was.
+func turnLine(t agent.TurnStat) string {
+	return fmt.Sprintf("%s in=%d out=%d cache_read=%d cache_create=%d stop=%s %s",
+		paint(cYellow, fmt.Sprintf("[turn %d]", t.Turn)),
+		t.Usage.Input, t.Usage.Output, t.Usage.CacheRead, t.Usage.CacheCreation,
+		t.StopReason, paint(cDim, fmt.Sprintf("%dms", t.Duration.Milliseconds())))
 }
 
 // applyEvent translates one engine event into transcript lines. Mirrors
@@ -477,11 +514,10 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		if u == nil {
 			u = &agent.Usage{}
 		}
-		m.pushStyled("",
-			fmt.Sprintf("%s in=%d out=%d cache_read=%d cache_create=%d stop=%s %s",
-				paint(cYellow, fmt.Sprintf("[turn %d]", ev.Turn)),
-				u.Input, u.Output, u.CacheRead, u.CacheCreation,
-				ev.StopReason, paint(cDim, fmt.Sprintf("%dms", ev.DurationMS))))
+		m.pushStyled("", turnLine(agent.TurnStat{
+			Turn: ev.Turn, StopReason: ev.StopReason, Usage: *u,
+			Duration: time.Duration(ev.DurationMS) * time.Millisecond,
+		}))
 
 	case agent.EventCompaction:
 		m.flushPend()
@@ -515,11 +551,15 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		m.kickTitleCheck()
 		// Surface completion as a system toast — long runs are watched by
 		// notification, not by staring at the transcript.
+		budget := ev.StopReason == "max_iterations" // loop cut by MaxIterations
 		switch {
 		case ev.Err == agent.ErrInterrupted.Error():
 			notifyDone("lyon: interrupted", "the run was stopped — history repaired")
 		case ev.Err != "":
 			notifyDone("lyon: run failed", truncNotif(ev.Err, 160))
+		case budget:
+			notifyDone("lyon: iteration budget reached",
+				fmt.Sprintf("%d API calls — press enter to continue the task", ev.Iterations))
 		default:
 			notifyDone("lyon: run finished",
 				fmt.Sprintf("%d API calls complete — press enter for the next prompt", ev.Iterations))
@@ -532,6 +572,11 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			m.status = idleStatus
 			// 错因归纳: post-mortem the failed run while the UI idles.
 			m.kickDiagnose(ev.Err)
+		} else if budget {
+			m.pushStyled(paint(cYellow, "⚡ budget reached"),
+				paint(cDim, fmt.Sprintf("%d API calls — pending tools skipped, enter to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations)))
+			m.status = idleStatus
+			m.countRound()
 		} else {
 			m.pushStyled(paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
 			m.status = idleStatus
@@ -594,6 +639,7 @@ func (m *tuiModel) restoreFrom(refs []agent.SnapshotRef, idx int) {
 			m.follow = true
 			m.resetTranscript()
 			m.replay(loaded)
+			m.applySteps(loaded.Steps) // audit panel rides into the snapshot
 			m.status = idleStatus
 		}
 	}
@@ -2077,7 +2123,8 @@ func (m *tuiModel) rememberNow() tea.Cmd {
 func runTUI(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics, snap *agent.Snapshot) int {
 	m := newTUIModel(cfg, sess, metrics)
 	m.replay(snap)
-	if snap == nil { // fresh session — surface the store for /resume
+	m.applySteps(snapSteps(snap)) // startup restore: the saved audit panel
+	if snap == nil {              // fresh session — surface the store for /resume
 		if hint := resumeHint(cfg.Workspace, true); hint != "" { // picker wording
 			m.pushStyled(paint(cDim, hint), "")
 			m.refresh()
@@ -2096,9 +2143,23 @@ func runTUI(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics, snap 
 		}
 	}()
 
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "tui:", err)
 		return 1
 	}
+	// The exit path saves the conversation (saveChatSession → Export);
+	// hand it the panel too so the next run resumes the audit trail.
+	if tm, ok := final.(*tuiModel); ok {
+		sess.SetUIState(stepsState(tm.steps))
+	}
 	return 0
+}
+
+// snapSteps pulls the saved panel out of a possibly-nil snapshot.
+func snapSteps(snap *agent.Snapshot) json.RawMessage {
+	if snap == nil {
+		return nil
+	}
+	return snap.Steps
 }

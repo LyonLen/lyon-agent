@@ -43,6 +43,24 @@ func TestWebToolModeExplicitOverrides(t *testing.T) {
 	}
 }
 
+// TestMaxIterationsEnv: LYON_MAX_ITER raises or lowers the per-prompt
+// budget, garbage falls back to the default, and an explicit Config value
+// (flag) still wins over the env.
+func TestMaxIterationsEnv(t *testing.T) {
+	t.Setenv("LYON_MAX_ITER", "80")
+	if got := NewEngine(Config{}, nil).Config().MaxIterations; got != 80 {
+		t.Fatalf("LYON_MAX_ITER=80 → %d", got)
+	}
+	t.Setenv("LYON_MAX_ITER", "many")
+	if got := NewEngine(Config{}, nil).Config().MaxIterations; got != defaultMaxIterations {
+		t.Fatalf("garbage env → %d, want %d", got, defaultMaxIterations)
+	}
+	t.Setenv("LYON_MAX_ITER", "80")
+	if got := NewEngine(Config{MaxIterations: 7}, nil).Config().MaxIterations; got != 7 {
+		t.Fatalf("explicit value lost to env: %d", got)
+	}
+}
+
 // TestOpenAIBaseDefaults: LYON_OPENAI_BASE enables the translation layer
 // with gateway-friendly defaults (client web tools, single subagent model),
 // explicit values win, and leaving it unset keeps the Anthropic path.

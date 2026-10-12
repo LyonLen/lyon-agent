@@ -84,6 +84,86 @@ const (
 	expandMaxRows = 6
 )
 
+// stepDTO is execStep's persistable shape: the struct's fields are
+// unexported by design (the panel is renderer-private), so snapshots get
+// an explicit mirror instead of loosening that. Numeric kind/status keep
+// the blob compact; the encoding is private to cmd/lyon.
+type stepDTO struct {
+	N      int        `json:"n"`
+	Kind   stepKind   `json:"k"`
+	ToolID string     `json:"tid,omitempty"`
+	ExecID uint64     `json:"xid,omitempty"`
+	Name   string     `json:"name,omitempty"`
+	Detail string     `json:"detail,omitempty"`
+	Agent  string     `json:"agent,omitempty"`
+	Status stepStatus `json:"st"`
+	DurMS  int64      `json:"ms,omitempty"`
+	Err    string     `json:"err,omitempty"`
+	TS     time.Time  `json:"ts,omitempty"`
+	Under  int        `json:"under,omitempty"`
+}
+
+func (s execStep) MarshalJSON() ([]byte, error) {
+	return json.Marshal(stepDTO{
+		N: s.n, Kind: s.kind, ToolID: s.toolID, ExecID: s.execID,
+		Name: s.name, Detail: s.detail, Agent: s.agent, Status: s.status,
+		DurMS: s.durMS, Err: s.err, TS: s.ts, Under: s.under,
+	})
+}
+
+func (s *execStep) UnmarshalJSON(b []byte) error {
+	var d stepDTO
+	if err := json.Unmarshal(b, &d); err != nil {
+		return err
+	}
+	*s = execStep{
+		n: d.N, kind: d.Kind, toolID: d.ToolID, execID: d.ExecID,
+		name: d.Name, detail: d.Detail, agent: d.Agent, status: d.Status,
+		durMS: d.DurMS, err: d.Err, ts: d.TS, under: d.Under,
+	}
+	return nil
+}
+
+// stepsState captures the panel for Snapshot.Steps. A row still running at
+// save time was in flight when the exit path interrupted the prompt — it
+// closes as interrupted, so a restored panel never shows a phantom spinner.
+func stepsState(steps []execStep) json.RawMessage {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := make([]execStep, len(steps))
+	copy(out, steps)
+	for i := range out {
+		if out[i].status == stepRunning {
+			out[i].status = stepError
+			out[i].err = "interrupted"
+		}
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+// applySteps loads a saved panel back after /resume or startup restore.
+// Missing or broken blobs keep the fresh-restart behavior (no panel rows);
+// stepSeq resumes past the restored numbering so new rows never collide.
+func (m *tuiModel) applySteps(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var steps []execStep
+	if err := json.Unmarshal(raw, &steps); err != nil || len(steps) == 0 {
+		return false
+	}
+	m.steps = steps
+	m.stepSeq = steps[len(steps)-1].n
+	m.stepSel = 0
+	m.stepOpen = false
+	return true
+}
+
 // panelOn reports whether the right column is drawn at the current width.
 func (m *tuiModel) panelOn() bool {
 	return m.stepsOn && m.width >= panelMinWidth
@@ -351,7 +431,8 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 
 	case agent.EventPromptEnd:
 		// Anything still running when the prompt closes never got its
-		// end event — interrupt, transport failure. Record it truthfully.
+		// end event — interrupt, budget cut, transport failure. Record
+		// it truthfully.
 		for i := range m.steps {
 			s := &m.steps[i]
 			if s.status != stepRunning {
@@ -363,6 +444,8 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 				s.err = "interrupted"
 			case ev.Err != "":
 				s.err = "aborted: " + sanitizeText(ev.Err)
+			case ev.StopReason == "max_iterations":
+				s.err = "over budget"
 			default:
 				s.err = "unfinished"
 			}

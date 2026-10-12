@@ -9,6 +9,37 @@ import (
 	"lyon-agent/internal/mockapi"
 )
 
+// TestUIStateRoundTrip: renderer state (the TUI's steps panel) rides into
+// snapshots via SetUIState → Export, comes back through Restore into the
+// next Export, and Reset clears it — the same lifecycle as Title.
+func TestUIStateRoundTrip(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Workspace = tempDir(t)
+	eng := NewEngine(cfg, nil)
+	sess := eng.NewSession(nil)
+	defer sess.Close()
+
+	sess.SetUIState([]byte(`[{"n":1,"name":"run_shell"}]`))
+	snap := sess.Export()
+	if string(snap.Steps) != `[{"n":1,"name":"run_shell"}]` {
+		t.Fatalf("Export lost uiState: %q", snap.Steps)
+	}
+
+	// A session restoring the snapshot carries the blob into its own export.
+	sess2 := eng.NewSession(nil)
+	defer sess2.Close()
+	sess2.Restore(snap)
+	if got := sess2.Export().Steps; string(got) != string(snap.Steps) {
+		t.Fatalf("Restore dropped uiState: %q", got)
+	}
+
+	// Reset clears it — a fresh conversation has no audit trail.
+	sess2.Reset()
+	if len(sess2.Export().Steps) != 0 {
+		t.Fatalf("Reset kept uiState: %q", sess2.Export().Steps)
+	}
+}
+
 // TestRestoreMidSession pins `/resume` semantics: Restore swaps a live
 // session's history for the snapshot — the next prompt continues from the
 // restored messages (the pre-restore runner history must not leak), and

@@ -6,6 +6,7 @@ package agent
 import (
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,10 @@ type Config struct {
 	// MaxTokens is the per-response output cap (streaming default: 64000).
 	MaxTokens int64
 	// MaxIterations caps API calls per human prompt (tool-loop budget).
+	// A runaway loop protection, not a performance knob: when it is hit,
+	// the last turn's tool calls are skipped (history is repaired) and the
+	// prompt ends with stop_reason "max_iterations" so renderers can say
+	// why. Default 50; override with -max-iter or LYON_MAX_ITER.
 	MaxIterations int
 	// SystemPrompt is the frozen system prompt. Never interpolate dynamic
 	// values into it — any byte change invalidates the prompt cache prefix.
@@ -103,6 +108,21 @@ func defaultModel() string {
 	return DefaultModel
 }
 
+// maxIterations resolves the per-prompt tool-loop budget:
+// LYON_MAX_ITER when set to a positive integer, else defaultMaxIterations.
+func maxIterations() int {
+	if v := strings.TrimSpace(os.Getenv("LYON_MAX_ITER")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxIterations
+}
+
+// defaultMaxIterations is the per-prompt API-call budget: generous enough
+// for real agent work, small enough to stop a stuck loop.
+const defaultMaxIterations = 50
+
 // DefaultConfig returns the engine defaults: Claude Opus 5.5 (or the
 // ANTHROPIC_MODEL override), medium effort, streaming-sized output budget.
 func DefaultConfig() Config {
@@ -110,7 +130,7 @@ func DefaultConfig() Config {
 		Model:             defaultModel(),
 		Effort:            "medium",
 		MaxTokens:         64000,
-		MaxIterations:     20,
+		MaxIterations:     maxIterations(),
 		SystemPrompt:      DefaultSystemPrompt,
 		ToolTimeout:       2 * time.Minute,
 		ToolResultCap:     64 * 1024,
