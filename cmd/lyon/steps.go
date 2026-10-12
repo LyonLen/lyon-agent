@@ -43,6 +43,7 @@ const (
 	stepPrompt   // a prompt round: the titled parent of the steps after it
 	stepMemory   // memory injection / distill / sync — the hot tier at work
 	stepDiagnose // 错因归纳: the async post-mortem of a failed prompt
+	stepEval     // eval machinery: exams, workflow freezing — the §1/§3 meta layer
 )
 
 // execStep is one audited action. toolID pairs with tool_use_start /
@@ -478,6 +479,8 @@ func stepColor(s execStep) string {
 		return cYellow // memory is a write, like save_memory
 	case stepDiagnose:
 		return cMagenta // meta-analysis: its own family
+	case stepEval:
+		return cCyan // exam / flow-freeze: assessment, another meta family
 	}
 	switch s.name {
 	case "run_shell":

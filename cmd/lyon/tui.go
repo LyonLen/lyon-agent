@@ -24,6 +24,7 @@ import (
 	"lyon-agent/pkg/eval"
 	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/memory"
+	"lyon-agent/pkg/routing"
 	"lyon-agent/pkg/tools"
 )
 
@@ -534,6 +535,10 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		} else {
 			m.pushStyled(paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
 			m.status = idleStatus
+			// §1.4 exam clock: book one production round; every tenth
+			// round the on-duty agent sits a closed-book exam
+			// (LYON_EXAM=off opts out of the trigger).
+			m.countRound()
 		}
 		if m.pending != "" { // deferred /resume, /new or /rollback: prompt ended
 			act, idx := m.pending, m.pendingIdx
@@ -763,6 +768,9 @@ var slashCommands = []sugItem{
 	{"/mode", "switch plan (read-only) / bypass (auto-approve) / default"},
 	{"/think", "expand/collapse thinking blocks"},
 	{"/steps", "action audit panel: bare toggles, open/close/width N"},
+	{"/route", "task classifier + model profile — /route <text> routes a task"},
+	{"/exam", "closed-book exam — /exam [class], auto every 10 rounds"},
+	{"/flow", "workflows: list · show · match · export · save <slug>"},
 	{"/help", "list commands and keys"},
 	{"/quit", "exit"},
 }
@@ -777,7 +785,8 @@ func (m *tuiModel) refresh() {
 
 // suggestions matches the current input against the command list. The popup
 // shows while the input is one bare slash token ("/stats", "/th", …); a
-// space ends it (no command takes arguments) and esc hides it until typing.
+// space ends it (the argument commands answer from slash(), not the popup)
+// and esc hides it until typing.
 func (m *tuiModel) suggestions() []sugItem {
 	if m.sugHide || m.appr != nil {
 		return nil
@@ -1411,6 +1420,55 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refresh()
 
+	case examDone:
+		m.status = ""
+		switch {
+		case msg.err != nil:
+			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
+			m.pushCmd(paint(cYellow, "exam: "+sanitizeText(msg.err.Error())))
+		default:
+			// §1.4: file the score, apply the exam clock, echo the table —
+			// two consecutive failures by the sitting agent demote them.
+			lb := eval.OpenLeaderboard()
+			demoted := lb.SubmitExam(msg.class, eval.Scorecard{
+				Agent: m.cfg.Model, Total: msg.res.Pct,
+				Passed: msg.res.Passed, Source: "exam",
+			})
+			routing.Open().Record(msg.class, m.cfg.Model, m.cfg.Model, msg.res.Pct)
+			m.finishStep(msg.step, stepDone, msg.res.Summary(), "")
+			lines := []string{paint(cCyan, "✎ exam — "+msg.why), "  " + msg.res.Summary()}
+			for _, a := range msg.res.Answers {
+				if !a.OK {
+					lines = append(lines, "  ✗ "+sanitizeText(oneLine(a.Q)))
+				}
+			}
+			if demoted {
+				lines = append(lines,
+					paint(cRed, "  demoted after two failures — the seat is open"))
+			}
+			m.pushCmd(lines...)
+		}
+		m.refresh()
+
+	case flowSaved:
+		m.status = ""
+		switch {
+		case msg.err != nil:
+			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
+			m.pushCmd(paint(cYellow, "flow save: "+sanitizeText(msg.err.Error())))
+		default:
+			m.finishStep(msg.step, stepDone,
+				fmt.Sprintf("%s — %d nodes", msg.slug, msg.nodes), "")
+			m.pushCmd(
+				paint(cCyan, "workflow frozen — "+msg.slug),
+				"  "+msg.exam.Summary(),
+				"  "+msg.gateNote,
+				paint(cDim, "  run: lyon run -flow "+msg.slug+
+					"  ·  inspect: /flow show "+msg.slug),
+			)
+		}
+		m.refresh()
+
 	case tea.MouseMsg:
 		before := m.vp.YOffset
 		m.vp, _ = m.vp.Update(msg)
@@ -1761,6 +1819,12 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.status = "mode: " + string(m.sess.Mode())
 	case "/think":
 		m.toggleThinking()
+	case "/route":
+		m.showRoute(args)
+	case "/exam":
+		m.examCommand(args)
+	case "/flow":
+		return m.flowCommand(args)
 	case "/steps":
 		// Bare toggles; open/close/width N mirror the alt+ keys.
 		switch sub, rest, _ := strings.Cut(strings.TrimSpace(args), " "); sub {
@@ -1815,6 +1879,9 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
 			"  /think   expand/collapse thinking blocks",
 			"  /steps   right-hand action audit panel: bare toggles, /steps open|close|width N",
+			"  /route   task classifier: bare shows the evidence table + model profile, /route <text> routes a task",
+			"  /exam    closed-book exam: bare classifies from last prompt, /exam <class> — auto every 10 rounds (LYON_EXAM=off)",
+			"  /flow    workflows: list · show <slug> · match <text> · export <slug> · save <slug> (freezes this session)",
 			"  /help    this help",
 			"  /quit    exit",
 			paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),

@@ -112,7 +112,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	var head map[string]json.RawMessage
 	_ = json.Unmarshal(body, &head)
 
-	streaming := true
+	// Default non-streaming: the Messages endpoint only sends SSE when the
+	// request asks for it (stream:true), and standalone Ask calls use the
+	// non-streaming client.
+	streaming := false
 	if raw, ok := head["stream"]; ok {
 		_ = json.Unmarshal(raw, &streaming)
 	}

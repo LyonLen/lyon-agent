@@ -156,18 +156,47 @@ func (s *Shell) Execute(ctx context.Context, input json.RawMessage) ([]anthropic
 	if strings.TrimSpace(in.Command) == "" {
 		return nil, fmt.Errorf("empty command")
 	}
-
-	sh, prefix, err := detectShell()
+	out, code, truncated, err := s.run(ctx, in.Command)
 	if err != nil {
 		return nil, err
 	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "exit_code: %d\n", code)
+	if truncated {
+		fmt.Fprintf(&b, "output (truncated at %d bytes):\n", shellOutputLimit)
+	}
+	b.Write(out)
+	return TextResult(b.String()), nil
+}
+
+// Run executes one command and reports output plus exit code directly —
+// the probe surface flow's command exits hang off (they want a verdict,
+// not a tool-result wrapper). Truncation is applied silently here: probes
+// read exit codes and short verdicts, not the full stream.
+func (s *Shell) Run(ctx context.Context, command string) (string, int, error) {
+	if strings.TrimSpace(command) == "" {
+		return "", 0, fmt.Errorf("empty command")
+	}
+	out, code, _, err := s.run(ctx, command)
+	if err != nil {
+		return "", 0, err
+	}
+	return string(out), code, nil
+}
+
+// run is the shared execution body: allowlisted spawn, bounded output.
+func (s *Shell) run(ctx context.Context, command string) ([]byte, int, bool, error) {
+	sh, prefix, err := detectShell()
+	if err != nil {
+		return nil, 0, false, err
+	}
 	if len(s.Allow) > 0 {
-		if err := checkAllowlist(in.Command, s.Allow); err != nil {
-			return nil, err
+		if err := checkAllowlist(command, s.Allow); err != nil {
+			return nil, 0, false, err
 		}
 	}
 
-	args := append(append([]string{}, prefix...), in.Command)
+	args := append(append([]string{}, prefix...), command)
 	cmd := exec.CommandContext(ctx, sh, args...)
 	// Without WaitDelay, killing the shell on timeout leaves grandchildren
 	// (e.g. `sleep`) holding the output pipes and CombinedOutput blocks
@@ -186,12 +215,12 @@ func (s *Shell) Execute(ctx context.Context, input json.RawMessage) ([]anthropic
 	code := 0
 	if runErr != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("command timed out or was cancelled: %w", ctx.Err())
+			return nil, 0, false, fmt.Errorf("command timed out or was cancelled: %w", ctx.Err())
 		}
 		if ee, ok := runErr.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		} else {
-			return nil, fmt.Errorf("failed to run %s: %w", sh, runErr)
+			return nil, 0, false, fmt.Errorf("failed to run %s: %w", sh, runErr)
 		}
 	}
 
@@ -201,14 +230,7 @@ func (s *Shell) Execute(ctx context.Context, input json.RawMessage) ([]anthropic
 		out = out[:shellOutputLimit]
 		truncated = true
 	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "exit_code: %d\n", code)
-	if truncated {
-		fmt.Fprintf(&b, "output (truncated at %d bytes):\n", shellOutputLimit)
-	}
-	b.Write(out)
-	return TextResult(b.String()), nil
+	return out, code, truncated, nil
 }
 
 // checkAllowlist statically screens a command against the allowlist. It

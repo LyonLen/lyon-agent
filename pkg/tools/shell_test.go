@@ -69,6 +69,28 @@ func TestShellReportsNonZeroExitAsResult(t *testing.T) {
 	}
 }
 
+// TestShellRunDirect: the probe surface flow's command exits use —
+// output plus raw exit code, no tool-result wrapper.
+func TestShellRunDirect(t *testing.T) {
+	sh := &Shell{Root: tempDir(t)}
+	out, code, err := sh.Run(context.Background(), "echo probe-ok && exit 3")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if code != 3 {
+		t.Fatalf("code = %d, want 3", code)
+	}
+	if !strings.Contains(out, "probe-ok") {
+		t.Fatalf("output missing marker: %q", out)
+	}
+	if strings.Contains(out, "exit_code:") {
+		t.Fatalf("Run must not wrap like Execute: %q", out)
+	}
+	if _, _, err := sh.Run(context.Background(), "  "); err == nil {
+		t.Fatal("empty command must error")
+	}
+}
+
 func TestShellTimeout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode")

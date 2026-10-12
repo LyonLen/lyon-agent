@@ -1,0 +1,458 @@
+package main
+
+// Wiring for docs/design/agent-evolution.md — the eval/routing/flow
+// machinery reachable from the TUI: /route classifies and advises,
+// /exam runs the §1.4 closed-book test, /flow browses and freezes
+// workflows, and every successful prompt books a production round that
+// can trigger the exam clock. The CLI twins (-flow/-coverage/-exam)
+// live in main.go; this file is the interactive half.
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/eval"
+	"lyon-agent/pkg/flow"
+	"lyon-agent/pkg/models"
+	"lyon-agent/pkg/routing"
+)
+
+// examMaxTokens bounds one closed-book answer: a paragraph of facts.
+const examMaxTokens = 350
+
+// flowSaveMaxTokens bounds the gate's checklist generation and blind
+// answers during a /flow save.
+const flowSaveMaxTokens = 700
+
+// examDone carries an async closed-book exam back into the loop.
+type examDone struct {
+	class string
+	why   string
+	res   eval.ExamResult
+	err   error
+	step  int
+}
+
+// flowSaved carries an async /flow save back into the loop.
+type flowSaved struct {
+	slug     string
+	nodes    int
+	exam     eval.ExamResult
+	gateNote string
+	err      error
+	step     int
+}
+
+// ── model-call adapters ───────────────────────────────────────────
+
+// asker adapts Session.Ask (subagent tier, stateless) to eval's shape.
+func asker(sess *agent.Session) eval.Asker {
+	return func(ctx context.Context, system, user string) (string, error) {
+		return sess.Ask(ctx, system, user, flowSaveMaxTokens)
+	}
+}
+
+// coverageGen / coverageBook are the §2 quiz legs: generate the
+// checklist, answer it blind.
+func coverageGen(sess *agent.Session) eval.ChecklistGen {
+	return func(ctx context.Context, task string) (string, error) {
+		return sess.Ask(ctx, eval.GenSystem, task, flowSaveMaxTokens)
+	}
+}
+
+func coverageBook(sess *agent.Session) eval.Book {
+	return func(ctx context.Context, qs []string) (string, error) {
+		return sess.Ask(ctx, eval.BookSystem,
+			"- "+strings.Join(qs, "\n- "), flowSaveMaxTokens)
+	}
+}
+
+// examAnswerer answers one question with the exam system prompt —
+// no tools, no files, weights only.
+func examAnswerer(sess *agent.Session) eval.Answerer {
+	return func(ctx context.Context, q string) (string, error) {
+		return sess.Ask(ctx, eval.ClosedBookSystem, q, examMaxTokens)
+	}
+}
+
+// ── /route ────────────────────────────────────────────────────────
+
+// showRoute renders the router's state: bare lists the evidence table,
+// the exam clocks and the current model's profile; with text it
+// classifies the task and advises (routing table, capability profile,
+// matched workflow).
+func (m *tuiModel) showRoute(args string) {
+	args = strings.TrimSpace(args)
+	rt := routing.Open()
+	lb := eval.OpenLeaderboard()
+
+	if args == "" {
+		lines := []string{paint(cBold, "routing — task class → best evidenced agent")}
+		rows := rt.All()
+		if len(rows) == 0 {
+			lines = append(lines, paint(cDim,
+				"  no scores yet — production runs and exams fill this table"))
+		}
+		for _, e := range rows {
+			lines = append(lines, fmt.Sprintf("  %-8s %-22s conf %.2f  mean %.2f  n=%d",
+				e.Class, e.Agent, e.Confidence, e.MeanScore, e.Samples))
+		}
+		if len(lb.Classes) > 0 {
+			lines = append(lines, paint(cBold,
+				fmt.Sprintf("exams — every %d rounds the on-duty agent sits a closed-book test",
+					eval.ExamInterval)))
+			keys := make([]string, 0, len(lb.Classes))
+			for k := range lb.Classes {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, c := range keys {
+				onDuty, rounds, fails := lb.Status(c)
+				seat := onDuty
+				if seat == "" {
+					seat = "(open)"
+				}
+				line := fmt.Sprintf("  %-8s on-duty %-20s rounds %d/%d",
+					c, seat, rounds, eval.ExamInterval)
+				if fails > 0 {
+					line += fmt.Sprintf("  fails %d", fails)
+				}
+				lines = append(lines, line)
+			}
+		}
+		lines = append(lines, modelProfileLine(m.cfg.Model))
+		m.pushCmd(lines...)
+		return
+	}
+
+	class := routing.Classify(args)
+	open := routing.Openness(args)
+	lines := []string{
+		paint(cBold, "route — "+clipTask(args)),
+		fmt.Sprintf("  class: %s   openness %d/5", class, open),
+	}
+	if e, ok := rt.Lookup(string(class)); ok {
+		lines = append(lines, fmt.Sprintf("  table: %s (conf %.2f, mean %.2f, n=%d)",
+			e.Agent, e.Confidence, e.MeanScore, e.Samples))
+	} else {
+		lines = append(lines, paint(cDim, "  table: no evidence for this class yet"))
+	}
+	lines = append(lines, modelProfileLine(m.cfg.Model))
+	if info := models.Lookup(m.cfg.Model); info != nil {
+		prof := info.CapProfile()
+		if open > int(prof.Openness) {
+			lines = append(lines, paint(cYellow, fmt.Sprintf(
+				"  ⚠ task openness %d > model openness %d — a more open-ended model may serve better",
+				open, prof.Openness)))
+		}
+	}
+	if wfs, err := flow.Load(); err == nil {
+		if w, ok := flow.Match(wfs, args); ok {
+			lines = append(lines, fmt.Sprintf("  workflow: %s — %s", w.Slug, sanitizeText(w.Title)))
+		}
+	}
+	m.pushCmd(lines...)
+}
+
+// modelProfileLine renders a model id with its 0–5 capability profile —
+// what "this model is" in the router's language.
+func modelProfileLine(model string) string {
+	info := models.Lookup(model)
+	if info == nil {
+		return "  model: " + model + "  (no profile card)"
+	}
+	p := info.CapProfile()
+	return fmt.Sprintf("  model: %s   reasoning=%d long-haul=%d openness=%d speed=%d thrift=%d",
+		shortModel(model), p.Reasoning, p.LongHaul, p.Openness, p.Speed, p.Thrift)
+}
+
+// clipTask collapses a task to one display line.
+func clipTask(s string) string {
+	r := []rune(strings.Join(strings.Fields(s), " "))
+	if len(r) > 60 {
+		return string(r[:60]) + "…"
+	}
+	return string(r)
+}
+
+// ── /exam + the §1.4 clock ────────────────────────────────────────
+
+// examCommand is the manual /exam [class]: bare classifies from the
+// last prompt. The run is async — the panel's stepEval row opens here
+// and examDone closes it.
+func (m *tuiModel) examCommand(args string) {
+	class := strings.TrimSpace(args)
+	why := "manual"
+	if class == "" {
+		if len(m.hist) == 0 {
+			m.pushCmd(paint(cYellow, "usage: /exam [class] — class defaults from the last prompt"))
+			m.refresh()
+			return
+		}
+		class = string(routing.Classify(m.hist[len(m.hist)-1]))
+		why = "manual — class from last prompt"
+	}
+	m.kickExam(class, why)
+}
+
+// kickExam runs the closed-book exam off the event stream: seed the
+// bank, ask every question without tools, report as examDone.
+func (m *tuiModel) kickExam(class, why string) {
+	step := m.pushAsyncStep(stepEval, "exam."+class, why+" — closed-book…")
+	sess := m.sess
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		var res eval.ExamResult
+		var err error
+		if ex, e := eval.LoadOrSeedExam(class); e != nil {
+			err = e
+		} else {
+			res = eval.RunExam(ctx, ex, examAnswerer(sess))
+		}
+		if p := tuiProg.Load(); p != nil {
+			p.Send(examDone{class: class, why: why, res: res, err: err, step: step})
+		}
+	}()
+}
+
+// countRound books one production round for the class of the prompt
+// that just finished and fires the exam when the clock strikes ten.
+// LYON_EXAM=off opts out of the automatic trigger (the round still
+// counts). Called from prompt_end's success leg only.
+func (m *tuiModel) countRound() {
+	if len(m.hist) == 0 {
+		return
+	}
+	class := string(routing.Classify(m.hist[len(m.hist)-1]))
+	lb := eval.OpenLeaderboard()
+	rounds, due := lb.CountRound(class)
+	if !due || strings.EqualFold(os.Getenv("LYON_EXAM"), "off") {
+		return
+	}
+	m.kickExam(class, fmt.Sprintf("round %d/%d — exam due",
+		rounds, eval.ExamInterval))
+}
+
+// ── /flow ─────────────────────────────────────────────────────────
+
+// findFlow looks a slug up in the loaded set.
+func findFlow(wfs []flow.Workflow, slug string) (flow.Workflow, bool) {
+	for _, w := range wfs {
+		if w.Slug == slug {
+			return w, true
+		}
+	}
+	return flow.Workflow{}, false
+}
+
+// flowCommand dispatches /flow's subcommands. save runs async (exam +
+// coverage gate are model calls) and returns its kick; the rest answer
+// straight from the local workflow files.
+func (m *tuiModel) flowCommand(args string) tea.Cmd {
+	sub, rest, _ := strings.Cut(strings.TrimSpace(args), " ")
+	rest = strings.TrimSpace(rest)
+	wfs, err := flow.Load()
+	if err != nil {
+		m.pushCmd(paint(cRed, "flow: "+sanitizeText(err.Error())))
+		m.refresh()
+		return nil
+	}
+	usage := paint(cYellow,
+		"usage: /flow [list | show <slug> | match <text> | export <slug> | save <slug>]")
+
+	switch sub {
+	case "", "list":
+		builtins, _ := flow.Builtins()
+		bset := make(map[string]bool, len(builtins))
+		for _, b := range builtins {
+			bset[b.Slug] = true
+		}
+		lines := []string{paint(cBold, fmt.Sprintf("workflows (%d)", len(wfs)))}
+		for _, w := range wfs {
+			src := "user"
+			if bset[w.Slug] {
+				src = "builtin"
+			}
+			lines = append(lines, fmt.Sprintf("  %-14s %2d nodes  %s  %s",
+				w.Slug, len(w.Nodes), sanitizeText(oneLine(w.Title)), paint(cDim, src)))
+		}
+		if len(wfs) == 0 {
+			lines = append(lines, paint(cDim, "  none — /flow save <slug> freezes this session"))
+		}
+		lines = append(lines, paint(cDim,
+			"  /flow show <slug> · match <text> · export <slug> · save <slug>"))
+		m.pushCmd(lines...)
+
+	case "show":
+		w, ok := findFlow(wfs, rest)
+		if !ok {
+			m.pushCmd(paint(cYellow, "no workflow "+sanitizeText(rest)+" — /flow list"))
+			break
+		}
+		lines := []string{paint(cBold, w.Slug+" — "+sanitizeText(oneLine(w.Title)))}
+		if len(w.Trigger) > 0 {
+			lines = append(lines, paint(cDim, "  trigger: "+strings.Join(w.Trigger, ", ")))
+		}
+		for i, n := range w.Nodes {
+			kind := n.Exit.Kind
+			if kind == "" {
+				kind = flow.ExitAlways
+			}
+			spec := kind
+			switch kind {
+			case flow.ExitCommand:
+				spec += " " + sanitizeText(n.Exit.Command)
+			case flow.ExitContains:
+				spec += " " + sanitizeText(n.Exit.Contains)
+			case flow.ExitJudge:
+				spec += " " + sanitizeText(clipTask(n.Exit.Judge))
+			}
+			fb := n.Fallback
+			if fb == "" {
+				fb = flow.FallbackRetry
+			}
+			line := fmt.Sprintf("  %d. %-14s exit:%s  fallback:%s",
+				i+1, n.Name, spec, fb)
+			if n.OnPass != "" {
+				line += " → " + n.OnPass
+			}
+			lines = append(lines, line)
+		}
+		m.pushCmd(lines...)
+
+	case "match":
+		if rest == "" {
+			m.pushCmd(usage)
+			break
+		}
+		if w, ok := flow.Match(wfs, rest); ok {
+			m.pushCmd(fmt.Sprintf("%s → %s — %s",
+				paint(cBold, "match"), w.Slug, sanitizeText(oneLine(w.Title))))
+		} else {
+			m.pushCmd(paint(cYellow, "no workflow matches — /flow list to browse"))
+		}
+
+	case "export":
+		w, ok := findFlow(wfs, rest)
+		if !ok {
+			m.pushCmd(paint(cYellow, "no workflow "+sanitizeText(rest)+" — /flow list"))
+			break
+		}
+		data, err := json.MarshalIndent(w, "", "  ")
+		if err != nil {
+			m.pushCmd(paint(cRed, "export: "+err.Error()))
+			break
+		}
+		m.pushCmd(append([]string{paint(cBold, w.Slug+".json")},
+			strings.Split(string(data), "\n")...)...)
+
+	case "save":
+		if rest == "" {
+			m.pushCmd(usage)
+			break
+		}
+		return m.kickFlowSave(rest)
+
+	default:
+		m.pushCmd(usage)
+	}
+	m.refresh()
+	return nil
+}
+
+// kickFlowSave freezes the session's prompt groups into a workflow —
+// but not before the §1.4 and §2 preconditions: the agent must pass a
+// closed-book exam on the task class, and the coverage gate's misses
+// are baked into the node prompts so the frozen procedure carries the
+// gap knowledge itself.
+func (m *tuiModel) kickFlowSave(slug string) tea.Cmd {
+	// Snapshot now: the goroutine must not race the panel's mutations.
+	var prompts []string
+	for _, s := range m.steps {
+		if s.kind == stepPrompt {
+			if p := strings.TrimSpace(s.detail); p != "" {
+				prompts = append(prompts, p)
+			}
+		}
+	}
+	if len(prompts) == 0 {
+		m.pushCmd(paint(cYellow, "flow save: no prompts in this session to freeze"))
+		m.refresh()
+		return nil
+	}
+	step := m.pushAsyncStep(stepEval, "flow.save."+slug, "exam + coverage gate…")
+	sess := m.sess
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		msg := flowSaved{slug: slug, step: step}
+		send := func() {
+			if p := tuiProg.Load(); p != nil {
+				p.Send(msg)
+			}
+		}
+
+		// §1.4 precondition: pass a closed-book exam before freezing.
+		class := string(routing.Classify(prompts[0]))
+		ex, err := eval.LoadOrSeedExam(class)
+		if err != nil {
+			msg.err = err
+			send()
+			return
+		}
+		msg.exam = eval.RunExam(ctx, ex, examAnswerer(sess))
+		if !msg.exam.Passed {
+			msg.err = fmt.Errorf("exam %s failed (%.0f%%) — a procedure freezes only over a passing exam",
+				class, msg.exam.Pct*100)
+			send()
+			return
+		}
+
+		// §2 precondition: coverage gate. A miss bakes the gap lines into
+		// every node; a broken gate degrades to a note, never a block.
+		ok, inject, gerr := flow.NewGate(coverageGen(sess), coverageBook(sess))(ctx, prompts[0])
+		switch {
+		case gerr != nil:
+			msg.gateNote = "gate skipped: " + sanitizeText(gerr.Error())
+		case ok:
+			msg.gateNote = "coverage gate pass — nothing to inject"
+		default:
+			msg.gateNote = fmt.Sprintf("coverage miss — %d gap(s) baked into every node", len(inject))
+		}
+
+		wf := flow.Workflow{
+			Slug:  slug,
+			Title: clipTask(prompts[0]),
+		}
+		for i, p := range prompts {
+			if gerr == nil && !ok && len(inject) > 0 {
+				p += "\n\nKnowledge gaps from the coverage quiz — answer with these in mind:\n- " +
+					strings.Join(inject, "\n- ")
+			}
+			wf.Nodes = append(wf.Nodes, flow.Node{
+				Name:   fmt.Sprintf("step%d", i+1),
+				Prompt: p,
+				Exit: flow.Exit{
+					Kind:  flow.ExitJudge,
+					Judge: "这一步的输出是否完整达成了它的目标？",
+				},
+			})
+		}
+		if err := flow.Save(wf); err != nil {
+			msg.err = err
+		} else {
+			msg.nodes = len(wf.Nodes)
+		}
+		send()
+	}()
+	return nil
+}

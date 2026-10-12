@@ -22,6 +22,7 @@ import (
 	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/mcp"
 	"lyon-agent/pkg/openaix"
+	"lyon-agent/pkg/routing"
 	"lyon-agent/pkg/tools"
 )
 
@@ -296,6 +297,9 @@ func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	cf := registerFlags(fs)
 	stats := fs.Bool("stats", false, "print cumulative usage + tool metrics after the run")
+	flowSlug := fs.String("flow", "", "run a frozen workflow instead of a free-form prompt (slug; lyon chat '/flow list' shows them)")
+	coverage := fs.Bool("coverage", false, "knowledge-coverage pre-flight on the prompt: inject gaps when the blind quiz misses (design §2)")
+	examClass := fs.String("exam", "", "run a closed-book exam first: class name or 'auto' (classified from the prompt) — §1.4")
 	fs.Parse(args)
 
 	cfg, err := cf.buildConfig()
@@ -335,6 +339,37 @@ func cmdRun(args []string) int {
 	metrics := tools.NewMetrics()
 	sess := eng.NewSession(metrics)
 	defer sess.Close()
+
+	// §1.4 exam first — the score files either way; a miss warns and the
+	// run proceeds (the exam grades the agent, not this prompt).
+	if *examClass != "" {
+		class := *examClass
+		if class == "auto" {
+			class = string(routing.Classify(prompt))
+		}
+		switch runExamCLI(sess, cfg.Model, class) {
+		case 2:
+			return 2
+		case 1:
+			fmt.Println(paint(cYellow, "  exam failed — run proceeds, the miss is on record"))
+		}
+	}
+
+	// §3 frozen workflow: the state machine walks the nodes, the result
+	// scores into the leaderboard and the routing table.
+	if *flowSlug != "" {
+		code := runFlowCLI(sess, cfg, *flowSlug, prompt)
+		if *stats {
+			printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks(),
+				newGauge(cfg, sess.Stats(), sess.SubUsage()))
+		}
+		return code
+	}
+
+	// §2 coverage pre-flight for a plain prompt.
+	if *coverage {
+		prompt = gatePromptCLI(sess, prompt)
+	}
 
 	if err := sess.Submit(prompt); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
