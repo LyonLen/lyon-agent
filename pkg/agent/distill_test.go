@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 
@@ -130,4 +131,20 @@ func TestDistillGates(t *testing.T) {
 	if n, err := s3.Distill(context.Background()); n != 0 || err != nil {
 		t.Fatalf("short: n=%d err=%v", n, err)
 	}
+}
+
+// TestLockHistForDistill: bounded wait — a held history mutex (drive still
+// settling at exit) times out to false instead of hanging, and the lock is
+// usable again once released.
+func TestLockHistForDistill(t *testing.T) {
+	s := &Session{}
+	s.histMu.Lock()
+	if s.lockHistForDistill(50 * time.Millisecond) {
+		t.Fatal("must not acquire a held histMu")
+	}
+	s.histMu.Unlock()
+	if !s.lockHistForDistill(50 * time.Millisecond) {
+		t.Fatal("must acquire a free histMu")
+	}
+	s.histMu.Unlock()
 }

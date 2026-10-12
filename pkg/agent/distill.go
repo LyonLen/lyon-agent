@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 
@@ -36,7 +38,33 @@ const (
 	// distillPromoteHits: a fact the model re-affirms after being read
 	// this often graduates into the resident hot tier.
 	distillPromoteHits = 2
+	// distillLockWait caps how long Distill waits for the history mutex.
+	// The exit path runs right after an Interrupt: if the drive is still
+	// settling, wait a moment then skip — a memory pass must never hold
+	// process exit hostage (that felt like "ctrl+c hangs").
+	distillLockWait = 3 * time.Second
 )
+
+// lockHistForDistill acquires histMu within timeout (polling TryLock so
+// no abandoned goroutine can leak a held mutex). Returns false on timeout.
+func (s *Session) lockHistForDistill(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for !s.histMu.TryLock() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return true
+}
+
+// distillKey fingerprints the rendered history so an unchanged
+// conversation skips the extractor call entirely.
+func distillKey(rendered string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(rendered))
+	return h.Sum64()
+}
 
 // distillSystemPrompt instructs the extractor. JSON-only output keeps
 // parsing trivial and the model honest.
@@ -61,12 +89,16 @@ type distillFact struct {
 // Distill extracts durable facts from this session's history and saves
 // them into the layered memory store. Returns how many facts were
 // written. ctx bounds the model call; the history snapshot is taken
-// under histMu (briefly blocks against an in-flight drive).
+// under histMu — but only briefly: exit runs this while a prompt may
+// still be settling, and an unbounded lock wait would hang the process
+// (see lockHistForDistill).
 func (s *Session) Distill(ctx context.Context) (int, error) {
 	if strings.EqualFold(os.Getenv("LYON_DISTILL"), "off") {
 		return 0, nil
 	}
-	s.histMu.Lock()
+	if !s.lockHistForDistill(distillLockWait) {
+		return 0, nil // drive still busy — skip this round, never hang exit
+	}
 	msgs := s.seed
 	if s.runner != nil {
 		msgs = s.runner.Messages()
@@ -80,6 +112,16 @@ func (s *Session) Distill(ctx context.Context) (int, error) {
 		rendered = "(earlier history elided)\n" + string(r[len(r)-distillHistoryCap:])
 	}
 
+	// Same history as the last successful pass → nothing to extract.
+	// /remember followed by quit (the common exit path) becomes free.
+	key := distillKey(rendered)
+	s.mu.Lock()
+	prev := s.distillHash
+	s.mu.Unlock()
+	if key == prev {
+		return 0, nil
+	}
+
 	params := anthropic.BetaMessageNewParams{
 		Model:     s.eng.cfg.SubagentModel,
 		MaxTokens: distillMaxTokens,
@@ -91,6 +133,9 @@ func (s *Session) Distill(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	s.mu.Lock()
+	s.distillHash = key // extraction ran clean — next identical pass is free
+	s.mu.Unlock()
 	var parts []string
 	for _, b := range resp.Content {
 		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {

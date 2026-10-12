@@ -422,18 +422,20 @@ func cmdChat(args []string) int {
 			snap = loaded
 		}
 	}
-	defer saveChatSession(sess, cfg.Workspace)
-
 	// Self-evolution: distill learnings from this conversation into the
-	// memory store before the history dies with the process. Registered
-	// last → runs first in the LIFO chain, while the client, hooks and
-	// the TUI event pump are all still alive. 20s cap: a slow endpoint
-	// must never hang exit; LYON_DISTILL=off skips it entirely.
+	// memory store before the history dies with the process. LYON_DISTILL=off
+	// skips it entirely.
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_, _ = sess.Distill(ctx)
 	}()
+
+	// Registered after the distill defer → runs FIRST (LIFO): the
+	// conversation must hit disk before the optional distill pass, so a
+	// user who kills a slow exit still resumes. Export/Save are pure
+	// local I/O — they don't need the client the distill call below uses.
+	defer saveChatSession(sess, cfg.Workspace)
 
 	if !*plain && isTTY(os.Stdout) {
 		return runTUI(cfg, sess, metrics, snap)

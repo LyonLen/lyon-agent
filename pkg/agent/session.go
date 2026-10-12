@@ -121,11 +121,24 @@ type Session struct {
 	// drive goroutine's preTool/approve gates read it.
 	mode atomic.Pointer[Mode]
 
+	// subNest counts in-flight runSubagent executions; OnToolStart/End
+	// stamp Event.Sub while >0 so renderers can tell a subagent's inner
+	// executions from the main flow. Atomic: subagent tools and parallel
+	// read-only tools report concurrently. A main-flow execution that
+	// merely overlaps the window may be marked too — a rare, cosmetic
+	// trade for not threading parent ids through the runner.
+	subNest int32
+
 	// Session intent title (title.go): recognized asynchronously after
 	// prompt_end, persisted with snapshots. Guarded by mu.
 	title       string
 	firstPrompt string
 	lastPrompt  string
+
+	// distillHash fingerprints the last rendering the extractor handled
+	// successfully (distill.go): exit right after /remember skips the
+	// duplicate LLM pass. Guarded by mu.
+	distillHash uint64
 }
 
 func newSession(e *Engine, obs tools.Observer) *Session {
@@ -655,6 +668,7 @@ func (s *Session) OnToolStart(e tools.ExecEvent) {
 		ExecID:   e.ExecID,
 		ToolName: e.Name,
 		Input:    e.Input,
+		Sub:      atomic.LoadInt32(&s.subNest) > 0,
 		TS:       e.Start,
 	})
 	if s.extObs != nil {
@@ -670,6 +684,7 @@ func (s *Session) OnToolEnd(e tools.ExecEvent) {
 		DurationMS: e.Duration.Milliseconds(),
 		IsError:    e.Err != "",
 		Err:        e.Err,
+		Sub:        atomic.LoadInt32(&s.subNest) > 0,
 		TS:         time.Now(),
 	})
 	if s.extObs != nil {
