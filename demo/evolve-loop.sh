@@ -75,10 +75,18 @@ prompt_for() {
 # window comparison would misfire on an 18:00 start).
 deadline=$(date -d 'tomorrow 06:30' +%s)
 
-round=0
+# The round counter persists so a mid-night restart (rebuild) keeps the
+# sequence instead of re-running rounds 1..N — state files persist
+# anyway, only the numbering and the pin/unpin arc resume cleanly.
+round=$(cat "$DEMO/round-no" 2>/dev/null)
+round=${round:-0}
 while :; do
   round=$((round + 1))
-  [ "$round" -gt 60 ] && { log "round cap 60 reached — stopping"; break; }
+  echo "$round" >"$DEMO/round-no"
+  # Safety valve only: at 1.5–3 min/round the 06:30 deadline always
+  # fires first; the cap exists to stop a runaway loop, not to end the
+  # night early (240 rounds used to land at ~21:00).
+  [ "$round" -gt 500 ] && { log "round cap 500 reached — stopping"; break; }
   if [ "$(date +%s)" -ge "$deadline" ]; then
     log "reached 06:30 — stopping after $((round - 1)) rounds"
     break
