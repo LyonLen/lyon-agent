@@ -10,6 +10,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"lyon-agent/internal/mockapi"
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/tools"
 )
@@ -63,7 +64,7 @@ func (m *tuiModel) cmdOutText() string {
 // ran — the transcript says how to continue, and the pending step is
 // labeled "over budget" instead of a vague "unfinished".
 func TestPromptEndBudgetNotice(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 	m := newTestModel(t)
 	m.startPromptStep("long refactor across the repo")
 	m.applyEvent(agent.Event{
@@ -92,10 +93,12 @@ func TestPromptEndBudgetNotice(t *testing.T) {
 	}
 }
 
-// TestResumeRestoresStepsAndTurns: the audit panel and the [turn N]
-// accounting lines ride into the snapshot — /resume brings both back
-// (durations included), and a row that was still running when the save
-// interrupted the prompt closes as interrupted, not as a phantom spinner.
+// TestResumeRestoresStepsAndTurns: the audit panel rides into the
+// snapshot — /resume brings it back with durations, and a row that was
+// still running when the save interrupted the prompt closes as
+// interrupted, not as a phantom spinner — while the transcript replays
+// the conversation itself with no [turn N] accounting rows (usage lives
+// in /stats and the corner gauge).
 func TestResumeRestoresStepsAndTurns(t *testing.T) {
 	t.Setenv("LYON_HOME", tempDir(t)) // keep the store out of ~/.lyon
 	cfg := agent.DefaultConfig()
@@ -136,12 +139,15 @@ func TestResumeRestoresStepsAndTurns(t *testing.T) {
 	}
 	m.slash("/resume")
 
-	// Transcript: the turn marker replays with its usage accounting.
+	// Transcript: the conversation replays; the accounting row stays out.
 	got := m.renderTranscript()
-	for _, want := range []string{"[turn 1]", "in=42 out=7", "cache_read=900", "stop=end_turn", "1500ms"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("replay missing turn marker part %q:\n%s", want, got)
+	for _, leak := range []string{"[turn ", "in=42", "cache_read=900", "stop=end_turn", "1500ms"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("turn accounting %q leaked into the transcript:\n%s", leak, got)
 		}
+	}
+	if !strings.Contains(got, "fix the widget") || !strings.Contains(got, "widget fixed") {
+		t.Fatalf("conversation did not replay:\n%s", got)
 	}
 
 	// Panel: all three rows restored with durations; the running row was
@@ -348,29 +354,30 @@ func TestTUIApprovalOverlayDeny(t *testing.T) {
 	}
 }
 
-// TestTUIThinkingFolds: a streaming thinking block shows its body, folds to
-// a one-line header once the next non-thinking line closes it, and the
-// global toggle (ctrl+t / /think) re-expands it.
+// TestTUIThinkingFolds: the fold is strict — a thinking block stays behind
+// its header + preview even while it streams (the last answer must never
+// auto-expand under a closed fold), replayed history (blk=0) folds the
+// same way, and the global toggle (ctrl+t / /think) opens everything.
 func TestTUIThinkingFolds(t *testing.T) {
 	m := newTestModel(t)
 
 	m.applyEvent(agent.Event{Type: agent.EventThinkingDelta, Thinking: "first line\nsecond line"})
 	got := m.renderTranscript()
-	if !strings.Contains(got, "▾ thinking") {
-		t.Fatalf("open fold header missing while streaming:\n%s", got)
+	if !strings.Contains(got, "▸ thinking") {
+		t.Fatalf("folded thinking header missing while streaming:\n%s", got)
 	}
-	if !strings.Contains(got, "second line") {
-		t.Fatalf("streaming thinking body missing:\n%s", got)
+	if !strings.Contains(got, "first line") {
+		t.Fatalf("fold preview missing:\n%s", got)
+	}
+	if strings.Contains(got, "second line") {
+		t.Fatalf("streaming thinking escaped the fold:\n%s", got)
 	}
 
-	// Text closes the block: the body folds away behind a header + preview.
+	// Text closes the block: still folded, the answer shows.
 	m.applyEvent(agent.Event{Type: agent.EventTextDelta, Text: "the answer"})
 	got = m.renderTranscript()
 	if !strings.Contains(got, "▸ thinking") {
 		t.Fatalf("folded thinking header missing:\n%s", got)
-	}
-	if !strings.Contains(got, "first line") {
-		t.Fatalf("fold preview missing:\n%s", got)
 	}
 	if strings.Contains(got, "second line") {
 		t.Fatalf("completed thinking not folded:\n%s", got)
@@ -379,10 +386,25 @@ func TestTUIThinkingFolds(t *testing.T) {
 		t.Fatalf("answer missing:\n%s", got)
 	}
 
-	// ctrl+t expands, a second press folds back, /think mirrors the key.
+	// Replay-carried lines carry blk=0 (curBlk idle when restored) — they
+	// used to bypass the fold entirely and render permanently expanded.
+	m.pushText(lineThink, "history one\nhistory two")
+	got = m.renderTranscript()
+	if !strings.Contains(got, "history one") {
+		t.Fatalf("replay thinking preview missing:\n%s", got)
+	}
+	if strings.Contains(got, "history two") {
+		t.Fatalf("replay thinking not folded:\n%s", got)
+	}
+
+	// ctrl+t expands every block, a second press folds back, /think
+	// mirrors the key.
 	m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
-	if got = m.renderTranscript(); !strings.Contains(got, "second line") {
-		t.Fatalf("ctrl+t did not expand thinking:\n%s", got)
+	got = m.renderTranscript()
+	for _, want := range []string{"second line", "history two"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("ctrl+t did not expand %q:\n%s", want, got)
+		}
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
 	if got = m.renderTranscript(); strings.Contains(got, "second line") {
@@ -391,6 +413,76 @@ func TestTUIThinkingFolds(t *testing.T) {
 	m.slash("/think")
 	if got = m.renderTranscript(); !strings.Contains(got, "second line") {
 		t.Fatalf("/think did not expand thinking:\n%s", got)
+	}
+}
+
+// TestTUIQueueWhileBusy: enter during a running prompt parks the line
+// instead of dropping it — the status shows the depth, and each
+// prompt_end releases exactly one line into the session (FIFO chain).
+func TestTUIQueueWhileBusy(t *testing.T) {
+	t.Setenv("LYON_HOME", tempDir(t))
+	m := mockTUI(t, []mockapi.Turn{{Text: []string{"ok"}}})
+
+	// A prompt is running: enter parks the draft with a visible count.
+	m.busy = true
+	m.ti.SetValue("queued question")
+	if cmd := m.submit(); cmd != nil {
+		t.Fatal("busy submit must not start a second prompt")
+	}
+	if len(m.queued) != 1 || m.queued[0] != "queued question" {
+		t.Fatalf("queue after first park: %#v", m.queued)
+	}
+	if v := m.ti.Value(); v != "" {
+		t.Fatalf("input not cleared after queueing: %q", v)
+	}
+	if !strings.Contains(m.status, "queued (1)") {
+		t.Fatalf("queue status missing: %q", m.status)
+	}
+
+	// A second line stacks behind the first.
+	m.ti.SetValue("second question")
+	m.submit()
+	if len(m.queued) != 2 {
+		t.Fatalf("queue depth: %d, want 2", len(m.queued))
+	}
+
+	// prompt_end releases one: the first line reaches the session, the
+	// second stays parked for the next end.
+	m.Update(tuiEv{ev: agent.Event{
+		Type: agent.EventPromptEnd, StopReason: "end_turn", Iterations: 1,
+	}})
+	if !m.busy {
+		t.Fatal("drain did not re-arm busy for the released line")
+	}
+	if len(m.queued) != 1 || m.queued[0] != "second question" {
+		t.Fatalf("after one end, queue = %#v", m.queued)
+	}
+	if n := len(m.hist); n == 0 || m.hist[n-1] != "queued question" {
+		t.Fatalf("released line missing from history: %#v", m.hist)
+	}
+	if !strings.Contains(m.renderTranscript(), "queued question") {
+		t.Fatalf("released line missing from transcript:\n%s", m.renderTranscript())
+	}
+}
+
+// TestTUISlashAudit: a slash command leaves its own line in the
+// transcript — ↑ can find it again — while the output still answers in
+// the temporary area, and the line stays out of prompt history.
+func TestTUISlashAudit(t *testing.T) {
+	m := newTestModel(t)
+	hist := len(m.hist)
+
+	m.ti.SetValue("/help")
+	m.submit()
+
+	if got := m.renderTranscript(); !strings.Contains(got, "/help") {
+		t.Fatalf("slash line missing from transcript:\n%s", got)
+	}
+	if out := m.cmdOutText(); !strings.Contains(out, "commands") {
+		t.Fatalf("help output missing from temp area:\n%s", out)
+	}
+	if len(m.hist) != hist {
+		t.Fatalf("slash command leaked into prompt history: %#v", m.hist)
 	}
 }
 

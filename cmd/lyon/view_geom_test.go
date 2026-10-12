@@ -152,3 +152,40 @@ func TestRealSnapshotReplayGeometry(t *testing.T) {
 		checkView(t, m, fmt.Sprintf("replay %dx%d after pgdown", size.w, size.h))
 	}
 }
+
+// TestHeaderBlockGeometry: the pinned header block = identity line +
+// wordmark (roomy terminals only) + full-width divider; narrow windows
+// drop the logo but keep the rule. The block's row count feeds View's
+// frame math, and the logo rows must stay exactly wordmark-width.
+func TestHeaderBlockGeometry(t *testing.T) {
+	m := newTestModel(t)
+
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	head := m.headerRows()
+	if len(head) != 8 { // identity + 6 logo rows + rule
+		t.Fatalf("roomy header rows: %d, want 8", len(head))
+	}
+	for i, l := range head[1:7] {
+		s := stripColor(l)
+		if !strings.Contains(s, "█") {
+			t.Fatalf("logo row %d missing block glyphs: %q", i, s)
+		}
+		if n := ansi.StringWidth(s); n != 36 {
+			t.Fatalf("logo row %d is %d cells, want the wordmark's 36: %q", i, n, s)
+		}
+	}
+	if rule := stripColor(head[7]); rule != strings.Repeat("─", 100) {
+		t.Fatalf("rule row: %q", rule)
+	}
+	checkView(t, m, "roomy header block")
+
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
+	head = m.headerRows()
+	if len(head) != 2 { // identity + rule, logo dropped
+		t.Fatalf("narrow header rows: %d, want 2", len(head))
+	}
+	if rule := stripColor(head[1]); rule != strings.Repeat("─", 40) {
+		t.Fatalf("narrow rule row: %q", rule)
+	}
+	checkView(t, m, "narrow header block")
+}

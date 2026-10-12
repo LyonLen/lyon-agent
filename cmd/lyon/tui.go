@@ -150,8 +150,15 @@ type tuiModel struct {
 	// (the picker / single-session path runs at dispatch time).
 	pending    string
 	pendingIdx int
-	status     string
-	appr       *approveReq
+	// queued parks prompts typed while busy — enter never drops a
+	// keystroke: each prompt_end sends the next one in FIFO order (one
+	// send per end, a natural chain until the queue drains).
+	queued []string
+	// evoOn swaps the right column from the steps audit to the evolution
+	// panel (leaderboard + exam clock) — alt+e / /evolve.
+	evoOn  bool
+	status string
+	appr   *approveReq
 	// allowAll pre-authorizes a tool for the rest of the session ("a" on
 	// the overlay) — approvals now default on, so a long run must not ask
 	// the same question ten times. Deny decisions never persist.
@@ -231,25 +238,48 @@ func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) 
 }
 
 // headerLine is the pinned header plus the live session title once the
-// async intent check has recognized one, with the resident context/cost
-// gauge pinned right. Read per-frame, so a title landing between
-// prompts — or a turn's usage — shows up on the next redraw. When the
-// row can't fit both, the title side wins and the gauge drops: a
-// half-clipped money figure would read worse than none.
+// async intent check has recognized one. Read per-frame, so a title
+// landing between prompts shows on the next redraw. The context/cost
+// gauge pins the bottom-right corner instead (see inputLine) — the
+// corner the eye lands on while typing, out of the header's way.
 func (m *tuiModel) headerLine() string {
 	left := m.header + modeBadge(m.sess.Mode())
 	if t := sanitizeText(m.sess.Title()); t != "" {
 		left += paint(cDim, " · "+t)
 	}
-	seg := newGauge(m.cfg, m.sess.Stats(), m.sess.SubUsage()).headerSeg()
-	if seg == "" {
-		return left
+	return left
+}
+
+// lyonLogo is the big wordmark pinned at the top of the header ("software
+// area") — ANSI Shadow block letters for LYON. Drawn only on roomy
+// terminals (see headerRows) so small windows keep their transcript rows.
+const lyonLogo = `██╗      ██╗      ██████╗ ██╗  ██╗  
+██║      ██║     ██╔═══██╗██║  ██║  
+██║      ╚██╗ ██║██║   ██║██║ ███║  
+██║       ╚████╔╝██║   ██║██║██████║
+███████╗   ╚═══╝ ╚██████╔╝██║╚██╔══╝
+╚══════╝          ╚═════╝ ██║ ╚═╝   `
+
+// headerRows builds the pinned header block: the wordmark (roomy
+// terminals only), the identity line, and the divider that separates the
+// software area from the session area below it.
+func (m *tuiModel) headerRows() []string {
+	rows := []string{m.clip(m.headerLine())}
+	if m.width >= 46 && m.height >= 26 {
+		for _, l := range strings.Split(lyonLogo, "\n") {
+			rows = append(rows, m.clip(paint(cBold+cCyan, l)))
+		}
 	}
-	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(seg)
-	if gap < 3 { // need breathing room on both sides of the gauge
-		return left
+	rows = append(rows, m.clip(ruleRow(m.width)))
+	return rows
+}
+
+// ruleRow is a full-width dim divider between layout zones.
+func ruleRow(w int) string {
+	if w < 1 {
+		w = 1
 	}
-	return left + strings.Repeat(" ", gap) + seg
+	return paint(cDim, strings.Repeat("─", w))
 }
 
 // resetTranscript re-seeds the transcript with the banner — the opening
@@ -362,28 +392,10 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 			snap.SavedAt.Format("2006-01-02 15:04"))),
 		"",
 	)
-	// Turn markers: recorded turns are suffix-aligned with the assistant
-	// messages still in the history — compaction replaces a prefix of both
-	// with one summary line, and the compaction call itself is recorded
-	// with stop="compaction" but has no assistant message to pair with.
-	turns := make([]agent.TurnStat, 0, len(snap.Turns))
-	for _, t := range snap.Turns {
-		if t.StopReason != "compaction" {
-			turns = append(turns, t)
-		}
-	}
-	astTotal := 0
+	// No [turn N] accounting rows on replay either: the transcript shows
+	// the conversation, not its token ledger — usage lives in /stats and
+	// the corner gauge (snap.Turns is still restored for those views).
 	for _, msg := range snap.Messages {
-		if msg.Role == anthropic.BetaMessageParamRoleAssistant {
-			astTotal++
-		}
-	}
-	turnBase := len(turns) - astTotal
-	astSeen := 0
-	for _, msg := range snap.Messages {
-		if msg.Role == anthropic.BetaMessageParamRoleAssistant {
-			astSeen++
-		}
 		for _, b := range msg.Content {
 			switch {
 			case b.OfText != nil:
@@ -403,11 +415,10 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 				}
 
 			case b.OfThinking != nil:
-				// Restored thinking needs a block id to fold by: pushText
-				// tags lines with curBlk, which is 0 throughout replay, and
-				// blk==0 means "ungrouped" — renderTranscript only folds
-				// blk>0 runs. Without a fresh id here, /resume leaves
-				// thinking permanently expanded and ctrl+t does nothing.
+				// Restored thinking needs a block id so consecutive
+				// thinking runs group apart (pushText tags lines with
+				// curBlk, which is 0 throughout replay — two runs would
+				// merge into one fold). The fold itself is blk-agnostic.
 				m.thinkSeq++
 				m.curBlk = m.thinkSeq
 				m.pushText(lineThink, b.OfThinking.Thinking)
@@ -436,13 +447,6 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 				m.pushStyled(paint(cDim, "🖼 image"))
 			}
 		}
-		// The live stream prints [turn N] right after that turn's content;
-		// replay does the same so a resumed session reads like the one saved.
-		if msg.Role == anthropic.BetaMessageParamRoleAssistant {
-			if i := turnBase + astSeen - 1; i >= 0 && i < len(turns) {
-				m.pushStyled("", turnLine(turns[i]))
-			}
-		}
 	}
 	m.pushStyled("")
 	m.refresh()
@@ -455,16 +459,6 @@ func clipReplay(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
-}
-
-// turnLine renders one [turn N] accounting line — shared by the live
-// stream (EventTurnEnd) and snapshot replay, so a resumed session shows
-// the same turn markers as the conversation that was.
-func turnLine(t agent.TurnStat) string {
-	return fmt.Sprintf("%s in=%d out=%d cache_read=%d cache_create=%d stop=%s %s",
-		paint(cYellow, fmt.Sprintf("[turn %d]", t.Turn)),
-		t.Usage.Input, t.Usage.Output, t.Usage.CacheRead, t.Usage.CacheCreation,
-		t.StopReason, paint(cDim, fmt.Sprintf("%dms", t.Duration.Milliseconds())))
 }
 
 // applyEvent translates one engine event into transcript lines. Mirrors
@@ -512,15 +506,9 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		}
 
 	case agent.EventTurnEnd:
-		m.flushPend()
-		u := ev.Usage
-		if u == nil {
-			u = &agent.Usage{}
-		}
-		m.pushStyled("", turnLine(agent.TurnStat{
-			Turn: ev.Turn, StopReason: ev.StopReason, Usage: *u,
-			Duration: time.Duration(ev.DurationMS) * time.Millisecond,
-		}))
+		// Intentionally blank: the per-turn [turn N] accounting row is no
+		// longer drawn — usage lives in /stats and the corner gauge. No
+		// flushPend either: the next turn continues the same partial line.
 
 	case agent.EventCompaction:
 		m.flushPend()
@@ -543,7 +531,7 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 
 	case agent.EventError:
 		m.flushPend()
-		m.pushStyled("", paint(cRed, "error: "+sanitizeText(ev.Err)))
+		m.pushStyled("", paint(cRed, tr("error: ", "错误: ")+sanitizeText(ev.Err)))
 
 	case agent.EventPromptEnd:
 		m.flushPend()
@@ -568,23 +556,28 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 				fmt.Sprintf("%d API calls complete — press enter for the next prompt", ev.Iterations))
 		}
 		if ev.Err == agent.ErrInterrupted.Error() {
-			m.pushStyled(paint(cYellow, "⏹ interrupted"), paint(cDim, "history repaired — keep chatting"))
+			m.pushStyled(paint(cYellow, "⏹ "+tr("interrupted", "已中断")),
+				paint(cDim, tr("history repaired — keep chatting", "历史已修复 — 继续聊就好")))
 			m.status = idleStatus
 		} else if ev.Err != "" {
-			m.pushStyled(paint(cRed, "✗ prompt failed"), paint(cDim, sanitizeText(ev.Err)))
+			m.pushStyled(paint(cRed, "✗ "+tr("prompt failed", "提问失败")),
+				paint(cDim, sanitizeText(ev.Err)))
 			m.status = idleStatus
 			// 错因归纳: post-mortem the failed run while the UI idles.
 			m.kickDiagnose(ev.Err)
 		} else if budget {
-			m.pushStyled(paint(cYellow, "⚡ budget reached"),
-				paint(cDim, fmt.Sprintf("%d API calls — pending tools skipped, enter to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations)))
+			m.pushStyled(paint(cYellow, "⚡ "+tr("budget reached", "预算耗尽")),
+				paint(cDim, tr(fmt.Sprintf("%d API calls — pending tools skipped, enter to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations),
+					fmt.Sprintf("%d 次 API 调用 — 未执行的工具已跳过，enter 继续 · -max-iter / LYON_MAX_ITER 可调高", ev.Iterations))))
 			m.status = idleStatus
 			m.countRound()
 			// The grade sees the partial answer as it stands — honest,
 			// not withheld: a cut run that answered nothing scores low.
 			m.kickScore(ev.Iterations)
 		} else {
-			m.pushStyled(paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
+			m.pushStyled(paint(cGreen, "✓ "+tr("done", "完成")),
+				paint(cDim, tr(fmt.Sprintf("%d API calls", ev.Iterations),
+					fmt.Sprintf("%d 次 API 调用", ev.Iterations))))
 			m.status = idleStatus
 			// §1.4 exam clock: book one production round; every tenth
 			// round the on-duty agent sits a closed-book exam
@@ -618,7 +611,7 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 func (m *tuiModel) doResume(idx int) {
 	refs, err := agent.ListSnapshots(m.workspace)
 	if err != nil {
-		m.pushStyled(paint(cRed, "resume: "+err.Error()))
+		m.pushStyled(paint(cRed, tr("resume: ", "恢复失败: ")+err.Error()))
 		m.refresh()
 		return
 	}
@@ -631,16 +624,19 @@ func (m *tuiModel) doResume(idx int) {
 func (m *tuiModel) restoreFrom(refs []agent.SnapshotRef, idx int) {
 	switch {
 	case len(refs) == 0:
-		m.pushStyled(paint(cYellow, "no saved session for this workspace"))
+		m.pushStyled(paint(cYellow, tr("no saved session for this workspace",
+			"本工作区没有已保存的会话")))
 	case idx < 1 || idx > len(refs):
-		m.pushStyled(paint(cYellow, fmt.Sprintf("no session #%d — /sessions lists %d", idx, len(refs))))
+		m.pushStyled(paint(cYellow, tr(
+			fmt.Sprintf("no session #%d — /sessions lists %d", idx, len(refs)),
+			fmt.Sprintf("没有 #%d 号会话 — /sessions 列出 %d 个", idx, len(refs)))))
 	default:
 		loaded, err := agent.LoadSnapshotFrom(refs[idx-1].Path)
 		switch {
 		case err != nil:
-			m.pushStyled(paint(cRed, "resume: "+err.Error()))
+			m.pushStyled(paint(cRed, tr("resume: ", "恢复失败: ")+err.Error()))
 		case loaded == nil:
-			m.pushStyled(paint(cYellow, "that session is empty"))
+			m.pushStyled(paint(cYellow, tr("that session is empty", "那个会话是空的")))
 		default:
 			m.sess.Restore(*loaded)
 			m.pend = ""
@@ -662,10 +658,11 @@ func (m *tuiModel) resumeAction() {
 	refs, err := agent.ListSnapshots(m.workspace)
 	switch {
 	case err != nil:
-		m.pushStyled(paint(cRed, "resume: "+err.Error()))
+		m.pushStyled(paint(cRed, tr("resume: ", "恢复失败: ")+err.Error()))
 		m.refresh()
 	case len(refs) == 0:
-		m.pushStyled(paint(cYellow, "no saved session for this workspace"))
+		m.pushStyled(paint(cYellow, tr("no saved session for this workspace",
+			"本工作区没有已保存的会话")))
 		m.refresh()
 	case len(refs) == 1:
 		m.doResume(1)
@@ -717,20 +714,27 @@ func (m *tuiModel) showSessions() {
 	refs, err := agent.ListSnapshots(m.workspace)
 	switch {
 	case err != nil:
-		m.pushCmd(paint(cRed, "sessions: "+err.Error()))
+		m.pushCmd(paint(cRed, tr("sessions: ", "会话列表失败: ")+err.Error()))
 	case len(refs) == 0:
-		m.pushCmd(paint(cYellow, "no saved sessions for this workspace"))
+		m.pushCmd(paint(cYellow, tr("no saved sessions for this workspace",
+			"本工作区没有已保存的会话")))
 	default:
-		m.pushCmd(paint(cBold, fmt.Sprintf("saved sessions (%d, newest first)", len(refs))))
+		m.pushCmd(paint(cBold, tr(fmt.Sprintf("saved sessions (%d, newest first)", len(refs)),
+			fmt.Sprintf("已保存会话（%d 个，最新在前）", len(refs)))))
 		for i, r := range refs {
-			m.pushCmd(fmt.Sprintf("  %2d  %s  %d messages %s", i+1,
+			m.pushCmd(tr(fmt.Sprintf("  %2d  %s  %d messages %s", i+1,
 				r.SavedAt.Format("2006-01-02 15:04"), r.Messages,
-				paint(cDim, fmt.Sprintf("— /resume %d", i+1))))
+				paint(cDim, fmt.Sprintf("— /resume %d", i+1))),
+				fmt.Sprintf("  %2d  %s  %d 条消息 %s", i+1,
+					r.SavedAt.Format("2006-01-02 15:04"), r.Messages,
+					paint(cDim, fmt.Sprintf("— /resume %d", i+1)))))
 		}
 		if len(refs) > 1 {
-			m.pushCmd(paint(cDim, "/resume opens the picker — ↑/↓ choose"))
+			m.pushCmd(paint(cDim, tr("/resume opens the picker — ↑/↓ choose",
+				"/resume 打开选择器 — ↑/↓ 选择")))
 		} else {
-			m.pushCmd(paint(cDim, "/resume alone restores the newest"))
+			m.pushCmd(paint(cDim, tr("/resume alone restores the newest",
+				"裸 /resume 恢复最新一条")))
 		}
 	}
 	m.refresh()
@@ -748,9 +752,11 @@ func (m *tuiModel) rollbackAction(idx int) {
 	cps := m.sess.Checkpoints()
 	switch {
 	case len(cps) == 0:
-		m.pushCmd(paint(cYellow, "no checkpoint yet — one is captured before each prompt that had history"))
+		m.pushCmd(paint(cYellow, tr("no checkpoint yet — one is captured before each prompt that had history",
+			"还没有检查点 — 每次带历史的提问前都会自动打一个")))
 	case idx == 0:
-		m.pushCmd(paint(cBold, fmt.Sprintf("checkpoints (%d, newest first)", len(cps))))
+		m.pushCmd(paint(cBold, tr(fmt.Sprintf("checkpoints (%d, newest first)", len(cps)),
+			fmt.Sprintf("检查点（%d 个，最新在前）", len(cps)))))
 		for i, cp := range cps {
 			mark := "•"
 			if cp.Kind == "compact" {
@@ -761,25 +767,31 @@ func (m *tuiModel) rollbackAction(idx int) {
 					cp.Messages, cp.At.Format("15:04:05"))),
 				paint(cDim, fmt.Sprintf("— /rollback %d", i+1))))
 		}
-		m.pushCmd(paint(cDim, "rolling back keeps turn stats & usage — only the conversation rewinds"))
+		m.pushCmd(paint(cDim, tr("rolling back keeps turn stats & usage — only the conversation rewinds",
+			"回退保留轮次统计与用量 — 只倒回对话本身")))
 	case idx > len(cps):
-		m.pushCmd(paint(cRed, fmt.Sprintf("no slot %d — /rollback lists %d checkpoints", idx, len(cps))))
+		m.pushCmd(paint(cRed, tr(
+			fmt.Sprintf("no slot %d — /rollback lists %d checkpoints", idx, len(cps)),
+			fmt.Sprintf("没有 %d 号槽位 — /rollback 列出 %d 个检查点", idx, len(cps)))))
 	default:
 		target := cps[idx-1]
 		info, err := m.sess.Rollback(target.ID)
 		m.flushPend() // the audit belongs in the chat, after any pending text
 		if err != nil {
-			m.pushStyled(paint(cRed, "rollback: "+err.Error()))
+			m.pushStyled(paint(cRed, tr("rollback: ", "回退失败: ")+err.Error()))
 			break
 		}
 		m.pushStyled("")
 		m.pushStyled(fmt.Sprintf("%s %s",
-			paint(cYellow, "↺ rolled back"),
-			paint(cDim, fmt.Sprintf("#%d %s — %d messages restored · turns/usage kept · audit line written",
-				info.ID, info.Label, info.Messages))))
-		m.pushStyled(paint(cDim, "transcript above the marker reflects discarded turns; next prompt continues from the checkpoint"))
+			paint(cYellow, "↺ "+tr("rolled back", "已回退")),
+			paint(cDim, tr(fmt.Sprintf("#%d %s — %d messages restored · turns/usage kept · audit line written",
+				info.ID, info.Label, info.Messages),
+				fmt.Sprintf("#%d %s — 恢复 %d 条消息 · 轮次/用量保留 · 审计行已写入",
+					info.ID, info.Label, info.Messages)))))
+		m.pushStyled(paint(cDim, tr("transcript above the marker reflects discarded turns; next prompt continues from the checkpoint",
+			"标记以上的转录反映被丢弃的轮次；下次提问从检查点继续")))
 		m.pushStyled("")
-		m.status = "rolled back to #" + fmt.Sprint(info.ID)
+		m.status = tr("rolled back to #", "已回退到 #") + fmt.Sprint(info.ID)
 	}
 	m.refresh()
 }
@@ -791,44 +803,63 @@ func (m *tuiModel) doNew() {
 	m.curBlk = 0
 	m.follow = true
 	m.resetTranscript()
-	notice := "new session — history cleared"
+	notice := tr("new session — history cleared", "新会话 — 历史已清空")
 	switch {
 	case err != nil:
-		m.pushStyled(paint(cRed, "archive: "+err.Error()))
+		m.pushStyled(paint(cRed, tr("archive: ", "归档失败: ")+err.Error()))
 	case archived:
-		notice += ", previous conversation archived (/sessions to browse)"
+		notice += tr(", previous conversation archived (/sessions to browse)",
+			"，上一段对话已归档（/sessions 浏览）")
 	}
 	m.pushStyled(paint(cDim, notice), "")
 	m.status = idleStatus
 	m.refresh()
 }
 
-const idleStatus = "enter send · esc interrupt · pgup/pgdn scroll · ctrl+t think · /help"
+// idleStatus doubles as the resident key legend: it renders whenever the
+// The resident key legend — baked through tr() at init and rebuilt on
+// /lang (a var, because the language is runtime state). When the status
+// line has nothing urgent to say it falls back to this, so the shortcuts
+// are discoverable without knowing /help exists (narrow terminals clip
+// the tail).
+const (
+	idleLegendEN = "enter send · esc interrupt · pgup/pgdn scroll · ctrl+t think · alt+↑↓ steps · alt+e evolve · alt+v paste · /help"
+	idleLegendZH = "enter 发送 · esc 中断 · pgup/pgdn 滚动 · ctrl+t 思考 · alt+↑↓ 步骤 · alt+e 进化 · alt+v 粘贴 · /help"
+)
+
+var idleStatus = tr(idleLegendEN, idleLegendZH)
 
 // sugItem is one row of the slash-command popup.
 type sugItem struct{ cmd, desc string }
 
 // slashCommands is the popup's source of truth — keep it in sync with
 // slash(): every entry must be a command that slash() actually handles.
-var slashCommands = []sugItem{
-	{"/stats", "usage table — tokens, cache hits, tool latencies"},
-	{"/clear", "clear the transcript view (history kept)"},
-	{"/resume", "restore a saved session — bare /resume opens a picker"},
-	{"/sessions", "list this workspace's saved sessions"},
-	{"/new", "start a fresh session (current one archived)"},
-	{"/memory", "layered memory store — view, toggle hot, cloud sync"},
-	{"/remember", "distill this session's learnings into memory now"},
-	{"/rollback", "undo history to a checkpoint — list, or /rollback N"},
-	{"/model", "model card: context window, official params, pricing"},
-	{"/mode", "switch plan (read-only) / bypass (auto-approve) / default"},
-	{"/think", "expand/collapse thinking blocks"},
-	{"/paste", "attach the clipboard image to your next prompt (alt+v)"},
-	{"/steps", "action audit panel: bare toggles, open/close/width N"},
-	{"/route", "task classifier + model profile — /route <text> routes a task"},
-	{"/exam", "closed-book exam — /exam [class], auto every 10 rounds"},
-	{"/flow", "workflows: list · show · match · export · save <slug>"},
-	{"/help", "list commands and keys"},
-	{"/quit", "exit"},
+// Built through tr() so /lang can rebuild it (refreshBakedTexts).
+var slashCommands = buildSlashCommands()
+
+func buildSlashCommands() []sugItem {
+	return []sugItem{
+		{"/stats", tr("usage table — tokens, cache hits, tool latencies", "用量表 — token、缓存命中、工具耗时")},
+		{"/clear", tr("clear the transcript view (history kept)", "清空转录视图（会话历史保留）")},
+		{"/resume", tr("restore a saved session — bare /resume opens a picker", "恢复已保存会话 — 裸 /resume 打开选择器")},
+		{"/sessions", tr("list this workspace's saved sessions", "列出本工作区的已保存会话")},
+		{"/new", tr("start a fresh session (current one archived)", "开新会话（当前会话归档）")},
+		{"/memory", tr("layered memory store — view, toggle hot, cloud sync", "分层记忆库 — 查看、热词开关、云端同步")},
+		{"/remember", tr("distill this session's learnings into memory now", "立即把本会话的收获提炼进记忆")},
+		{"/rollback", tr("undo history to a checkpoint — list, or /rollback N", "回退历史到检查点 — 列出或 /rollback N")},
+		{"/model", tr("model card: context window, official params, pricing", "模型卡：上下文窗口、官方参数、定价")},
+		{"/mode", tr("switch plan (read-only) / bypass (auto-approve) / default", "切换 plan（只读）/ bypass（自动批准）/ default")},
+		{"/think", tr("expand/collapse thinking blocks", "展开/折叠思考块")},
+		{"/paste", tr("attach the clipboard image to your next prompt (alt+v)", "把剪贴板图片附到下一条提问（alt+v）")},
+		{"/steps", tr("action audit panel: bare toggles, open/close/width N", "操作审计面板：裸命令开关，open/close/width N")},
+		{"/evolve", tr("evolution panel: leaderboard, exam clock (alt+e)", "进化面板：分类榜单、考试时钟（alt+e）")},
+		{"/route", tr("task classifier + model profile — /route <text> routes a task", "任务分类器 + 模型画像 — /route <text> 给任务路由")},
+		{"/exam", tr("closed-book exam — /exam [class], auto every 10 rounds", "闭卷考试 — /exam [class]，每 10 轮自动考")},
+		{"/flow", tr("workflows: list · show · match · export · save <slug>", "工作流：list · show · match · export · save <slug>")},
+		{"/lang", tr("interface language: /lang zh|en", "界面语言: /lang zh|en")},
+		{"/help", tr("list commands and keys", "列出命令和快捷键")},
+		{"/quit", tr("exit", "退出")},
+	}
 }
 
 // refresh rebuilds the viewport content from the transcript.
@@ -905,7 +936,8 @@ func (m *tuiModel) suggestionRows() []string {
 		}
 	}
 	if len(m.sugs) > 1 {
-		rows = append(rows, paint(cDim, "  tab complete · ↑/↓ choose · esc close"))
+		rows = append(rows, paint(cDim, "  "+tr("tab complete · ↑/↓ choose · esc close",
+			"tab 补全 · ↑/↓ 选择 · esc 关闭")))
 	}
 	return rows
 }
@@ -914,10 +946,14 @@ func (m *tuiModel) suggestionRows() []string {
 // (newest first, the highlighted one marked), and the key hint.
 func (m *tuiModel) pickRows() []string {
 	rows := make([]string, 0, len(m.pick)+2)
-	rows = append(rows, paint(cBold, fmt.Sprintf("resume — saved sessions (%d, newest first)", len(m.pick))))
+	rows = append(rows, paint(cBold, tr(
+		fmt.Sprintf("resume — saved sessions (%d, newest first)", len(m.pick)),
+		fmt.Sprintf("恢复 — 已保存会话（%d 个，最新在前）", len(m.pick)))))
 	for i, r := range m.pick {
-		head := fmt.Sprintf("%2d  %s  %d messages", i+1,
-			r.SavedAt.Format("2006-01-02 15:04"), r.Messages)
+		head := tr(fmt.Sprintf("%2d  %s  %d messages", i+1,
+			r.SavedAt.Format("2006-01-02 15:04"), r.Messages),
+			fmt.Sprintf("%2d  %s  %d 条消息", i+1,
+				r.SavedAt.Format("2006-01-02 15:04"), r.Messages))
 		if r.Title != "" {
 			head += "  " + sanitizeText(r.Title)
 		}
@@ -927,7 +963,8 @@ func (m *tuiModel) pickRows() []string {
 			rows = append(rows, "  "+head)
 		}
 	}
-	rows = append(rows, paint(cDim, "  ↑/↓ choose · enter restore · esc close"))
+	rows = append(rows, paint(cDim, "  "+tr("↑/↓ choose · enter restore · esc close",
+		"↑/↓ 选择 · enter 恢复 · esc 关闭")))
 	return rows
 }
 
@@ -973,7 +1010,10 @@ func (m *tuiModel) renderTranscript() string {
 			i++
 			continue
 		}
-		if l.kind == lineThink && l.blk > 0 {
+		if l.kind == lineThink {
+			// Every thinking line folds, whatever its blk tag: replayed
+			// history carries blk=0 (curBlk was idle) and used to bypass
+			// the fold entirely, always rendering expanded.
 			j := i + 1
 			for j < len(m.lines) && m.lines[j].kind == lineThink && m.lines[j].blk == l.blk {
 				j++
@@ -1023,24 +1063,28 @@ func (m *tuiModel) renderTranscript() string {
 		emit(m.styleLine(l, inFence, &inFence))
 		i++
 	}
-	if m.pend != "" {
+	if m.pend != "" &&
+		(m.pendKind != lineText || !strings.HasPrefix(strings.TrimSpace(m.pend), "```")) {
 		// The partial line is styled but must not toggle fence state — it
 		// will, exactly once, when it commits as a full line. A pending
-		// thinking line belongs to the block still streaming, so it always
-		// renders: the live stream is the progress indicator. A pending
 		// fence delimiter renders nothing — the committed line will toggle
 		// and vanish, so drawing the partial first would only flash it.
-		if m.pendKind != lineText || !strings.HasPrefix(strings.TrimSpace(m.pend), "```") {
+		// A pending thinking line streams into the live block: strict fold
+		// keeps it hidden with the rest until ctrl+t expands (the header
+		// preview still shows the first committed line).
+		if m.pendKind != lineThink || m.thinkOpen {
 			emit(m.stylePending(inFence))
 		}
 	}
 	return b.String()
 }
 
-// thinkBlockOpen reports whether a block shows its body: the global toggle,
-// or the run still streaming (closed by the next non-thinking line).
+// thinkBlockOpen reports whether a block shows its body — the global
+// toggle only. The fold is strict: even the block still streaming stays
+// behind its header, so the last answer never auto-expands under a closed
+// fold; ctrl+t (or /think) opens everything.
 func (m *tuiModel) thinkBlockOpen(group []tline) bool {
-	return m.thinkOpen || group[0].blk == m.curBlk
+	return m.thinkOpen
 }
 
 // thinkHeader is the fold marker — "▸ thinking · N lines" plus a one-line
@@ -1072,9 +1116,9 @@ func (m *tuiModel) thinkHeader(group []tline, open bool) string {
 func (m *tuiModel) toggleThinking() {
 	m.thinkOpen = !m.thinkOpen
 	if m.thinkOpen {
-		m.status = "thinking expanded — ctrl+t folds again"
+		m.status = tr("thinking expanded — ctrl+t folds again", "思考已展开 — ctrl+t 再折叠")
 	} else {
-		m.status = "thinking folded — ctrl+t expands"
+		m.status = tr("thinking folded — ctrl+t expands", "思考已折叠 — ctrl+t 展开")
 	}
 	m.refresh()
 }
@@ -1230,8 +1274,32 @@ func styleTextLine(raw string) string {
 // which scrolls the altscreen frame by a line and desyncs the renderer
 // (stale rows at the bottom, top rows pushed off).
 func (m *tuiModel) View() string {
+	head := m.headerRows() // identity line + wordmark + top rule (pinned)
 	rows := m.suggestionRows()
-	avail := m.height - 3 - len(rows) // header + status + input
+	// The popup can never push the frame: chrome + one transcript row
+	// bound what it may claim — a giant list clips (windowing keeps the
+	// selection visible), same as the session picker.
+	if max := m.height - len(head) - 4; len(rows) > max {
+		if max <= 0 {
+			rows = nil
+		} else {
+			sel := m.sugIdx
+			if len(m.pick) > 0 {
+				sel = m.pickIdx + 1 // picker: row 0 is its header
+			}
+			lo := 0
+			if sel >= max {
+				lo = sel - max + 1
+			}
+			if hi := lo + max; hi > len(rows) {
+				lo = len(rows) - max
+				hi = len(rows)
+			}
+			rows = rows[lo : lo+max]
+		}
+	}
+	// -3 = bottom rule + status + input; the head carries its own rows.
+	avail := m.height - len(head) - 3 - len(rows)
 	if avail < 1 {
 		avail = 1
 	}
@@ -1243,7 +1311,12 @@ func (m *tuiModel) View() string {
 	m.vp.Height = vh
 	m.vp.SetYOffset(m.vp.YOffset) // re-clamp: Height may have just shrunk
 	var b strings.Builder
-	b.WriteString(m.clip(m.headerLine()))
+	for i, l := range head {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(l)
+	}
 	b.WriteByte('\n')
 	if m.pw > 0 {
 		b.WriteString(m.composeSplit(vh))
@@ -1254,6 +1327,8 @@ func (m *tuiModel) View() string {
 		b.WriteByte('\n')
 		b.WriteString(l)
 	}
+	b.WriteByte('\n')
+	b.WriteString(m.clip(ruleRow(m.width))) // session area │ input area
 	b.WriteByte('\n')
 	b.WriteString(m.clip(m.statusLine()))
 	b.WriteByte('\n')
@@ -1304,6 +1379,9 @@ func (m *tuiModel) cmdOutView(budget int) []string {
 func (m *tuiModel) composeSplit(vh int) string {
 	vlines := strings.Split(m.vp.View(), "\n")
 	panels := m.renderSteps(m.pw, vh)
+	if m.evoOn {
+		panels = m.renderEvolve(m.pw, vh)
+	}
 	var b strings.Builder
 	for i := 0; i < vh; i++ {
 		if i > 0 {
@@ -1351,16 +1429,47 @@ func (m *tuiModel) statusLine() string {
 		}
 		return s
 	}
+	// Async completions clear the status to "" without restoring it —
+	// fall back to the resident legend so the key hints never silently
+	// disappear after the first background event.
+	if m.status == "" {
+		return paint(cDim, idleStatus)
+	}
 	return paint(cDim, m.status)
 }
 
+// inputLine is the bottom row: the text field on the left, and the
+// resident context/cost gauge pinned to the bottom-right corner (moved
+// out of the header — the corner reads as "the session's fuel gauge"
+// while typing). Tight rows keep the input: a clipped field hurts more
+// than a missing figure.
 func (m *tuiModel) inputLine() string {
 	if m.appr != nil {
-		return paint(cGreen, "y") + paint(cDim, "=approve  ") +
-			paint(cRed, "n") + paint(cDim, "=deny  ") +
-			paint(cYellow, "a") + paint(cDim, "=always")
+		return paint(cGreen, "y") + paint(cDim, tr("=approve  ", "=批准  ")) +
+			paint(cRed, "n") + paint(cDim, tr("=deny  ", "=拒绝  ")) +
+			paint(cYellow, "a") + paint(cDim, tr("=always", "=总是允许"))
 	}
-	return m.ti.View()
+	// textinput pads its view to ti.Width, so the corner seat must be
+	// carved out of the field itself: size the field to leave the gauge
+	// its width plus a 3-cell gutter (prompt + cursor already claim 3 of
+	// the row). Under 40 cells of input the gauge goes — a cramped field
+	// hurts more than a missing figure.
+	seg := newGauge(m.cfg, m.sess.Stats(), m.sess.SubUsage()).headerSeg()
+	want := m.width - 3
+	if seg != "" {
+		if w := m.width - ansi.StringWidth(seg) - 6; w >= 40 {
+			want = w
+		} else {
+			seg = ""
+		}
+	}
+	m.ti.Width = want
+	in := m.ti.View()
+	if seg == "" {
+		return in
+	}
+	gap := m.width - ansi.StringWidth(in) - ansi.StringWidth(seg)
+	return in + strings.Repeat(" ", gap) + seg
 }
 
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1379,6 +1488,11 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuiEv:
 		m.applyEvent(msg.ev)
 		m.refresh()
+		// Queue drain: each prompt_end releases exactly one parked line
+		// (submit's busy branch), chaining until the queue runs dry.
+		if msg.ev.Type == agent.EventPromptEnd && m.kickQueued() {
+			cmds = append(cmds, m.spin.Tick)
+		}
 
 	case spinner.TickMsg:
 		if !m.busy {
@@ -1416,14 +1530,17 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.err != nil:
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
-			m.pushCmd(paint(cYellow, "remember: "+sanitizeText(msg.err.Error())))
+			m.pushCmd(paint(cYellow, tr("remember: ", "记忆失败: ")+sanitizeText(msg.err.Error())))
 		case msg.n == 0:
 			m.finishStep(msg.step, stepDone, "nothing durable to add", "")
-			m.pushCmd(paint(cDim, "remember: nothing durable to add"))
+			m.pushCmd(paint(cDim, tr("remember: nothing durable to add",
+				"remember: 没有值得留存的收获")))
 		default:
 			m.finishStep(msg.step, stepDone, fmt.Sprintf("saved %d fact(s)", msg.n), "")
-			m.pushCmd(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
-				paint(cCyan, "🧠 memory"), msg.n))
+			m.pushCmd(tr(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
+				paint(cCyan, "🧠 memory"), msg.n),
+				fmt.Sprintf("%s 已存 %d 条事实 — /memory 查看",
+					paint(cCyan, "🧠 memory"), msg.n)))
 		}
 		m.refresh()
 
@@ -1431,12 +1548,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		if msg.err != nil {
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
-			m.pushCmd(paint(cYellow, "memory sync: "+sanitizeText(msg.err.Error())))
+			m.pushCmd(paint(cYellow, tr("memory sync: ", "记忆同步失败: ")+sanitizeText(msg.err.Error())))
 		} else {
 			m.finishStep(msg.step, stepDone,
 				fmt.Sprintf("pushed %d, pulled %d", msg.pushed, msg.pulled), "")
-			m.pushCmd(fmt.Sprintf("%s sync: pushed %d, pulled %d",
-				paint(cCyan, "🧠 memory"), msg.pushed, msg.pulled))
+			m.pushCmd(tr(fmt.Sprintf("%s sync: pushed %d, pulled %d",
+				paint(cCyan, "🧠 memory"), msg.pushed, msg.pulled),
+				fmt.Sprintf("%s 同步：推送 %d，拉取 %d",
+					paint(cCyan, "🧠 memory"), msg.pushed, msg.pulled)))
 		}
 		m.refresh()
 
@@ -1498,7 +1617,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.err != nil:
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
-			m.pushCmd(paint(cYellow, "exam: "+sanitizeText(msg.err.Error())))
+			m.pushCmd(paint(cYellow, tr("exam: ", "考试失败: ")+sanitizeText(msg.err.Error())))
 		default:
 			// §1.4: file the score, apply the exam clock, echo the table —
 			// two consecutive failures by the sitting agent demote them.
@@ -1528,7 +1647,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.err != nil:
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
-			m.pushCmd(paint(cYellow, "flow save: "+sanitizeText(msg.err.Error())))
+			m.pushCmd(paint(cYellow, tr("flow save: ", "工作流保存失败: ")+sanitizeText(msg.err.Error())))
 		default:
 			m.finishStep(msg.step, stepDone,
 				fmt.Sprintf("%s — %d nodes", msg.slug, msg.nodes), "")
@@ -1562,7 +1681,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			if m.busy && !m.armedQuit {
 				if m.sess.Interrupt() {
-					m.status = "interrupting… (ctrl+c again quits)"
+					m.status = tr("interrupting… (ctrl+c again quits)", "正在中断…（再按 ctrl+c 退出）")
 				}
 				m.armedQuit = true
 				return m, nil
@@ -1572,7 +1691,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.cmdOut = nil // dismiss the command-output area too
 			if m.busy && m.sess.Interrupt() {
-				m.status = "interrupting…"
+				m.status = tr("interrupting…", "正在中断…")
 				return m, nil
 			}
 			if len(m.sugs) > 0 { // idle: close the popup first
@@ -1597,7 +1716,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, err := m.sess.SetMode(cycleMode(prev)); err == nil {
 				m.cmdOut = nil // feedback replaces, never stacks under, an old answer
 				m.pushCmd(modeSwitchLine(prev, m.sess.Mode()))
-				m.status = "mode: " + string(m.sess.Mode())
+				m.status = tr("mode: ", "模式: ") + string(m.sess.Mode())
 				m.refresh()
 			}
 			return m, nil
@@ -1607,42 +1726,59 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleThinking()
 			return m, nil
 
-		// Steps panel navigation (steps.go): walk the audit, expand the
-		// selected step, resize the column. The panel owns these while it
-		// is on; they never reach the input.
-		case "alt+up":
+		// Panel navigation (steps.go / evopanel.go): walk the audit,
+		// expand the selected step, resize the column. Every arrow also
+		// answers to alt+shift+… because IDEs (Trae) swallow plain
+		// alt+arrows. The panel owns these while it is on; they never
+		// reach the input. Selection keys are steps-only (evo panel has
+		// no selection); resize applies to both.
+		case "alt+up", "alt+shift+up":
 			m.armedQuit = false
-			if m.panelOn() {
+			if m.panelOn() && !m.evoOn {
 				m.stepMove(-1)
 			}
 			return m, nil
 
-		case "alt+down":
+		case "alt+down", "alt+shift+down":
 			m.armedQuit = false
-			if m.panelOn() {
+			if m.panelOn() && !m.evoOn {
 				m.stepMove(+1)
 			}
 			return m, nil
 
-		case "alt+enter":
+		case "alt+enter", "alt+shift+enter":
 			m.armedQuit = false
-			if m.panelOn() {
+			if m.panelOn() && !m.evoOn {
 				m.stepToggleOpen()
 			}
 			return m, nil
 
-		case "alt+right":
+		case "alt+right", "alt+shift+right":
 			m.armedQuit = false
 			if m.panelOn() {
 				m.stepResize(+4)
 			}
 			return m, nil
 
-		case "alt+left":
+		case "alt+left", "alt+shift+left":
 			m.armedQuit = false
 			if m.panelOn() {
 				m.stepResize(-4)
 			}
+			return m, nil
+
+		// alt+e flips the right column between the steps audit and the
+		// evolution panel (/evolve does the same from the slash menu).
+		case "alt+e", "alt+shift+e":
+			m.armedQuit = false
+			m.evoOn = !m.evoOn
+			m.relayout()
+			if m.evoOn {
+				m.status = tr("evolution panel · alt+e close", "进化面板 · alt+e 关闭")
+			} else {
+				m.status = idleStatus
+			}
+			m.refresh()
 			return m, nil
 
 		// alt+v pastes a picture from the clipboard (clip_windows.go): the
@@ -1655,7 +1791,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil // one read at a time
 			}
 			m.pasting = true
-			m.status = "pasting image…"
+			m.status = tr("pasting image…", "正在粘贴图片…")
 			return m, pasteCmd(m.workspace)
 
 		case "enter":
@@ -1750,7 +1886,8 @@ func (m *tuiModel) updateApproval(msg tea.KeyMsg, cmds *[]tea.Cmd) {
 }
 
 // submit handles Enter: slash commands locally, everything else through
-// the session. While a prompt is running the draft stays in the input.
+// the session. While a prompt is running the line is parked in the queue
+// instead of dropped — each prompt_end drains one (FIFO).
 func (m *tuiModel) submit() tea.Cmd {
 	line := sanitizeText(strings.TrimSpace(m.ti.Value()))
 	if line == "" {
@@ -1774,13 +1911,34 @@ func (m *tuiModel) submit() tea.Cmd {
 		}
 		m.ti.SetValue("")
 		m.updateSuggestions()
+		// Audit trail: the command lands in the transcript so ↑ can find
+		// it again — output still answers in the temporary area below.
+		// /clear wipes this line together with the rest.
+		m.flushPend()
+		m.curBlk = 0
+		m.lines = append(m.lines, tline{kind: linePrompt, raw: line}, tline{kind: lineStyled, raw: ""})
+		m.follow = true
+		m.refresh()
 		return m.slash(line)
 	}
 	if m.busy {
-		m.status = "busy — esc interrupts the current prompt"
+		// Park the draft: enter never drops a keystroke while a prompt
+		// runs. The queue drains one line per prompt_end.
+		m.ti.SetValue("")
+		m.updateSuggestions()
+		m.queued = append(m.queued, line)
+		m.status = tr(fmt.Sprintf("queued (%d) — sends when the current prompt ends", len(m.queued)),
+			fmt.Sprintf("已排队 (%d) — 当前提问结束后自动发送", len(m.queued)))
+		m.refresh()
 		return nil
 	}
+	return m.sendPrompt(line)
+}
 
+// sendPrompt runs one plain line through the session: history row,
+// transcript prompt, steps group, spinner. It is also the drain step of
+// the busy queue (kickQueued).
+func (m *tuiModel) sendPrompt(line string) tea.Cmd {
 	m.ti.SetValue("")
 	m.updateSuggestions()
 	m.cmdOut = nil // a new round clears the temporary answer area
@@ -1789,7 +1947,7 @@ func (m *tuiModel) submit() tea.Cmd {
 	m.curBlk = 0 // a fresh prompt line closes any dangling thinking block
 	m.lines = append(m.lines, tline{kind: linePrompt, raw: line}, tline{kind: lineStyled, raw: ""})
 	if err := m.sess.Submit(line); err != nil {
-		m.pushStyled(paint(cRed, "error: "+err.Error()))
+		m.pushStyled(paint(cRed, tr("error: ", "错误: ")+err.Error()))
 		m.status = idleStatus
 		m.refresh()
 		return nil
@@ -1802,6 +1960,23 @@ func (m *tuiModel) submit() tea.Cmd {
 	m.follow = true
 	m.refresh()
 	return m.spin.Tick
+}
+
+// kickQueued sends the next parked prompt — one per call, so every
+// prompt_end fires exactly the next line and the chain paces itself (an
+// esc-interrupt lands here too). A Submit error drops that line and tries
+// the following one. Reports whether a prompt is now running, so Update
+// can re-arm the spinner.
+func (m *tuiModel) kickQueued() bool {
+	for len(m.queued) > 0 && !m.busy && m.pending == "" {
+		line := m.queued[0]
+		m.queued = m.queued[1:]
+		m.sendPrompt(line)
+		if m.busy {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *tuiModel) slash(line string) tea.Cmd {
@@ -1824,7 +1999,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.showSessions() // read-only: safe even while a prompt runs
 	case "/resume", "/new":
 		if m.pending != "" {
-			m.status = m.pending + " already in progress"
+			m.status = tr(m.pending+" already in progress", m.pending+" 已在进行中")
 			return nil
 		}
 		idx := 0 // /resume only: 0 = bare (picker), N = explicit slot
@@ -1832,7 +2007,8 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			if a := strings.TrimSpace(args); a != "" {
 				var ok bool
 				if idx, ok = parseResumeIndex(a); !ok {
-					m.pushCmd(paint(cYellow, "usage: /resume [N] — /sessions lists saved sessions"))
+					m.pushCmd(paint(cYellow, tr("usage: /resume [N] — /sessions lists saved sessions",
+						"用法: /resume [N] — /sessions 列出已保存会话")))
 					m.refresh()
 					return nil
 				}
@@ -1846,7 +2022,8 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			m.pending = head
 			m.pendingIdx = idx
 			m.sess.Interrupt()
-			m.status = head[1:] + " after the current prompt…"
+			m.status = tr(head[1:]+" after the current prompt…",
+				head[1:]+" 将在当前提问结束后执行…")
 			return nil
 		}
 		switch {
@@ -1894,7 +2071,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			m.pending = "/rollback"
 			m.pendingIdx = idx
 			m.sess.Interrupt()
-			m.status = "rollback after the current prompt…"
+			m.status = tr("rollback after the current prompt…", "当前提问结束后回退…")
 			return nil
 		}
 		m.rollbackAction(idx)
@@ -1902,7 +2079,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.showModel(args)
 	case "/mode":
 		m.pushCmd(modeAction(m.sess, args))
-		m.status = "mode: " + string(m.sess.Mode())
+		m.status = tr("mode: ", "模式: ") + string(m.sess.Mode())
 	case "/think":
 		m.toggleThinking()
 	case "/route":
@@ -1917,36 +2094,56 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		case "":
 			m.stepsOn = !m.stepsOn
 			m.relayout()
-			state := "on"
+			state := tr("on", "开")
 			if !m.stepsOn {
-				state = "off"
+				state = tr("off", "关")
 			} else if !m.panelOn() {
-				state = "on (terminal too narrow — needs 110+ columns)"
+				state = tr("on (terminal too narrow — needs 110+ columns)",
+					"开（终端太窄 — 需要 110+ 列）")
 			}
-			m.status = "steps panel " + state
+			m.status = tr("steps panel ", "步骤面板 ") + state
 		case "open":
 			m.stepsOn = true
 			m.relayout()
 			m.stepToggleOpen()
 			if m.stepSel > 0 {
-				m.status = fmt.Sprintf("steps panel on — expanded #%d", m.stepSel)
+				m.status = tr(fmt.Sprintf("steps panel on — expanded #%d", m.stepSel),
+					fmt.Sprintf("步骤面板开 — 已展开 #%d", m.stepSel))
 			} else {
-				m.status = "steps panel on"
+				m.status = tr("steps panel on", "步骤面板开")
 			}
 		case "close":
 			m.stepOpen = false
-			m.status = "steps collapsed"
+			m.status = tr("steps collapsed", "步骤面板已收起")
 		case "width":
 			n, err := strconv.Atoi(strings.TrimSpace(rest))
 			if err != nil || n < panelWMin || n > panelWMax {
-				m.status = fmt.Sprintf("usage: /steps width %d..%d", panelWMin, panelWMax)
+				m.status = tr(fmt.Sprintf("usage: /steps width %d..%d", panelWMin, panelWMax),
+					fmt.Sprintf("用法: /steps width %d..%d", panelWMin, panelWMax))
 				return nil
 			}
 			m.panelW = n
 			m.relayout()
-			m.status = fmt.Sprintf("panel width %d", n)
+			m.status = tr(fmt.Sprintf("panel width %d", n), fmt.Sprintf("面板宽度 %d", n))
 		default:
-			m.status = "usage: /steps [open|close|width N]"
+			m.status = tr("usage: /steps [open|close|width N]", "用法: /steps [open|close|width N]")
+		}
+		m.refresh()
+		return nil
+	case "/evolve":
+		// The keyless twin of alt+e — flips the right column to the
+		// evolution board (per-class leaderboard + exam clock).
+		m.evoOn = !m.evoOn
+		m.relayout()
+		if m.evoOn {
+			if !m.panelOn() {
+				m.status = tr("evolution panel on (terminal too narrow — needs 110+ columns)",
+					"进化面板开（终端太窄 — 需要 110+ 列）")
+			} else {
+				m.status = tr("evolution panel on", "进化面板开")
+			}
+		} else {
+			m.status = tr("evolution panel off", "进化面板关")
 		}
 		m.refresh()
 		return nil
@@ -1957,40 +2154,89 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			return nil
 		}
 		m.pasting = true
-		m.status = "pasting image…"
+		m.status = tr("pasting image…", "正在粘贴图片…")
 		return pasteCmd(m.workspace)
+	case "/lang":
+		if a := strings.TrimSpace(args); a == "" {
+			m.status = langLine()
+		} else if setLang(a) {
+			m.status = langLine()
+		} else {
+			m.status = tr("usage: /lang zh|en", "用法: /lang zh|en")
+		}
 	case "/help":
-		m.pushCmd(
-			paint(cBold, "commands"),
-			"  /stats   usage table: tokens, cache hits, tool latencies",
-			"  /clear   clear the transcript view (session history kept)",
-			"  /resume  restore a saved session — bare /resume opens a picker (/resume N jumps to slot N)",
-			"  /sessions list this workspace's saved sessions",
-			"  /new     fresh session: current conversation archived first",
-			"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
-			"  /remember distill this session's learnings into memory now (auto-runs on exit)",
-			"  /rollback undo history: bare lists checkpoints, /rollback N restores, /rollback save [text] marks one",
-			"  /model   model card: /model current · /model list · /model <id>",
-			"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
-			"  /think   expand/collapse thinking blocks",
-			"  /paste   attach the clipboard image to your next prompt (same as alt+v)",
-			"  /steps   right-hand action audit panel: bare toggles, /steps open|close|width N",
-			"  /route   task classifier: bare shows the evidence table + model profile, /route <text> routes a task",
-			"  /exam    closed-book exam: bare classifies from last prompt, /exam <class> — auto every 10 rounds (LYON_EXAM=off)",
-			"  /flow    workflows: list · show <slug> · match <text> · export <slug> · save <slug> (freezes this session)",
-			"  /help    this help",
-			"  /quit    exit",
-			paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),
-			paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt · alt+v paste image"),
-			paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+←/→ resize"),
-			paint(cDim, "approve overlay (shell/write/edit, on by default): y once · a allow this tool all session · n deny"),
-			paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
-		)
+		m.pushCmd(helpLines()...)
 	default:
-		m.pushCmd(paint(cRed, "unknown command: "+head), paint(cDim, "try /help"))
+		m.pushCmd(paint(cRed, tr("unknown command: "+head, "未知命令: "+head)),
+			paint(cDim, tr("try /help", "试试 /help")))
 	}
 	m.refresh()
 	return nil
+}
+
+// helpLines is the /help body: the popup's descriptions in prose plus the
+// key maps. Split by language so /lang covers it wholesale.
+func helpLines() []string {
+	if uiLang == "zh" {
+		return []string{
+			paint(cBold, "命令"),
+			"  /stats   用量表：token、缓存命中、工具耗时",
+			"  /clear   清空转录视图（会话历史保留）",
+			"  /resume  恢复已保存会话 — 裸 /resume 打开选择器（/resume N 直达槽位 N）",
+			"  /sessions 列出本工作区的已保存会话",
+			"  /new     新会话：当前对话先归档",
+			"  /memory  分层记忆：团队/个人/项目行，/memory N 切换热词，sync 同步",
+			"  /remember 立即提炼本会话的收获进记忆（退出时也会自动跑）",
+			"  /rollback 回退历史：裸命令列检查点，/rollback N 恢复，/rollback save [text] 打标记",
+			"  /model   模型卡：/model current · /model list · /model <id>",
+			"  /mode    执行模式：plan（只读）· bypass（自动批准）· default — shift+tab 循环切换",
+			"  /think   展开/折叠思考块",
+			"  /paste   把剪贴板图片附到下一条提问（等同 alt+v）",
+			"  /steps   右侧操作审计面板：裸命令开关，/steps open|close|width N",
+			"  /evolve  进化面板：分类榜单、考试时钟、空缺席位（等同 alt+e）",
+			"  /route   任务分类器：裸命令显示证据表 + 模型画像，/route <text> 给任务路由",
+			"  /exam    闭卷考试：裸命令按上一条提问分类，/exam <class> — 每 10 轮自动考（LYON_EXAM=off）",
+			"  /flow    工作流：list · show <slug> · match <text> · export <slug> · save <slug>（会冻结本会话）",
+			"  /lang    界面语言：zh | en",
+			"  /help    本帮助",
+			"  /quit    退出",
+			paint(cDim, "输入 / 弹出命令列表 — ↑/↓ 选择，enter 执行 · tab 补全 · esc 关闭"),
+			paint(cDim, "快捷键：pgup/pgdn 或滚轮滚动 · ↑/↓ 提问历史 · ctrl+t 思考折叠 · shift+tab 模式 · esc 中断 · alt+v 粘贴图片"),
+			paint(cDim, "steps 面板：alt+↑/↓ 选步骤 · alt+enter 展开 · alt+←/→ 调宽 — 也接受 alt+shift+…"),
+			paint(cDim, "进化面板：alt+e（或 /evolve）— 榜单、考试时钟 · 两个面板都用 alt+←/→ 调宽"),
+			paint(cDim, "批准浮层（shell/write/edit，默认开启）：y 一次 · a 本会话内放行该工具 · n 拒绝"),
+			paint(cDim, "附件：@img.png 随提问发送图片（路径有空格要加引号：@\"my shot.png\"）"),
+		}
+	}
+	return []string{
+		paint(cBold, "commands"),
+		"  /stats   usage table: tokens, cache hits, tool latencies",
+		"  /clear   clear the transcript view (session history kept)",
+		"  /resume  restore a saved session — bare /resume opens a picker (/resume N jumps to slot N)",
+		"  /sessions list this workspace's saved sessions",
+		"  /new     fresh session: current conversation archived first",
+		"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
+		"  /remember distill this session's learnings into memory now (auto-runs on exit)",
+		"  /rollback undo history: bare lists checkpoints, /rollback N restores, /rollback save [text] marks one",
+		"  /model   model card: /model current · /model list · /model <id>",
+		"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
+		"  /think   expand/collapse thinking blocks",
+		"  /paste   attach the clipboard image to your next prompt (same as alt+v)",
+		"  /steps   right-hand action audit panel: bare toggles, /steps open|close|width N",
+		"  /evolve  evolution panel: per-class leaderboard, exam clock, open seats (same as alt+e)",
+		"  /route   task classifier: bare shows the evidence table + model profile, /route <text> routes a task",
+		"  /exam    closed-book exam: bare classifies from last prompt, /exam <class> — auto every 10 rounds (LYON_EXAM=off)",
+		"  /flow    workflows: list · show <slug> · match <text> · export <slug> · save <slug> (freezes this session)",
+		"  /lang    interface language: zh | en",
+		"  /help    this help",
+		"  /quit    exit",
+		paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),
+		paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt · alt+v paste image"),
+		paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+←/→ resize — alt+shift+… also accepted"),
+		paint(cDim, "evolution panel: alt+e (or /evolve) — leaderboard, exam clock · both panels resize with alt+←/→"),
+		paint(cDim, "approve overlay (shell/write/edit, on by default): y once · a allow this tool all session · n deny"),
+		paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
+	}
 }
 
 // showMemory handles /memory and its subcommands: bare renders the
@@ -2009,7 +2255,7 @@ func (m *tuiModel) showMemory(args string) {
 		render()
 	case args == "sync":
 		ws := m.workspace
-		m.status = "memory sync…"
+		m.status = tr("memory sync…", "正在同步记忆…")
 		step := m.pushAsyncStep(stepMemory, "memory.sync", "pushing/pulling cloud…")
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -2025,25 +2271,27 @@ func (m *tuiModel) showMemory(args string) {
 	case strings.HasPrefix(args, "forget"):
 		idx, ok := parseRowArg(strings.TrimPrefix(args, "forget"))
 		if !ok || idx > len(m.memRows) {
-			m.status = "usage: /memory forget N — N comes from the table"
+			m.status = tr("usage: /memory forget N — N comes from the table",
+				"用法: /memory forget N — N 来自表格编号")
 			return
 		}
 		f := m.memRows[idx-1]
 		if err := memory.Open(m.workspace).Delete(f.Scope, f.Name); err != nil {
-			m.status = "forget: " + err.Error()
+			m.status = tr("forget: ", "删除失败: ") + err.Error()
 			return
 		}
 		render(paint(cDim, fmt.Sprintf("forgot (%s) %s", f.Scope, f.Name)))
 	default:
 		idx, ok := parseRowArg(args)
 		if !ok || idx > len(m.memRows) {
-			m.status = "usage: /memory [N | forget N | sync | reload]"
+			m.status = tr("usage: /memory [N | forget N | sync | reload]",
+				"用法: /memory [N | forget N | sync | reload]")
 			return
 		}
 		f := m.memRows[idx-1]
 		hot, err := memory.Open(m.workspace).ToggleHot(f.Scope, f.Name)
 		if err != nil {
-			m.status = "hot: " + err.Error()
+			m.status = tr("hot: ", "热词切换失败: ") + err.Error()
 			return
 		}
 		state := "cold"
@@ -2150,10 +2398,11 @@ func (m *tuiModel) diagTrajectory(prompt, fail string) string {
 // histMu waits out any in-flight drive; the result arrives as rememberDone.
 func (m *tuiModel) rememberNow() tea.Cmd {
 	if m.busy {
-		m.status = "busy — /remember runs after the current prompt"
+		m.status = tr("busy — /remember runs after the current prompt",
+			"忙 — /remember 将在当前提问结束后执行")
 		return nil
 	}
-	m.status = "distilling learnings into memory…"
+	m.status = tr("distilling learnings into memory…", "正在把收获提炼进记忆…")
 	step := m.pushAsyncStep(stepMemory, "memory.distill", "extracting durable facts…")
 	sess := m.sess
 	go func() {

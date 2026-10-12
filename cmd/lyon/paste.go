@@ -61,17 +61,18 @@ func (m *tuiModel) attachPaste(p pasteMsg) {
 	m.pasting = false
 	switch {
 	case p.err != nil:
-		m.status = "paste: " + sanitizeText(p.err.Error())
+		m.status = tr("paste: ", "粘贴失败: ") + sanitizeText(p.err.Error())
 	case p.rel == "":
-		m.status = "paste: nothing to attach"
+		m.status = tr("paste: nothing to attach", "粘贴: 没有可附的内容")
 	default:
 		m.ti, _ = m.ti.Update(tea.KeyMsg{Type: tea.KeyRunes,
 			Runes: []rune("@" + p.rel + " ")})
 		m.updateSuggestions()
 		if p.w > 0 && p.h > 0 {
-			m.status = fmt.Sprintf("attached @%s (%dx%d)", p.rel, p.w, p.h)
+			m.status = tr(fmt.Sprintf("attached @%s (%dx%d)", p.rel, p.w, p.h),
+				fmt.Sprintf("已附上 @%s（%dx%d）", p.rel, p.w, p.h))
 		} else {
-			m.status = "attached @" + p.rel
+			m.status = tr("attached @", "已附上 @") + p.rel
 		}
 	}
 }

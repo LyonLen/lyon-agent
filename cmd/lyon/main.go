@@ -62,14 +62,14 @@ func main() {
 	case "-h", "--help", "help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, tr("unknown command %q\n\n", "未知命令 %q\n\n"), os.Args[1])
 		usage()
 		os.Exit(2)
 	}
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `lyon — high-performance general-purpose agent CLI
+	fmt.Fprint(os.Stderr, tr(`lyon — high-performance general-purpose agent CLI
 
 Usage:
   lyon run  [flags] "prompt"    run one task to completion (stdin piped also works)
@@ -81,7 +81,19 @@ Usage:
   lyon tools [flags]            list registered tools
 
 Run 'lyon <command> -h' for command flags.
-`)
+`, `lyon — 高性能通用 AI Agent 命令行
+
+用法:
+  lyon run  [flags] "prompt"    跑完一个任务（也支持管道 stdin）
+  lyon chat [flags]             交互式聊天 TUI（输入 / 唤出命令弹窗，
+                                /stats /clear /resume [N] /sessions /new
+                                /help /quit，esc 中断进行中的提问；
+                                -plain 切到行式 REPL；-c 启动时续上
+                                上次会话）
+  lyon tools [flags]            列出已注册工具
+
+运行 'lyon <command> -h' 查看该命令的旗标。
+`))
 }
 
 // multiFlag collects a repeatable string flag.
@@ -455,7 +467,8 @@ func cmdChat(args []string) int {
 		case err != nil:
 			fmt.Fprintln(os.Stderr, "resume:", err)
 		case loaded == nil:
-			fmt.Println(paint(cDim, "no saved session for this workspace — starting fresh"))
+			fmt.Println(paint(cDim, tr("no saved session for this workspace — starting fresh",
+				"本工作区没有已保存的会话 — 从头开始")))
 		default:
 			sess.Restore(*loaded)
 			snap = loaded
@@ -481,9 +494,11 @@ func cmdChat(args []string) int {
 	}
 
 	fmt.Println(paint(cBold, "lyon chat") + paint(cDim, fmt.Sprintf("  model=%s effort=%s workspace=%s", cfg.Model, cfg.Effort, cfg.Workspace)))
-	fmt.Println(paint(cDim, "commands: /stats  /model  /mode  /resume  /sessions  /new  /memory  /remember  /quit"))
+	fmt.Println(paint(cDim, tr("commands: /stats  /model  /mode  /resume  /sessions  /new  /memory  /remember  /lang  /quit",
+		"命令: /stats  /model  /mode  /resume  /sessions  /new  /memory  /remember  /lang  /quit")))
 	if snap != nil {
-		fmt.Println(paint(cDim, fmt.Sprintf("restored %d messages · %s", len(snap.Messages), snap.SavedAt.Format("2006-01-02 15:04"))))
+		fmt.Println(paint(cDim, tr(fmt.Sprintf("restored %d messages · %s", len(snap.Messages), snap.SavedAt.Format("2006-01-02 15:04")),
+			fmt.Sprintf("已恢复 %d 条消息 · %s", len(snap.Messages), snap.SavedAt.Format("2006-01-02 15:04")))))
 	} else if hint := resumeHint(cfg.Workspace, false); hint != "" { // plain: newest
 		fmt.Println(paint(cDim, hint))
 	}
@@ -518,12 +533,16 @@ func cmdChat(args []string) int {
 				cancel()
 				switch {
 				case err != nil:
-					fmt.Println(paint(cYellow, "remember: "+err.Error()))
+					fmt.Println(paint(cYellow, tr("remember: ", "记忆失败: ")+err.Error()))
 				case n == 0:
-					fmt.Println(paint(cDim, "remember: nothing durable to add"))
+					fmt.Println(paint(cDim, tr("remember: nothing durable to add",
+						"remember: 没有值得留存的收获")))
 				default:
-					fmt.Printf("%s saved %d fact(s) — /memory to review\n",
-						paint(cCyan, "🧠 memory"), n)
+					fmt.Printf("%s\n",
+						tr(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
+							paint(cCyan, "🧠 memory"), n),
+							fmt.Sprintf("%s 已存 %d 条事实 — /memory 查看",
+								paint(cCyan, "🧠 memory"), n)))
 				}
 			case "/model":
 				for _, l := range modelLines(cfg, strings.TrimSpace(args)) {
@@ -538,22 +557,37 @@ func cmdChat(args []string) int {
 				p := readPaste(cfg.Workspace)
 				switch {
 				case p.err != nil:
-					fmt.Fprintln(os.Stderr, paint(cYellow, "paste: "+p.err.Error()))
+					fmt.Fprintln(os.Stderr, paint(cYellow, tr("paste: ", "粘贴失败: ")+p.err.Error()))
 				case p.rel == "":
-					fmt.Fprintln(os.Stderr, paint(cYellow, "paste: nothing to attach"))
+					fmt.Fprintln(os.Stderr, paint(cYellow, tr("paste: nothing to attach", "粘贴: 没有可附的内容")))
 				case p.w > 0 && p.h > 0:
-					fmt.Printf("%s attached @%s (%dx%d) — include it in your next prompt\n",
-						paint(cCyan, "paste"), p.rel, p.w, p.h)
+					fmt.Printf("%s\n",
+						tr(fmt.Sprintf("%s attached @%s (%dx%d) — include it in your next prompt",
+							paint(cCyan, "paste"), p.rel, p.w, p.h),
+							fmt.Sprintf("%s 已附上 @%s（%dx%d）— 记得放进下一条提问",
+								paint(cCyan, "paste"), p.rel, p.w, p.h)))
 				default:
-					fmt.Printf("%s attached @%s — include it in your next prompt\n",
-						paint(cCyan, "paste"), p.rel)
+					fmt.Printf("%s\n",
+						tr(fmt.Sprintf("%s attached @%s — include it in your next prompt",
+							paint(cCyan, "paste"), p.rel),
+							fmt.Sprintf("%s 已附上 @%s — 记得放进下一条提问",
+								paint(cCyan, "paste"), p.rel)))
 				}
 			case "/sessions":
 				listSessions(cfg.Workspace)
+			case "/lang":
+				if a := strings.TrimSpace(args); a == "" {
+					fmt.Println(langLine())
+				} else if setLang(a) {
+					fmt.Println(langLine())
+				} else {
+					fmt.Println(paint(cYellow, tr("usage: /lang zh|en", "用法: /lang zh|en")))
+				}
 			case "/resume":
 				idx, ok := parseResumeIndex(args)
 				if !ok {
-					fmt.Println(paint(cYellow, "usage: /resume [N] — /sessions lists saved sessions"))
+					fmt.Println(paint(cYellow, tr("usage: /resume [N] — /sessions lists saved sessions",
+						"用法: /resume [N] — /sessions 列出已保存会话")))
 					continue
 				}
 				// Settle any in-flight prompt first (idle in practice —
@@ -571,20 +605,22 @@ func cmdChat(args []string) int {
 				sess.Reset()
 				switch {
 				case err != nil:
-					fmt.Fprintln(os.Stderr, paint(cRed, "archive: "+err.Error()))
-					fmt.Println(paint(cDim, "new session — history cleared"))
+					fmt.Fprintln(os.Stderr, paint(cRed, tr("archive: ", "归档失败: ")+err.Error()))
+					fmt.Println(paint(cDim, tr("new session — history cleared", "新会话 — 历史已清空")))
 				case archived:
-					fmt.Println(paint(cDim, "new session — history cleared, previous conversation archived (/sessions to browse)"))
+					fmt.Println(paint(cDim, tr("new session — history cleared, previous conversation archived (/sessions to browse)",
+						"新会话 — 历史已清空，上一段对话已归档（/sessions 浏览）")))
 				default:
-					fmt.Println(paint(cDim, "new session — history cleared"))
+					fmt.Println(paint(cDim, tr("new session — history cleared", "新会话 — 历史已清空")))
 				}
 			default:
-				fmt.Println(paint(cYellow, "unknown command: "+head+" — try /help"))
+				fmt.Println(paint(cYellow, tr("unknown command: "+head+" — try /help",
+					"未知命令: "+head+" — 试试 /help")))
 			}
 			continue
 		}
 		if err := sess.Submit(line); err != nil {
-			fmt.Fprintln(os.Stderr, paint(cRed, "error: "+err.Error()))
+			fmt.Fprintln(os.Stderr, paint(cRed, tr("error: ", "错误: ")+err.Error()))
 			continue
 		}
 		drain(sess, false)
@@ -674,13 +710,17 @@ func resumeHint(workspace string, picker bool) string {
 		return ""
 	}
 	if len(refs) == 1 {
-		return fmt.Sprintf("saved session from %s — type /resume to continue it",
-			refs[0].SavedAt.Format("2006-01-02 15:04"))
+		return tr(fmt.Sprintf("saved session from %s — type /resume to continue it",
+			refs[0].SavedAt.Format("2006-01-02 15:04")),
+			fmt.Sprintf("有 %s 的已保存会话 — 输入 /resume 继续",
+				refs[0].SavedAt.Format("2006-01-02 15:04")))
 	}
 	if picker {
-		return fmt.Sprintf("%d saved sessions — /resume to choose one, /sessions lists all", len(refs))
+		return tr(fmt.Sprintf("%d saved sessions — /resume to choose one, /sessions lists all", len(refs)),
+			fmt.Sprintf("%d 个已保存会话 — /resume 选择一个，/sessions 全部列出", len(refs)))
 	}
-	return fmt.Sprintf("%d saved sessions — /resume continues the newest, /sessions lists all", len(refs))
+	return tr(fmt.Sprintf("%d saved sessions — /resume continues the newest, /sessions lists all", len(refs)),
+		fmt.Sprintf("%d 个已保存会话 — /resume 续上最新一条，/sessions 全部列出", len(refs)))
 }
 
 // listSessions prints the workspace's session store for plain mode.
@@ -688,21 +728,25 @@ func listSessions(workspace string) {
 	refs, err := agent.ListSnapshots(workspace)
 	switch {
 	case err != nil:
-		fmt.Fprintln(os.Stderr, paint(cRed, "sessions: "+err.Error()))
+		fmt.Fprintln(os.Stderr, paint(cRed, tr("sessions: ", "会话列表失败: ")+err.Error()))
 	case len(refs) == 0:
-		fmt.Println(paint(cYellow, "no saved sessions for this workspace"))
+		fmt.Println(paint(cYellow, tr("no saved sessions for this workspace",
+			"本工作区没有已保存的会话")))
 	default:
-		fmt.Println(paint(cBold, fmt.Sprintf("saved sessions (%d, newest first)", len(refs))))
+		fmt.Println(paint(cBold, tr(fmt.Sprintf("saved sessions (%d, newest first)", len(refs)),
+			fmt.Sprintf("已保存会话（%d 个，最新在前）", len(refs)))))
 		for i, r := range refs {
 			title := ""
 			if r.Title != "" {
 				title = "  " + sanitizeText(r.Title)
 			}
-			fmt.Printf("  %2d  %s  %d messages%s  %s\n", i+1,
+			fmt.Printf(tr("  %2d  %s  %d messages%s  %s\n",
+				"  %2d  %s  %d 条消息%s  %s\n"), i+1,
 				r.SavedAt.Format("2006-01-02 15:04"), r.Messages, title,
 				paint(cDim, fmt.Sprintf("— /resume %d", i+1)))
 		}
-		fmt.Println(paint(cDim, "/resume alone restores the newest"))
+		fmt.Println(paint(cDim, tr("/resume alone restores the newest",
+			"裸 /resume 恢复最新一条")))
 	}
 }
 
@@ -712,22 +756,28 @@ func resumeInto(sess *agent.Session, workspace string, idx int) {
 	refs, err := agent.ListSnapshots(workspace)
 	switch {
 	case err != nil:
-		fmt.Fprintln(os.Stderr, paint(cRed, "resume: "+err.Error()))
+		fmt.Fprintln(os.Stderr, paint(cRed, tr("resume: ", "恢复失败: ")+err.Error()))
 	case len(refs) == 0:
-		fmt.Println(paint(cYellow, "no saved session for this workspace"))
+		fmt.Println(paint(cYellow, tr("no saved session for this workspace",
+			"本工作区没有已保存的会话")))
 	case idx < 1 || idx > len(refs):
-		fmt.Println(paint(cYellow, fmt.Sprintf("no session #%d — /sessions lists %d", idx, len(refs))))
+		fmt.Println(paint(cYellow, tr(
+			fmt.Sprintf("no session #%d — /sessions lists %d", idx, len(refs)),
+			fmt.Sprintf("没有 #%d 号会话 — /sessions 列出 %d 个", idx, len(refs)))))
 	default:
 		loaded, err := agent.LoadSnapshotFrom(refs[idx-1].Path)
 		switch {
 		case err != nil:
-			fmt.Fprintln(os.Stderr, paint(cRed, "resume: "+err.Error()))
+			fmt.Fprintln(os.Stderr, paint(cRed, tr("resume: ", "恢复失败: ")+err.Error()))
 		case loaded == nil:
-			fmt.Println(paint(cYellow, "that session is empty"))
+			fmt.Println(paint(cYellow, tr("that session is empty", "那个会话是空的")))
 		default:
 			sess.Restore(*loaded)
-			fmt.Println(paint(cDim, fmt.Sprintf("restored %d messages · %s (session #%d)",
-				len(loaded.Messages), loaded.SavedAt.Format("2006-01-02 15:04"), idx)))
+			fmt.Println(paint(cDim, tr(
+				fmt.Sprintf("restored %d messages · %s (session #%d)",
+					len(loaded.Messages), loaded.SavedAt.Format("2006-01-02 15:04"), idx),
+				fmt.Sprintf("已恢复 %d 条消息 · %s（会话 #%d）",
+					len(loaded.Messages), loaded.SavedAt.Format("2006-01-02 15:04"), idx))))
 		}
 	}
 }
@@ -802,14 +852,10 @@ func render(ev agent.Event) {
 		}
 
 	case agent.EventTurnEnd:
-		u := ev.Usage
-		if u == nil {
-			u = &agent.Usage{}
-		}
-		fmt.Printf("\n%s in=%d out=%d cache_read=%d cache_create=%d stop=%s %s\n",
-			paint(cYellow, fmt.Sprintf("[turn %d]", ev.Turn)),
-			u.Input, u.Output, u.CacheRead, u.CacheCreation,
-			ev.StopReason, paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)))
+		// The [turn N] accounting row is gone (usage lives in /stats and
+		// the TUI gauge); keep the bare newline so the next prompt or
+		// event line starts at column 0 after raw text deltas.
+		fmt.Print("\n")
 
 	case agent.EventMemoryInjected:
 		fmt.Printf("\n%s %s\n", paint(cYellow, "🧠 memory"), paint(cDim, ev.Detail))

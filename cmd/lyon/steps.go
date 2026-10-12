@@ -165,8 +165,9 @@ func (m *tuiModel) applySteps(raw json.RawMessage) bool {
 }
 
 // panelOn reports whether the right column is drawn at the current width.
+// Either panel requests it: the steps audit or the evolution board.
 func (m *tuiModel) panelOn() bool {
-	return m.stepsOn && m.width >= panelMinWidth
+	return (m.stepsOn || m.evoOn) && m.width >= panelMinWidth
 }
 
 // relayout recomputes the two column widths and re-arms the viewport.
@@ -610,7 +611,7 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	header := paint(cBold, "steps")
+	header := paint(cBold, tr("steps", "步骤"))
 	if n := len(m.steps); n > 0 {
 		header += paint(cDim, fmt.Sprintf(" · %d", n))
 	}
@@ -890,7 +891,8 @@ func (m *tuiModel) stepResize(dw int) {
 		m.panelW = panelWMax
 	}
 	m.relayout()
-	m.status = fmt.Sprintf("panel width %d", m.panelW)
+	m.status = tr(fmt.Sprintf("panel width %d", m.panelW),
+		fmt.Sprintf("面板宽度 %d", m.panelW))
 }
 
 // fitRow truncates then space-pads one panel row to exactly w cells.

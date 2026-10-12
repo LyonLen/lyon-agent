@@ -228,7 +228,7 @@ func TestGenerateScreens(t *testing.T) {
 	if os.Getenv("LYON_GEN_SCREENS") != "1" {
 		t.Skip("set LYON_GEN_SCREENS=1 to regenerate docs/screens")
 	}
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 
 	// 1. The workbench: a real multi-step run with the audit panel,
 	//    agent badges, a subagent and a memory injection.

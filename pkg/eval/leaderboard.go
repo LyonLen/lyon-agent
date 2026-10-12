@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -229,6 +230,83 @@ func (lb *Leaderboard) Status(class string) (onDuty string, rounds, examFails in
 func (lb *Leaderboard) OnDuty(class string) string {
 	onDuty, _, _ := lb.Status(class)
 	return onDuty
+}
+
+// View is a locked, render-ready snapshot of one class ledger — everything
+// the evolution panel shows. UI code must read the board through Views:
+// Record and SubmitExam mutate the maps under the mutex while the TUI
+// paints, and a direct Classes read would race them.
+type View struct {
+	Class      string
+	OnDuty     string  // "" = open seat
+	Rounds     int     // served since last exam
+	ExamFails  int     // consecutive failures
+	Cards      int     // scorecards on file, all agents
+	Mean       float64 // on-duty agent's recent-10 mean (pickLocked's metric)
+	LastAgent  string  // most recent card in the class, whoever filed it
+	LastTotal  float64
+	LastPassed bool
+	LastSource string // "exam" or "" (production)
+	LastAt     time.Time
+}
+
+// Views snapshots the ledger: the classes in order first (missing ones
+// included empty, so panel rows stay stable), then any extra classes the
+// ledger knows, sorted by name. The lock is held for the whole copy —
+// callers never touch leaderboard internals.
+func (lb *Leaderboard) Views(order []string) []View {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	seen := make(map[string]bool, len(order))
+	out := make([]View, 0, len(order)+len(lb.Classes))
+	for _, c := range order {
+		seen[c] = true
+		out = append(out, lb.viewLocked(c))
+	}
+	var extras []string
+	for c := range lb.Classes {
+		if !seen[c] {
+			extras = append(extras, c)
+		}
+	}
+	sort.Strings(extras)
+	for _, c := range extras {
+		out = append(out, lb.viewLocked(c))
+	}
+	return out
+}
+
+// viewLocked assembles one class's View. Caller holds lb.mu.
+func (lb *Leaderboard) viewLocked(class string) View {
+	v := View{Class: class}
+	b, ok := lb.Classes[class]
+	if !ok {
+		return v
+	}
+	v.OnDuty, v.Rounds, v.ExamFails = b.OnDuty, b.Rounds, b.ExamFails
+	for _, hist := range b.Agents {
+		v.Cards += len(hist)
+		if n := len(hist); n > 0 {
+			if last := hist[n-1]; last.At.After(v.LastAt) {
+				v.LastAgent, v.LastTotal = last.Agent, last.Total
+				v.LastPassed, v.LastSource, v.LastAt = last.Passed, last.Source, last.At
+			}
+		}
+	}
+	if v.OnDuty != "" {
+		if hist := b.Agents[v.OnDuty]; len(hist) > 0 {
+			n := len(hist)
+			if n > 10 {
+				n = 10
+			}
+			sum := 0.0
+			for _, sc := range hist[len(hist)-n:] {
+				sum += sc.Total
+			}
+			v.Mean = sum / float64(n)
+		}
+	}
+	return v
 }
 
 func homeDir() string {

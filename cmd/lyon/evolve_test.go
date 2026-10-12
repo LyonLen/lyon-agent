@@ -47,7 +47,7 @@ func mockTUI(t *testing.T, script []mockapi.Turn) *tuiModel {
 // "no scores yet" hint); with text it classifies and reaches the
 // workflow matcher.
 func TestShowRoute(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 	m := newTestModel(t)
 
 	m.showRoute("")
@@ -73,7 +73,7 @@ func TestShowRoute(t *testing.T) {
 // TestFlowCommands: list/show/match/export answer offline from the
 // shipped set; save without prompts refuses before any model call.
 func TestFlowCommands(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 	m := newTestModel(t)
 
 	m.cmdOut = nil
@@ -128,7 +128,7 @@ func TestFlowCommands(t *testing.T) {
 // summary and misses, and two consecutive failures by the sitting agent
 // demote them (seat open).
 func TestExamDoneHandler(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 	m := newTestModel(t)
 
 	step := m.pushAsyncStep(stepEval, "exam.coding", "round 10/10 — exam due…")
@@ -190,7 +190,7 @@ func TestExamDoneHandler(t *testing.T) {
 // exam kicks (panel row opens) — LYON_EXAM=off still books the round
 // but never fires.
 func TestCountRoundClock(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir)
 	m := mockTUI(t, nil) // empty script: if the exam goroutine runs, it gets "ok"
 	m.hist = append(m.hist, "fix the rollback bug")
@@ -260,7 +260,7 @@ func stepByN(m *tuiModel, n int) *execStep {
 // row plus a score line in the answer area; a failed grade says why
 // instead of pretending a number exists.
 func TestScoreDoneClosesStep(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 	m := newTestModel(t)
 
 	step := m.pushAsyncStep(stepEval, "score", "blind judge grading this run…")
@@ -296,7 +296,7 @@ func TestScoreDoneClosesStep(t *testing.T) {
 // even though no program is around to receive scoreDone (the filing
 // lives inside the goroutine's bookPlainRun).
 func TestKickScoreFilesCard(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir)
 	m := mockTUI(t, []mockapi.Turn{{Text: []string{"0.85"}}})
 	t.Setenv("LYON_SCORE", "on") // newTestModel parks tests at off
@@ -341,7 +341,7 @@ func TestKickScoreFilesCard(t *testing.T) {
 // ticks the exam clock — even with the judge switched off, the round
 // still counts (the LYON_EXAM split mirrored).
 func TestScorePlainCLIClock(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 	t.Setenv("LYON_SCORE", "off")
 	sess := mockSession(t, nil)
 	const prompt = "write a changelog entry for the release"
@@ -425,7 +425,7 @@ func TestExamCommandUsage(t *testing.T) {
 // all-miss answers score 1; an unknown class is a setup error. No
 // leaderboard leakage — temp home, all synchronous.
 func TestRunExamCLI(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 
 	// Correct answers for the four shipped coding questions, in order.
 	passSess := mockSession(t, []mockapi.Turn{
@@ -458,7 +458,7 @@ func TestRunExamCLI(t *testing.T) {
 // TestGatePromptCLI: a blind miss injects the gap lines into the prompt;
 // a hit passes untouched; a broken checklist degrades to a note.
 func TestGatePromptCLI(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	t.Setenv("LYON_HOME", tempDir(t))
 
 	missSess := mockSession(t, []mockapi.Turn{
 		{Text: []string{`[{"q":"What does X return on expiry?","expected":"42"}]`}},
@@ -491,7 +491,7 @@ func TestGatePromptCLI(t *testing.T) {
 // lands in the leaderboard + routing table. The failing leg scores a
 // partial run and exits non-zero.
 func TestRunFlowCLI(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir)
 	t.Setenv("LYON_FLOW_GATE", "on")
 

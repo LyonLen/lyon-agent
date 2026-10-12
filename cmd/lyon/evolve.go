@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -118,25 +117,21 @@ func (m *tuiModel) showRoute(args string) {
 			lines = append(lines, fmt.Sprintf("  %-8s %-22s conf %.2f  mean %.2f  n=%d",
 				e.Class, e.Agent, e.Confidence, e.MeanScore, e.Samples))
 		}
-		if len(lb.Classes) > 0 {
+		// Views(nil) = every ledger class, sorted — a locked snapshot,
+		// safe against Record filing cards from a scoring goroutine.
+		if views := lb.Views(nil); len(views) > 0 {
 			lines = append(lines, paint(cBold,
 				fmt.Sprintf("exams — every %d rounds the on-duty agent sits a closed-book test",
 					eval.ExamInterval)))
-			keys := make([]string, 0, len(lb.Classes))
-			for k := range lb.Classes {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, c := range keys {
-				onDuty, rounds, fails := lb.Status(c)
-				seat := onDuty
+			for _, v := range views {
+				seat := v.OnDuty
 				if seat == "" {
 					seat = "(open)"
 				}
 				line := fmt.Sprintf("  %-8s on-duty %-20s rounds %d/%d",
-					c, seat, rounds, eval.ExamInterval)
-				if fails > 0 {
-					line += fmt.Sprintf("  fails %d", fails)
+					v.Class, seat, v.Rounds, eval.ExamInterval)
+				if v.ExamFails > 0 {
+					line += fmt.Sprintf("  fails %d", v.ExamFails)
 				}
 				lines = append(lines, line)
 			}

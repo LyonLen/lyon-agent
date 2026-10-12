@@ -14,37 +14,45 @@ import (
 
 // modeStatusLine answers bare /mode.
 func modeStatusLine(m agent.Mode) string {
-	return paint(cBold, "mode: "+string(m)) + paint(cDim,
-		" — /mode default|plan|bypass · shift+tab cycles"+
+	return paint(cBold, tr("mode: ", "模式: ")+string(m)) + paint(cDim,
+		tr(" — /mode default|plan|bypass · shift+tab cycles",
+			" — /mode default|plan|bypass · shift+tab 循环切换")+
 			modeBlurb(m))
 }
 
 func modeBlurb(m agent.Mode) string {
 	switch m {
 	case agent.ModePlan:
-		return " · execution tools disabled (read-only exploration)"
+		return tr(" · execution tools disabled (read-only exploration)",
+			" · 执行类工具已禁用（只读探索）")
 	case agent.ModeBypass:
-		return " · approvals auto-approved (policy & hooks still enforced)"
+		return tr(" · approvals auto-approved (policy & hooks still enforced)",
+			" · 审批自动通过（策略与钩子仍生效）")
 	default:
-		return " · approvals ask y/n (chat default; -approve=false disables)"
+		return tr(" · approvals ask y/n (chat default; -approve=false disables)",
+			" · 审批询问 y/n（聊天默认；-approve=false 关闭）")
 	}
 }
 
 // modeSwitchLine confirms a change in the transcript.
 func modeSwitchLine(from, to agent.Mode) string {
 	if from == to {
-		return paint(cDim, "mode: "+string(to)+" (unchanged)")
+		return paint(cDim, tr("mode: ", "模式: ")+string(to)+tr(" (unchanged)", "（未变）"))
 	}
 	head := paint(cGreen, "mode → "+string(to))
 	switch to {
 	case agent.ModePlan:
-		head = paint(cYellow, "mode → plan — execution tools disabled (read-only exploration)")
+		head = paint(cYellow, tr("mode → plan — execution tools disabled (read-only exploration)",
+			"mode → plan — 执行类工具已禁用（只读探索）"))
 	case agent.ModeBypass:
-		head = paint(cRed, "mode → bypass — approvals auto-approved (policy & hooks still enforced)")
+		head = paint(cRed, tr("mode → bypass — approvals auto-approved (policy & hooks still enforced)",
+			"mode → bypass — 审批自动通过（策略与钩子仍生效）"))
 	case agent.ModeDefault:
-		head = paint(cGreen, "mode → default — shell/write/edit ask y/n again (bypass skips them)")
+		head = paint(cGreen, tr("mode → default — shell/write/edit ask y/n again (bypass skips them)",
+			"mode → default — shell/write/edit 恢复询问 y/n（bypass 会跳过）"))
 	}
-	return head + paint(cDim, "  (/mode "+string(from)+" to go back)")
+	return head + paint(cDim, tr("  (/mode "+string(from)+" to go back)",
+		"  (/mode "+string(from)+" 可切回)"))
 }
 
 // modeBadge pins the active mode into the TUI header — plan/bypass must

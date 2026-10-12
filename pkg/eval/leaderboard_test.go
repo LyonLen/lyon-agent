@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -153,5 +154,43 @@ func TestLeaderboardPersistsAcrossReloads(t *testing.T) {
 	}
 	if got := OpenLeaderboard().OnDuty("c"); got != "" {
 		t.Fatalf("corrupt board on duty = %q", got)
+	}
+}
+
+// TestViewsSnapshot: the render snapshot follows the requested class
+// order, keeps empty classes for stable panel rows, sorts ledger extras
+// after the requested set, and computes the on-duty mean over the recent
+// window — all under one lock, so the TUI never races Record.
+func TestViewsSnapshot(t *testing.T) {
+	lb := lbFor(t)
+	lb.Record("fix", Scorecard{Agent: "b-model", Total: 0.8, Passed: true})
+	lb.Record("fix", Scorecard{Agent: "b-model", Total: 0.6, Passed: true})
+	lb.Record("zzz-extra", Scorecard{Agent: "c-model", Total: 1.0, Passed: true})
+
+	views := lb.Views([]string{"coding", "fix", "general"})
+	want := []string{"coding", "fix", "general", "zzz-extra"}
+	if len(views) != len(want) {
+		t.Fatalf("views: %d rows, want %d", len(views), len(want))
+	}
+	for i, w := range want {
+		if views[i].Class != w {
+			t.Fatalf("views[%d] = %q, want %q", i, views[i].Class, w)
+		}
+	}
+	if empty := views[0]; empty.OnDuty != "" || empty.Cards != 0 {
+		t.Fatalf("empty class snapshot: %+v", empty)
+	}
+	fix := views[1]
+	if fix.OnDuty != "b-model" || fix.Cards != 2 {
+		t.Fatalf("fix snapshot: %+v", fix)
+	}
+	if math.Abs(fix.Mean-0.7) > 1e-9 {
+		t.Fatalf("fix mean: %v, want 0.7", fix.Mean)
+	}
+	if fix.LastAgent != "b-model" || fix.LastAt.IsZero() || !fix.LastPassed {
+		t.Fatalf("fix last card: %+v", fix)
+	}
+	if extra := views[3]; extra.Cards != 1 || extra.OnDuty != "c-model" {
+		t.Fatalf("extra snapshot: %+v", extra)
 	}
 }

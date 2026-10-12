@@ -164,9 +164,9 @@ func TestGaugeDisplay(t *testing.T) {
 	}
 }
 
-// TestHeaderLineGauge: the resident readout pins right on a wide
-// terminal and steps aside (title intact, no half-clipped figure) on a
-// narrow one — frame invariants hold either way.
+// TestHeaderLineGauge: the resident readout pins to the input row's
+// bottom-right corner (the header carries identity only) and steps aside
+// on a narrow one — frame invariants hold either way.
 func TestHeaderLineGauge(t *testing.T) {
 	m := newTestModel(t)
 	m.sess.Restore(agent.Snapshot{
@@ -179,16 +179,25 @@ func TestHeaderLineGauge(t *testing.T) {
 
 	m.Update(tea.WindowSizeMsg{Width: 220, Height: 30})
 	head := m.headerLine()
-	if !strings.Contains(head, "ctx ") || !strings.Contains(head, "model=") {
-		t.Fatalf("wide header missing gauge or identity: %q", stripColor(head))
+	if !strings.Contains(head, "model=") {
+		t.Fatalf("wide header missing identity: %q", stripColor(head))
+	}
+	if strings.Contains(head, "ctx ") {
+		t.Fatalf("gauge moved off the header: %q", stripColor(head))
+	}
+	if in := m.inputLine(); !strings.Contains(in, "ctx ") {
+		t.Fatalf("input row missing bottom-right gauge: %q", stripColor(in))
 	}
 	checkView(t, m, "wide with gauge")
 
-	// Narrow: gauge drops, title side survives, frame still exact.
+	// Narrow: the gauge drops from the input row (no half-clipped
+	// figure), the header identity survives, frame still exact.
 	m.Update(tea.WindowSizeMsg{Width: 70, Height: 30})
-	head = m.headerLine()
-	if strings.Contains(head, "ctx ") {
-		t.Fatalf("gauge should drop on narrow terminal: %q", stripColor(head))
+	if in := m.inputLine(); strings.Contains(in, "ctx ") {
+		t.Fatalf("gauge should drop on narrow terminal: %q", stripColor(in))
+	}
+	if head = m.headerLine(); !strings.Contains(head, "model=") {
+		t.Fatalf("narrow header lost identity: %q", stripColor(head))
 	}
 	checkView(t, m, "narrow without gauge")
 }

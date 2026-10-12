@@ -332,3 +332,81 @@ func TestTranscriptShowsReadableParams(t *testing.T) {
 		t.Fatalf("raw JSON keys leaked into transcript:\n%s", joined)
 	}
 }
+
+// TestTUIPanelKeys: alt+shift+… mirrors every panel arrow (IDEs like Trae
+// swallow plain alt+arrows), alt+e flips the right column to the evolution
+// panel, and steps-only keys go inert while it shows — resize keeps
+// working in both modes; /evolve mirrors the key.
+func TestTUIPanelKeys(t *testing.T) {
+	t.Setenv("LYON_HOME", tempDir(t))
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	for i := 0; i < 3; i++ {
+		m.applyEvent(agent.Event{
+			Type: agent.EventToolUseStart, ToolID: "t", ToolName: "read_file",
+			Input: json.RawMessage(`{"path":"f.txt"}`),
+		})
+	}
+
+	// Shift variants drive selection and resize exactly like plain alt.
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftUp, Alt: true})
+	if m.stepSel != 3 {
+		t.Fatalf("alt+shift+up: sel=%d, want 3", m.stepSel)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftUp, Alt: true})
+	if m.stepSel != 2 {
+		t.Fatalf("alt+shift+up again: sel=%d, want 2", m.stepSel)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftDown, Alt: true})
+	if m.stepSel != 3 {
+		t.Fatalf("alt+shift+down: sel=%d, want 3", m.stepSel)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftRight, Alt: true})
+	if m.panelW != panelWidth+4 {
+		t.Fatalf("alt+shift+right did not resize: panelW=%d", m.panelW)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftLeft, Alt: true})
+	if m.panelW != panelWidth {
+		t.Fatalf("alt+shift+left did not resize: panelW=%d", m.panelW)
+	}
+
+	// alt+e swaps the right column to the evolution panel.
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e"), Alt: true})
+	if !m.evoOn || !m.panelOn() {
+		t.Fatalf("alt+e did not open the panel: evoOn=%v panelOn=%v", m.evoOn, m.panelOn())
+	}
+	checkView(t, m, "evolution panel open")
+	if view := m.View(); !strings.Contains(stripColor(view), "evolution") {
+		t.Fatalf("view missing evolution header:\n%s", stripColor(view))
+	}
+	if !strings.Contains(m.status, "evolution") {
+		t.Fatalf("status silent about the panel: %q", m.status)
+	}
+
+	// Selection is steps-only: with the evolution board up, alt+↑ must
+	// not move the hidden steps selection.
+	m.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	if m.stepSel != 3 {
+		t.Fatalf("alt+up moved steps selection under evolution panel: %d", m.stepSel)
+	}
+	// Resize applies to both panels.
+	m.Update(tea.KeyMsg{Type: tea.KeyRight, Alt: true})
+	if m.panelW != panelWidth+4 {
+		t.Fatalf("resize dead in evolution mode: panelW=%d", m.panelW)
+	}
+
+	// alt+e flips back; /evolve mirrors the key both ways.
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e"), Alt: true})
+	if m.evoOn {
+		t.Fatal("second alt+e did not close the evolution panel")
+	}
+	checkView(t, m, "evolution panel closed")
+	m.slash("/evolve")
+	if !m.evoOn {
+		t.Fatal("/evolve did not open the panel")
+	}
+	m.slash("/evolve")
+	if m.evoOn {
+		t.Fatal("/evolve did not close the panel")
+	}
+}

@@ -140,7 +140,9 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 			Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 			Fallbacks:    anthropic.BetaFallbacksParamOfDefault(),
 		},
-		MaxIterations: 6,
+		// No MaxIterations cap: 0 (the SDK default) runs until the model
+		// stops calling tools — same unlimited-rounds stance as the main
+		// loop's default MaxIterations=0.
 	})
 
 	start := time.Now()
