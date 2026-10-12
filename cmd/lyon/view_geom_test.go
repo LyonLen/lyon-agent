@@ -167,8 +167,8 @@ func TestHeaderBlockGeometry(t *testing.T) {
 	}
 	for i, l := range head[1:7] {
 		s := stripColor(l)
-		if !strings.Contains(s, "█") {
-			t.Fatalf("logo row %d missing block glyphs: %q", i, s)
+		if !strings.ContainsAny(s, "█═╔╗╚╝") {
+			t.Fatalf("logo row %d missing box-drawing glyphs: %q", i, s)
 		}
 		if n := ansi.StringWidth(s); n != 36 {
 			t.Fatalf("logo row %d is %d cells, want the wordmark's 36: %q", i, n, s)

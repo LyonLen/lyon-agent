@@ -251,14 +251,11 @@ func (m *tuiModel) headerLine() string {
 }
 
 // lyonLogo is the big wordmark pinned at the top of the header ("software
-// area") — ANSI Shadow block letters for LYON. Drawn only on roomy
-// terminals (see headerRows) so small windows keep their transcript rows.
-const lyonLogo = `██╗      ██╗      ██████╗ ██╗  ██╗  
-██║      ██║     ██╔═══██╗██║  ██║  
-██║      ╚██╗ ██║██║   ██║██║ ███║  
-██║       ╚████╔╝██║   ██║██║██████║
-███████╗   ╚═══╝ ╚██████╔╝██║╚██╔══╝
-╚══════╝          ╚═════╝ ██║ ╚═╝   `
+// area") — ANSI Shadow block letters for LYON, rendered from the embedded
+// full-alphabet FIGFont (figfont.go) so letterforms come from one typeface
+// instead of hand-typed rows. Drawn only on roomy terminals (see
+// headerRows) so small windows keep their transcript rows.
+var lyonLogo = logoFont.render("LYON")
 
 // headerRows builds the pinned header block: the wordmark (roomy
 // terminals only), the identity line, and the divider that separates the
@@ -266,7 +263,7 @@ const lyonLogo = `██╗      ██╗      ██████╗ ██╗ 
 func (m *tuiModel) headerRows() []string {
 	rows := []string{m.clip(m.headerLine())}
 	if m.width >= 46 && m.height >= 26 {
-		for _, l := range strings.Split(lyonLogo, "\n") {
+		for _, l := range lyonLogo {
 			rows = append(rows, m.clip(paint(cBold+cCyan, l)))
 		}
 	}
