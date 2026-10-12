@@ -87,7 +87,9 @@ func runExamCLI(sess *agent.Session, model, class string) int {
 // still counts — the split mirrors LYON_EXAM.
 func scorePlainCLI(sess *agent.Session, model, prompt string) {
 	if !strings.EqualFold(os.Getenv("LYON_SCORE"), "off") {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// 240s, not 60s: gateway latency on thinking models was
+		// blowing the old deadline and the run filed no card.
+		ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 		defer cancel()
 		line, err := bookPlainRun(ctx, sess, model, prompt, len(sess.Stats()))
 		switch {
@@ -176,9 +178,11 @@ func runFlowCLI(sess *agent.Session, cfg agent.Config, slug, prompt string) int 
 		},
 		Shell: sh.Run,
 		Judge: func(ctx context.Context, question, out string) (bool, error) {
+			// 1024, not 64: mimo's visible thinking ate the whole
+			// 64-token budget and the empty reply always judged "no".
 			reply, err := sess.Ask(ctx,
 				"You are a strict judge. Answer exactly yes or no.",
-				question+"\n\nOutput:\n"+truncateRunes(out, 4000), 64)
+				question+"\n\nOutput:\n"+truncateRunes(out, 4000), 1024)
 			if err != nil {
 				return false, err
 			}

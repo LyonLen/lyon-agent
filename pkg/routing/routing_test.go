@@ -47,6 +47,8 @@ func TestClassifyBilingualAndSpecificity(t *testing.T) {
 		{"design the storage schema for events", ClassDesign},
 		{"设计一个三层记忆方案", ClassDesign},
 		{"research the trade-offs between sqlite and postgres", ClassResearch},
+		{"解释这段代码为什么对空切片返回 0", ClassResearch},
+		{"写一篇 README 介绍这个库的用法", ClassWriting},
 		{"implement the parser for CSV files", ClassCoding},
 		{"实现一个新的子代理功能", ClassCoding},
 		{"write a changelog entry for v2", ClassWriting},

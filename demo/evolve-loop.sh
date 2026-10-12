@@ -65,9 +65,9 @@ prompt_for() {
     fix_mean)       echo "修复 calc.Mean 的 bug：结果总比正确值小。只改 Mean，改完运行 go test ./... 确认全绿，最后用一句话总结根因。" ;;
     coding_median)  echo "在 calc 包实现函数 Median(nums []int) int：返回中位数（奇数取中间，偶数取中间两数平均向下取整；空切片返回 0）。在 calc_test.go 补测试，运行 go test ./... 确认通过，最后简述实现思路。" ;;
     coding_clamp)   echo "在 calc 包实现函数 Clamp(v, lo, hi int) int：把 v 收敛到 [lo, hi] 区间（lo > hi 时返回 lo）。在 calc_test.go 补测试，运行 go test ./... 确认通过，最后简述实现思路。" ;;
-    review)         echo "审查 calc/calc.go 的全部代码（不要修改文件），列出你发现的 bug 风险与改进建议，按严重程度排序，每条给出理由。" ;;
+    review)         echo "审查 calc/calc.go 的全部代码（不要修改文件），列出你发现的缺陷风险与改进建议，按严重程度排序，每条给出理由。" ;;
     research)       echo "阅读本项目全部代码，解释 Sum 对空切片返回 0 的设计考虑，以及这个库还有哪些边界条件值得写进测试；只分析不改代码。" ;;
-    writing)        echo "为这个库写一段中文 README 介绍：一句话定位、安装、三个函数的用法示例（各一行代码）。只输出 Markdown 文本，不改文件。" ;;
+    writing)        echo "为这个库写一篇中文 README 介绍：一句话定位、安装、三个函数的用法示例（各一行代码）。只输出 Markdown 文本，不改文件。" ;;
   esac
 }
 

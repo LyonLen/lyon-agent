@@ -157,7 +157,7 @@ var classRules = []struct {
 	{ClassReview, []string{"review", "audit", "inspect", "critique", "evaluate",
 		"评审", "审查", "审阅", "检查", "评估", "把关"}},
 	{ClassResearch, []string{"research", "compare", "investigate", "explore options", "why does",
-		"调研", "对比", "研究", "了解下", "为什么", "原理"}},
+		"调研", "对比", "研究", "了解下", "为什么", "原理", "解释", "分析"}},
 	{ClassDesign, []string{"design", "architect", "refactor plan", "trade-off", "schema design",
 		"设计", "架构", "方案", "重构规划", "权衡"}},
 	{ClassCoding, []string{"implement", "add", "build", "code", "function", "module", "test",

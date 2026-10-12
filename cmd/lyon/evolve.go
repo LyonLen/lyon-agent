@@ -39,8 +39,10 @@ const flowSaveMaxTokens = 2048
 // judgeMaxTokens bounds one blind grade: the grade itself, plus ample
 // room for the subagent-tier model's visible reasoning (mimo models
 // routinely think for hundreds of tokens before answering — a tight cap
-// truncates the reply into a thinking-only response with no grade).
-const judgeMaxTokens = 1024
+// truncates the reply into a thinking-only response with no grade;
+// 1024 was still eaten whole by thinking on longer review answers,
+// so the budget went to 4096 — the grade line itself is tiny).
+const judgeMaxTokens = 4096
 
 // examDone carries an async closed-book exam back into the loop.
 type examDone struct {
@@ -333,7 +335,11 @@ func (m *tuiModel) kickScore(iterations int) {
 	step := m.pushAsyncStep(stepEval, "score", "blind judge grading this run…")
 	sess := m.sess
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// The gateway's thinking models can queue for a while before
+		// the grade lands — 60s was missing real runs (deadline
+		// exceeded → no card); 240s keeps the async step bounded but
+		// generous. JudgeRun retries on parse failure inside it.
+		ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 		defer cancel()
 		line, err := bookPlainRun(ctx, sess, model, prompt, iterations)
 		if p := tuiProg.Load(); p != nil {

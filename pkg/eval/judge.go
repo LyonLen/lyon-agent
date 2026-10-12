@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // JudgeCap bounds what the judge sees of the task and of the answer —
@@ -46,8 +47,12 @@ func JudgeRun(ctx context.Context, ask Asker, task, answer string) (float64, err
 	}
 	// Reasoning models can burn the whole token budget on visible
 	// thinking and emit no grade at all — one retry before filing no
-	// card (the thinking length is nondeterministic).
-	if retry, rerr := ask(ctx, JudgeSystem, b.String()); rerr == nil {
+	// card (the thinking length is nondeterministic). The retry rides
+	// a detached context with its own 60s budget so a slow first ask
+	// can't squeeze it into the caller's deadline.
+	retryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+	defer cancel()
+	if retry, rerr := ask(retryCtx, JudgeSystem, b.String()); rerr == nil {
 		if g, perr := ParseGrade(retry); perr == nil {
 			return g, nil
 		}
