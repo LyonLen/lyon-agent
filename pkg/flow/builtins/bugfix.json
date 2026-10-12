@@ -1,0 +1,37 @@
+{
+  "slug": "bugfix",
+  "title": "缺陷修复标准流程",
+  "trigger": ["fix", "bug", "报错", "修复", "崩溃", "排查", "regression", "broken"],
+  "nodes": [
+    {
+      "name": "reproduce",
+      "tool": "run_shell",
+      "prompt": "复现。任务：{{input}}\n用最小步骤稳定复现该问题（命令/测试/操作路径）。回复最后一行必须是 `REPRO-OK: <如何复现>` 或 `REPRO-BLOCKED: <卡在哪>`。",
+      "exit": { "kind": "contains", "contains": "REPRO-OK" }
+    },
+    {
+      "name": "locate",
+      "tool": "grep",
+      "prompt": "定位。任务：{{input}}\n从复现出发二分/检索，找到引入问题的最小代码位置。回复最后一行必须是 `ROOT-CAUSE: <文件:行 — 为什么错>`。",
+      "exit": { "kind": "contains", "contains": "ROOT-CAUSE:" }
+    },
+    {
+      "name": "fix",
+      "tool": "edit_file",
+      "prompt": "最小修复。任务：{{input}}\n只改根因所在，不顺手重构；保持与仓库风格一致。",
+      "exit": { "kind": "always" }
+    },
+    {
+      "name": "regression",
+      "tool": "run_shell",
+      "prompt": "回归测试。任务：{{input}}\n先用能复现该 bug 的测试/命令验证已修复，再跑全量测试确认无回归；失败就修到全绿。",
+      "exit": { "kind": "command", "command": "go test ./..." }
+    },
+    {
+      "name": "summarize",
+      "tool": "run_shell",
+      "prompt": "总结。任务：{{input}}\n汇报根因、修复方式、验证证据。最后一行以 `FIXED:` 开头。",
+      "exit": { "kind": "contains", "contains": "FIXED:" }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "slug": "feature-dev",
+  "title": "功能开发标准流程",
+  "trigger": ["feature", "功能", "实现一个", "新增一个", "开发一个", "add a", "build a", "需求"],
+  "nodes": [
+    {
+      "name": "clarify",
+      "tool": "read_file",
+      "prompt": "需求澄清。任务：{{input}}\n先读相关代码/文档理解现状，再列出该功能的验收标准与不确定点。你的回复必须以 `ASSUMPTIONS:` 开头的列表收尾，逐条写出你对需求的明确假设（没有不确定点就写「无」）。",
+      "exit": { "kind": "contains", "contains": "ASSUMPTIONS:" }
+    },
+    {
+      "name": "design",
+      "tool": "read_file",
+      "prompt": "方案设计。任务：{{input}}\n基于澄清结果给出实现方案：改动点清单（文件级）、数据流、风险。只出方案，不写代码。",
+      "exit": { "kind": "always" }
+    },
+    {
+      "name": "implement",
+      "tool": "edit_file",
+      "prompt": "实现。任务：{{input}}\n严格按已定方案落地代码，保持最小改动，遵循仓库现有风格。",
+      "exit": { "kind": "always" }
+    },
+    {
+      "name": "selftest",
+      "tool": "run_shell",
+      "prompt": "自测。任务：{{input}}\n运行仓库测试套件并确认全部通过；若失败，修复后重跑，直到全绿。",
+      "exit": { "kind": "command", "command": "go test ./..." }
+    },
+    {
+      "name": "review",
+      "tool": "read_file",
+      "prompt": "自我评审。任务：{{input}}\n以评审者视角检查本次改动：正确性、边界、与方案的偏差。给出可执行的发现（文件+问题）。",
+      "exit": { "kind": "judge", "judge": "评审输出是否包含按文件列出的具体发现（正确性/边界/风险），且给出明确结论？" }
+    },
+    {
+      "name": "deliver",
+      "tool": "run_shell",
+      "prompt": "交付总结。任务：{{input}}\n汇总：改了什么、怎么验证的、遗留项。最后一行以 `DONE:` 开头。",
+      "exit": { "kind": "contains", "contains": "DONE:" }
+    }
+  ]
+}

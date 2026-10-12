@@ -1,0 +1,38 @@
+{
+  "slug": "release",
+  "title": "发布标准流程",
+  "trigger": ["release", "发布", "打 tag", "changelog", "上线", "bump version", "版本号"],
+  "nodes": [
+    {
+      "name": "status-check",
+      "tool": "run_shell",
+      "prompt": "状态检查。任务：{{input}}\n确认工作区与暂存区干净、在正确分支上；不干净先汇报再说（不要自行提交）。最后一行汇报检查结果。",
+      "exit": { "kind": "command", "command": "git diff --quiet && git diff --cached --quiet" },
+      "fallback": "abort"
+    },
+    {
+      "name": "version",
+      "tool": "run_shell",
+      "prompt": "版本号。任务：{{input}}\n按 semver 确定新版本号并更新版本文件。最后一行以 `VERSION:` 开头。",
+      "exit": { "kind": "contains", "contains": "VERSION:" }
+    },
+    {
+      "name": "changelog",
+      "tool": "write_file",
+      "prompt": "Changelog。任务：{{input}}\n为本次发布撰写 changelog 条目（Added/Changed/Fixed 分组，中文一行一条）。最后一行以 `CHANGELOG-OK` 收尾。",
+      "exit": { "kind": "contains", "contains": "CHANGELOG-OK" }
+    },
+    {
+      "name": "build-verify",
+      "tool": "run_shell",
+      "prompt": "构建验证。任务：{{input}}\n跑全量测试与构建，确保发布物可产出；失败先修复。",
+      "exit": { "kind": "command", "command": "go build ./..." }
+    },
+    {
+      "name": "tag",
+      "tool": "run_shell",
+      "prompt": "打 tag。任务：{{input}}\n为新版本创建 tag（v 前缀）并汇报。最后一行以 `TAGGED:` 开头。",
+      "exit": { "kind": "contains", "contains": "TAGGED:" }
+    }
+  ]
+}

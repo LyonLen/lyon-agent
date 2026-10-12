@@ -1,0 +1,32 @@
+{
+  "slug": "code-review",
+  "title": "代码评审标准流程",
+  "trigger": ["review", "评审", "审查", "audit", "code review", "把关", "pr "],
+  "nodes": [
+    {
+      "name": "inventory",
+      "tool": "run_shell",
+      "prompt": "变更清单。任务：{{input}}\n枚举本次要评审的变更（git diff / 指定文件），按文件列出并标注状态（新增/修改/删除）。最后一行以 `FILES:` 开头。",
+      "exit": { "kind": "contains", "contains": "FILES:" }
+    },
+    {
+      "name": "per-file",
+      "tool": "read_file",
+      "prompt": "逐文件审。任务：{{input}}\n对清单中每个文件通读相关变更，记录具体问题（位置、严重级别：blocker/major/minor/nit、理由）。",
+      "exit": { "kind": "judge", "judge": "输出是否对清单中的文件逐个给出了带严重级别（blocker/major/minor/nit）的具体问题或明确写「无问题」？" }
+    },
+    {
+      "name": "verdict",
+      "tool": "run_shell",
+      "prompt": "分类结论。任务：{{input}}\n把发现按类别汇总（正确性/测试/风格/性能），给出整体结论：approve / request changes，附理由。最后一行以 `VERDICT:` 开头。",
+      "exit": { "kind": "contains", "contains": "VERDICT:" }
+    },
+    {
+      "name": "autofix",
+      "tool": "edit_file",
+      "prompt": "必要时自动改。任务：{{input}}\n若存在可机械修复的 blocker/major（缺测试、明显笔误），直接修；否则说明为何不改。改完确保 `go build ./...` 通过。",
+      "exit": { "kind": "command", "command": "go build ./..." },
+      "fallback": "continue"
+    }
+  ]
+}
