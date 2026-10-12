@@ -479,6 +479,92 @@ hits: 3
   anthropic-sdk-go 客户端穿层、引擎级真实 tool runner 两轮循环 e2e
   （`pkg/agent/openai_gateway_test.go`：tool_call→本地执行→role:"tool" 回传→文本收尾）。
 
+## Agent 演化机制（评分 · 考核 · 路由 · workflow 冻结）
+
+设计文档 `docs/design/agent-evolution.md`。四层代码：`pkg/eval`（评分/榜单/考核/
+覆盖率/错因归纳）、`pkg/routing`（任务分类与推荐网络）、`pkg/models`（模型能力
+画像）、`pkg/flow`（机械执行器）；接线在 TUI 命令与 `lyon run` 标志上。
+
+### 生产评分与在岗榜单
+
+- **四维评分** `eval.ScoreWith`：Correctness / Efficiency / Cost / Compliance
+  加权出 Total，`DefaultThresholds` 四维全过才 Passed——在岗的都是达标的 Agent。
+- **榜单** `$LYON_HOME/leaderboard.json` 按任务类（coding/fix/review/research/
+  writing/design/data/general）分别记账：每个 Agent 保留最近 50 张记分卡，
+  每张生产记录都会重新推选 on-duty（证据最新且达标的当选）。
+- 生产记分来源：普通 run 完成后按类记账；`lyon run -flow` 的流程结果以
+  `source=flow` 入榜（correctness = 节点通过率，steps 对比节点数出效率分）。
+
+### 闭卷考核（每 10 轮）
+
+- **手写题库**：8 个任务类各 4 题，随二进制冻结分发（绝不由被考核的生产任务
+  生成），首次使用落盘 `$LYON_HOME/exams/<class>.json`——可检查、可改。
+- **闭卷** `ClosedBookSystem`：无工具、不读文件，只考权重里的知识；单题答案
+  期望串命中或关键词过半即得分，`DefaultExamPass = 0.75`（4 题过 3）。
+- **时钟**：每 10 次成功 prompt 记一轮（`ExamInterval=10`），到点且席位有人时
+  自动开考（`LYON_EXAM=off` 关触发、轮次照记）；连挂 2 次 → 撤职、席位空缺，
+  下一张生产记分卡重新选举。
+- **入口**：TUI 自动 / `/exam [class]`（裸命令从上一条 prompt 分类）；
+  `lyon run -exam auto|<class>` 先考再跑（考挂只警告，记分照存）。
+
+### 任务分类与推荐路由
+
+- `routing.Classify`：中英双语关键词计分（同分保留靠前者，顺序 fix → review →
+  research → design → coding → writing → data → general）；`Openness(text)` 给
+  任务打 0–5 开放度。
+- **推荐表** `$LYON_HOME/routing.json`：每个 (class, agent) 记运行均值分与
+  置信度 `mean × samples / (samples + 3)`——样本越多置信越高，新玩家要靠
+  真实分数挣位置。
+- **能力画像** `pkg/models`：注册表 32 个模型全部标注 Reasoning/LongHaul/
+  Openness/Speed/Thrift 五维 0–5 画像。
+- `/route` 裸命令 = 证据表 + 考核时钟 + 当前模型画像；`/route <text>` =
+  分类 + 开放度 + 该类推荐 + 画像对比（任务开放度超过模型画像时提示换将）
+  + workflow 匹配。
+
+### 知识覆盖率门禁（设计 §2）
+
+- **两段闭卷测验**：`GenSystem` 从任务生成可核对的 Q/A 清单 → `BookSystem`
+  盲答 → 对照评分；`CoverageThreshold = 0.6` 以下算缺口。
+- **定向注入**：缺口行（`问题 → 期望答案`）拼进任务正文；flow 里经 `{{input}}`
+  进入**每个节点**的 prompt。门禁本身出错只记 `gate skipped`，**永不阻断**。
+- **入口**：`lyon run -coverage`（普通 prompt 前置门禁并打印得分）；
+  `lyon run -flow` 默认挂门（`LYON_FLOW_GATE=off` 关）；`/flow save` 强制过门
+  且把缺口**烙进节点**，冻结后的文件自带这份知识。
+
+### workflow 冻结与机械执行（设计 §3）
+
+- **控制流是数据**：`Workflow{slug, title, trigger, nodes}`，节点退出判据
+  `always | command | command 退出码 | contains 标记 | judge 窄问`；失败策略
+  `retry（默认，诊断回灌后有界重试 ≤3）| abort | continue | goto:<name>`。
+  状态机选节点、判出口、限重试——**LLM 只做节点内填空（`{{input}}`），不决定
+  控制流**；tick 预算杀死 goto 死循环。
+- **内置 4 条**（`go:embed`）：`feature-dev`（澄清→设计→实现→自测→评审→交付）、
+  `bugfix`（复现→定位→修复→回归→总结）、`code-review`（盘点→逐文件→结论→
+  自动修复）、`release`（状态检查→版本→changelog→构建验证→打 tag）。
+  用户文件 `$LYON_HOME/workflows/*.json` 按 slug 覆盖内置；坏文件跳过不致命。
+- **冻结入口** `/flow save <slug>`：把本会话的 prompt 组序列化为节点——
+  前置两道门：**该任务类闭卷考核通过** + 覆盖率门禁（缺口烙入）——才落盘。
+- **执行入口**：
+  - `lyon run -flow <slug> "任务"` — CLI 机械执行：gate → 节点循环
+    （drainText 收集模型输出、`Shell.Run` 跑 command 判据、窄 judge、
+    诊断回灌）→ 结果打分入榜 + 推荐表 → 非全过退出码 1。
+  - TUI：`/flow list|show <slug>|match <text>|export <slug>` 本地即时；
+    `/flow run` 的 TUI 内执行暂未接（CLI 已验证同一执行器）。
+- **错因归纳回灌**：失败的 prompt 异步跑 `SummarizeFailure`，产出可核对
+  条件 + patch——面板显示、audit 留痕（`LYON_DIAGNOSE=off` 关）；flow 重试
+  时同一机制把约束块追加进下一次节点 prompt。
+
+### 命令与标志速查
+
+| 入口 | 作用 |
+| --- | --- |
+| `/route [text]` | 路由证据表 / 任务分类 + 推荐 + 画像对比 |
+| `/exam [class]` | 手动闭卷考核（每 10 轮自动，`LYON_EXAM=off`） |
+| `/flow list\|show\|match\|export\|save <slug>` | workflow 浏览与冻结 |
+| `lyon run -exam auto\|<class>` | 先考核后执行 |
+| `lyon run -coverage` | 覆盖率门禁 + 缺口注入 |
+| `lyon run -flow <slug>` | 机械执行 workflow，结果入榜 |
+
 ## 测试
 
 ```bash
@@ -497,4 +583,9 @@ ctrl+t 按键端到端、恢复回放、步骤面板生命周期/渲染尺寸/�
 倍率）、子代理用量记账、OpenAI 翻译层
 （协议互转、SSE 合成、错误映射、
 SDK 穿层、引擎级工具循环 e2e）、MCP 客户端、服务（SSE、metrics、会话存储）、
-mockapi（缓存模拟器可信度）、bench（性能验收）。全部无网络、无真实密钥依赖。
+演化机制（评分四维/榜单持久与连挂撤职/考核出题与判分/seed 题库落盘、
+分类与推荐表置信度、覆盖率门禁注入、flow 执行器全部分支——重试诊断回灌、
+耗尽中止、continue/goto、tick 预算、内置 workflow 结构与用户覆盖、
+TUI /route /exam /flow 与 10 轮考核时钟、CLI -exam/-coverage/-flow 端到端
+mock 打分入榜）、mockapi（缓存模拟器可信度）、bench（性能验收）。
+全部无网络、无真实密钥依赖。
