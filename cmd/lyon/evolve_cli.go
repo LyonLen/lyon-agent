@@ -21,6 +21,10 @@ import (
 	"lyon-agent/pkg/tools"
 )
 
+// autoFreezeStreak is the §3.1 bar: this many consecutive green
+// production runs freeze the workflow into the user directory.
+const autoFreezeStreak = 3
+
 // drainText runs one prompt like drain, but also collects the assistant
 // text — the flow runner's node fill. Events still stream to stdout so
 // a flow run shows its tools working.
@@ -250,6 +254,23 @@ func runFlowCLI(sess *agent.Session, cfg agent.Config, slug, prompt string) int 
 	if rounds, due := lb.CountRound(class); due {
 		fmt.Printf("  exam due (%d/%d rounds) — lyon run -exam %s …\n",
 			rounds, eval.ExamInterval, class)
+	}
+
+	// Design §3.1: a procedure that survives three consecutive green
+	// production runs is frozen into the user directory as an editable
+	// artifact — the run itself evolves the workflow set. LYON_AUTOFREEZE
+	// =off opts out.
+	if !strings.EqualFold(os.Getenv("LYON_AUTOFREEZE"), "off") {
+		if streak := flow.BumpStreak(w.Slug, res.OK); streak >= autoFreezeStreak && res.OK {
+			frozen := w
+			frozen.Slug = w.Slug + "-proven"
+			frozen.Title = fmt.Sprintf("%s (frozen after %d green runs · score %.2f · %s)",
+				w.Title, streak, sc.Total, cfg.Model)
+			if err := flow.Save(frozen); err == nil {
+				fmt.Printf("  %s workflows/%s.json\n",
+					paint(cCyan, "❄ workflow frozen →"), frozen.Slug)
+			}
+		}
 	}
 
 	if res.OK {

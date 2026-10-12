@@ -116,10 +116,17 @@ while :; do
   exam_args=()
   [ -n "$exam_class" ] && exam_args=(-exam "$exam_class")
 
+  # Every sixth round drives the frozen bugfix workflow instead of a
+  # free prompt — consecutive greens feed the §3.1 auto-freeze streak.
+  flow_args=()
+  if [[ "$task" == fix_* ]] && [ $((round % 6)) -eq 3 ]; then
+    flow_args=(-flow bugfix)
+  fi
+
   prompt=$(prompt_for "$task")
-  log "== round $round  task=$task  model=$pinned  exam=${exam_class:-none}"
-  echo "===== round $round [$pinned] task=$task exam=${exam_class:-none} =====" >>"$LOG"
-  "$RUNNER" run "${model_args[@]}" "${exam_args[@]}" \
+  log "== round $round  task=$task  model=$pinned  exam=${exam_class:-none}  flow=${flow_args[*]:-no}"
+  echo "===== round $round [$pinned] task=$task exam=${exam_class:-none} flow=${flow_args[*]:-no} =====" >>"$LOG"
+  "$RUNNER" run "${model_args[@]}" "${exam_args[@]}" "${flow_args[@]}" \
     -workspace "$WS" -stats "$prompt" >"$DEMO/round-$round.out" 2>&1
   code=$?
   cat "$DEMO/round-$round.out" >>"$LOG"
