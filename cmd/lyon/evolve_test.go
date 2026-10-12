@@ -565,3 +565,49 @@ func TestRunFlowCLI(t *testing.T) {
 		t.Fatalf("ghost slug code = %d, want 2", code)
 	}
 }
+
+// TestRoutingSwap: the consumption side of design §5 — an unpinned run
+// adopts the routing table's confident on-duty model for its class, and
+// refuses to be steered by an unproven seat.
+func TestRoutingSwap(t *testing.T) {
+	home := tempDir(t)
+	t.Setenv("LYON_HOME", home)
+	write := func(entries string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(home, "routing.json"),
+			[]byte(`{"entries":`+entries+`}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prompt := "修复 calc.Sum 少加最后一个元素的 bug"
+
+	// No table at all: run on the current model.
+	if m, _, ok := routingSwap("mimo-v2.6-flash", prompt); ok || m != "mimo-v2.6-flash" {
+		t.Fatalf("empty table: swap = %v %q, want no swap", ok, m)
+	}
+
+	// A confident fix seat takes the run.
+	write(`{"fix":{"class":"fix","agent":"mimo-v2.6-pro","model":"mimo-v2.6-pro",` +
+		`"confidence":0.62,"samples":5,"mean_score":0.83}}`)
+	m, e, ok := routingSwap("mimo-v2.6-flash", prompt)
+	if !ok || m != "mimo-v2.6-pro" || e.Class != "fix" {
+		t.Fatalf("confident seat: swap = %v %q (%+v), want mimo-v2.6-pro [fix]", ok, m, e)
+	}
+
+	// Already on the recommended model: nothing to do.
+	if _, _, ok := routingSwap("mimo-v2.6-pro", prompt); ok {
+		t.Fatal("current model already on duty — no swap expected")
+	}
+
+	// An unproven seat (too few samples / low confidence) never steers.
+	write(`{"fix":{"class":"fix","agent":"mimo-v2.5-pro","model":"mimo-v2.5-pro",` +
+		`"confidence":0.34,"samples":2,"mean_score":0.85}}`)
+	if m, _, ok := routingSwap("mimo-v2.6-flash", prompt); ok || m != "mimo-v2.6-flash" {
+		t.Fatalf("weak seat: swap = %v %q, want no swap", ok, m)
+	}
+
+	// A class with no seat falls back to the current model.
+	if m, _, ok := routingSwap("mimo-v2.6-flash", "写一篇关于路由的文章"); ok || m != "mimo-v2.6-flash" {
+		t.Fatalf("seatless class: swap = %v %q, want no swap", ok, m)
+	}
+}

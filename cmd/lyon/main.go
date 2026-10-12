@@ -337,6 +337,18 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
+	// Self-evolution closes the loop here (design §5): an unpinned run
+	// works on whoever the routing network recommends for this task's
+	// class — exams and scores change who works next. An explicit
+	// -model always wins.
+	if *cf.model == "" {
+		if model, e, ok := routingSwap(cfg.Model, prompt); ok {
+			fmt.Printf("%s [%s] %s (%d samples, confidence %.2f)\n",
+				paint(cCyan, "⇄ routing"), e.Class, model, e.Samples, e.Confidence)
+			cfg.Model = model
+		}
+	}
+
 	eng, mgr, err := cf.buildEngine(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

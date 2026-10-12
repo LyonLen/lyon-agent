@@ -40,7 +40,19 @@ func JudgeRun(ctx context.Context, ask Asker, task, answer string) (float64, err
 	if err != nil {
 		return 0, err
 	}
-	return ParseGrade(reply)
+	g, err := ParseGrade(reply)
+	if err == nil {
+		return g, nil
+	}
+	// Reasoning models can burn the whole token budget on visible
+	// thinking and emit no grade at all — one retry before filing no
+	// card (the thinking length is nondeterministic).
+	if retry, rerr := ask(ctx, JudgeSystem, b.String()); rerr == nil {
+		if g, perr := ParseGrade(retry); perr == nil {
+			return g, nil
+		}
+	}
+	return 0, err
 }
 
 var (
@@ -68,7 +80,13 @@ func ParseGrade(s string) (float64, error) {
 	if m := gradeAny.FindString(s); m != "" {
 		return normGrade(m)
 	}
-	return 0, errors.New("grade: no number in judge reply")
+	// Keep a snippet of the offending reply in the error — "no number"
+	// alone is undebuggable when a new judge model answers in prose.
+	snippet := strings.Join(strings.Fields(s), " ")
+	if r := []rune(snippet); len(r) > 120 {
+		snippet = string(r[:120]) + "…"
+	}
+	return 0, errors.New("grade: no number in judge reply: " + strconv.Quote(snippet))
 }
 
 // normGrade maps a numeric token onto 0..1: bare 0..1 passes through,

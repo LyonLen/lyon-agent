@@ -26,15 +26,21 @@ import (
 	"lyon-agent/pkg/routing"
 )
 
-// examMaxTokens bounds one closed-book answer: a paragraph of facts.
-const examMaxTokens = 350
+// examMaxTokens bounds one closed-book answer: a paragraph of facts,
+// with headroom for the subagent-tier model's visible reasoning (mimo
+// models think before answering — a too-tight cap truncates the reply
+// before any answer text appears).
+const examMaxTokens = 1500
 
 // flowSaveMaxTokens bounds the gate's checklist generation and blind
 // answers during a /flow save.
-const flowSaveMaxTokens = 700
+const flowSaveMaxTokens = 2048
 
-// judgeMaxTokens bounds one blind grade: a number, nothing more.
-const judgeMaxTokens = 16
+// judgeMaxTokens bounds one blind grade: the grade itself, plus ample
+// room for the subagent-tier model's visible reasoning (mimo models
+// routinely think for hundreds of tokens before answering — a tight cap
+// truncates the reply into a thinking-only response with no grade).
+const judgeMaxTokens = 1024
 
 // examDone carries an async closed-book exam back into the loop.
 type examDone struct {
@@ -297,6 +303,20 @@ func bookPlainRun(ctx context.Context, sess *agent.Session, model, prompt string
 	routing.Open().Record(class, model, model, sc.Total)
 	return fmt.Sprintf("score %.2f (judge %.0f%%) → leaderboard [%s]",
 		sc.Total, judge*100, class), nil
+}
+
+// routingSwap is design §5's consumption side: for an unpinned run,
+// consult the routing table for the prompt's class and recommend the
+// on-duty model once its seat has earned confidence (≥3 samples and
+// confidence ≥0.35 — one lucky try never steers traffic). Returns the
+// model to use and the entry that decided it.
+func routingSwap(current, prompt string) (string, routing.Entry, bool) {
+	class := string(routing.Classify(prompt))
+	e, ok := routing.Open().Lookup(class)
+	if !ok || e.Model == "" || e.Model == current || e.Samples < 3 || e.Confidence < 0.35 {
+		return current, e, false
+	}
+	return e.Model, e, true
 }
 
 // kickScore grades the prompt that just finished: one cheap
