@@ -54,7 +54,8 @@ const (
 	EvHookError     = "hook_error"
 	EvMemorySave    = "memory_save"
 	EvRollback      = "rollback"
-	EvMode          = "mode" // plan/bypass/default switch (audit trail)
+	EvMode          = "mode"      // plan/bypass/default switch (audit trail)
+	EvDiagnosis     = "diagnosis" // failure post-mortem (错因归纳) writeback
 )
 
 // Record is one audit line and one hook payload — the JSON external hooks

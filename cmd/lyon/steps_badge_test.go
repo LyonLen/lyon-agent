@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -148,6 +150,24 @@ func TestDiagnoseLifecycle(t *testing.T) {
 	out := m.cmdOutText()
 	if !strings.Contains(out, "错因归纳") || !strings.Contains(out, "update the fixture") {
 		t.Fatalf("answer area lacks post-mortem:\n%s", out)
+	}
+
+	// Writeback: the post-mortem lands in the audit log (§1.3 record).
+	m.sess.Hooks().Flush()
+	files, _ := filepath.Glob(filepath.Join(os.Getenv("LYON_HOME"), "audit", "*.jsonl"))
+	wroteBack := false
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), `"event":"diagnosis"`) {
+			wroteBack = true
+			break
+		}
+	}
+	if !wroteBack {
+		t.Fatalf("diagnosis not written to audit (files: %v)", files)
 	}
 
 	// Error leg: the row closes as failed, never dangling.

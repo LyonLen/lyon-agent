@@ -84,6 +84,11 @@ type Deps struct {
 	// Diagnose post-mortems a failed attempt and returns the constraint
 	// block to append before the retry ("" when nothing actionable).
 	Diagnose func(ctx context.Context, prompt, output, fail string) (string, error)
+	// Gate is the §2 knowledge-coverage pre-flight (may be nil): run once
+	// before the first tick against the task. ok = passed the threshold;
+	// inject = the gap lines to fold into the task when it missed. A gate
+	// error never blocks the run — a broken quiz degrades to no quiz.
+	Gate func(ctx context.Context, task string) (ok bool, inject []string, err error)
 	// Step reports progress (each attempt's verdict) — the TUI's panel
 	// rows and the plain REPL's status lines hang off it. May be nil.
 	Step func(node string, attempt, max int, ok bool, note string)
@@ -98,6 +103,12 @@ type Result struct {
 	Attempts   int               `json:"attempts"`         // total node runs
 	Outputs    map[string]string `json:"outputs,omitempty"`
 	Err        string            `json:"error,omitempty"` // transport / context failure
+	// Gated marks that the coverage pre-flight ran; Injected carries the
+	// gap lines folded into {{input}} when it missed (design §2.2 —
+	// 定向注入). GateNote records a skipped/broken gate, never fatal.
+	Gated    bool     `json:"gated,omitempty"`
+	Injected []string `json:"injected,omitempty"`
+	GateNote string   `json:"gate_note,omitempty"`
 }
 
 // indexOf finds a node by name (-1 when absent).
@@ -118,6 +129,28 @@ func Execute(ctx context.Context, w *Workflow, input string, deps Deps) Result {
 	if len(w.Nodes) == 0 {
 		res.OK = true
 		return res
+	}
+	// Knowledge-coverage pre-flight (§2): a miss injects the gap lines
+	// into the task, so every node's {{input}} carries them — the
+	// mechanical twin of PushSystemNote injection at the session layer.
+	if deps.Gate != nil {
+		ok, inject, err := deps.Gate(ctx, input)
+		switch {
+		case err != nil:
+			res.GateNote = "gate skipped: " + err.Error()
+		default:
+			res.Gated = true
+			if !ok {
+				res.Injected = inject
+				if len(inject) > 0 {
+					input += "\n\nKnowledge gaps from the pre-flight coverage quiz — answer every node with these in mind:\n- " +
+						strings.Join(inject, "\n- ")
+					res.GateNote = "coverage below threshold — gaps injected"
+				} else {
+					res.GateNote = "coverage below threshold — nothing to inject"
+				}
+			}
+		}
 	}
 	budget := len(w.Nodes)*(MaxAttempts+1) + tickBudgetBase
 

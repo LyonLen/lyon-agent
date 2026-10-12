@@ -22,6 +22,7 @@ import (
 
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/eval"
+	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/memory"
 	"lyon-agent/pkg/tools"
 )
@@ -1375,6 +1376,11 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.err != nil:
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
+			m.sess.Hooks().Fire(hooks.Record{
+				Event:   hooks.EvDiagnosis,
+				IsError: true,
+				Err:     sanitizeText(msg.err.Error()),
+			})
 		default:
 			d := msg.diag
 			detail := strings.Join(d.FailedConditions, "; ")
@@ -1395,6 +1401,13 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				lines = append(lines, paint(cDim, "patch: "+sanitizeText(d.Patch)))
 			}
 			m.pushCmd(lines...)
+			// Writeback: the post-mortem joins the audit log — the §1.3
+			// record a later session can recall (and the flow retry hook
+			// pattern reads from).
+			m.sess.Hooks().Fire(hooks.Record{
+				Event:  hooks.EvDiagnosis,
+				Output: sanitizeText(d.String()),
+			})
 		}
 		m.refresh()
 
