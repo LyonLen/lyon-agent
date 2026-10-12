@@ -822,10 +822,12 @@ func render(ev agent.Event) {
 
 	case agent.EventToolUseStart:
 		if ev.Server {
-			fmt.Printf("\n%s %s %s\n", paint(cMagenta, "🌐 server"), ev.ToolName,
+			fmt.Printf("\n%s%s %s %s\n", indTool, paint(cMagenta, "🌐 server"), ev.ToolName,
 				paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160)))
 		} else {
-			fmt.Printf("\n%s %s %s\n", paint(cCyan, "⚒ tool_use"), ev.ToolName, paint(cDim, ev.ToolID))
+			// Compact intent row: no API call id (noise), and the live
+			// event carries no input — the exec row shows the arguments.
+			fmt.Printf("\n%s%s %s\n", indTool, paint(cCyan, "⚒"), ev.ToolName)
 		}
 
 	case agent.EventServerToolResult:
@@ -833,21 +835,29 @@ func render(ev agent.Event) {
 		if ev.IsError {
 			marker = paint(cRed, "⤷ error")
 		}
-		fmt.Printf("%s %s %s\n", marker, ev.ToolName, paint(cDim, shortJSON(ev.Input, 240)))
+		fmt.Printf("%s%s %s %s\n", indExec, marker, ev.ToolName, paint(cDim, shortJSON(ev.Input, 240)))
 
 	case agent.EventToolExecStart:
-		fmt.Printf("%s #%d %s %s\n",
+		ind := indExec
+		if ev.Sub {
+			ind = indSub
+		}
+		fmt.Printf("%s%s #%d %s %s\n", ind,
 			paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName,
 			paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160)))
 
 	case agent.EventToolExecEnd:
+		ind := indExec
+		if ev.Sub {
+			ind = indSub
+		}
 		if ev.IsError {
-			fmt.Printf("%s #%d %s %s %s\n",
-				paint(cRed, "✘ done"), ev.ExecID, ev.ToolName,
+			fmt.Printf("%s%s #%d %s %s\n", ind,
+				paint(cRed, "✘ done"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)), paint(cRed, ev.Err))
 		} else {
-			fmt.Printf("%s #%d %s %s\n",
-				paint(cGreen, "✔ done"), ev.ExecID, ev.ToolName,
+			fmt.Printf("%s%s #%d %s\n", ind,
+				paint(cGreen, "✔ done"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)))
 		}
 

@@ -423,7 +423,7 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 
 			case b.OfToolUse != nil:
 				in, _ := json.Marshal(b.OfToolUse.Input)
-				m.pushStyled(fmt.Sprintf("%s %s %s", paint(cCyan, "⚒ tool_use"),
+				m.pushStyled(indTool + fmt.Sprintf("%s %s %s", paint(cCyan, "⚒"),
 					b.OfToolUse.Name, paint(cDim,
 						truncateRunes(stepArgPreview(b.OfToolUse.Name, in), 160))))
 
@@ -458,6 +458,15 @@ func clipReplay(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// Transcript indentation for the event hierarchy: tool calls sit one
+// level under the turn's prose, executions under their tool_use, and
+// subagent-inner executions one level deeper still.
+const (
+	indTool = "  "     // tool_use / server / subagent-summary rows
+	indExec = "    "   // exec / done / result rows
+	indSub  = "      " // exec / done inside a run_subagent
+)
+
 // applyEvent translates one engine event into transcript lines. Mirrors
 // render()'s plain-mode styling, minus the immediate stdout writes.
 func (m *tuiModel) applyEvent(ev agent.Event) {
@@ -472,11 +481,13 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 	case agent.EventToolUseStart:
 		m.flushPend()
 		if ev.Server {
-			m.pushStyled(fmt.Sprintf("%s %s %s", paint(cMagenta, "🌐 server"), ev.ToolName,
+			m.pushStyled(indTool + fmt.Sprintf("%s %s %s", paint(cMagenta, "🌐 server"), ev.ToolName,
 				paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160))))
 		} else {
-			m.pushStyled(fmt.Sprintf("%s %s %s", paint(cCyan, "⚒ tool_use"), ev.ToolName,
-				paint(cDim, ev.ToolID)))
+			// A compact intent row: the API call id is noise to a reader,
+			// and the live tool_use event carries no input yet — the exec
+			// row right below shows the actual arguments.
+			m.pushStyled(indTool + paint(cCyan, "⚒ "+ev.ToolName))
 		}
 
 	case agent.EventServerToolResult:
@@ -485,20 +496,30 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		if ev.IsError {
 			marker = paint(cRed, "⤷ error")
 		}
-		m.pushStyled(fmt.Sprintf("%s %s %s", marker, ev.ToolName, paint(cDim, shortJSON(ev.Input, 240))))
+		m.pushStyled(indExec + fmt.Sprintf("%s %s %s", marker, ev.ToolName, paint(cDim, shortJSON(ev.Input, 240))))
 
 	case agent.EventToolExecStart:
 		m.flushPend()
-		m.pushStyled(fmt.Sprintf("%s #%d %s %s", paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName,
+		// Executions nest under their tool_use row (and subagent-inner
+		// ones one level deeper); arguments live on this row.
+		ind := indExec
+		if ev.Sub {
+			ind = indSub
+		}
+		m.pushStyled(ind + fmt.Sprintf("%s #%d %s %s", paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName,
 			paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160))))
 
 	case agent.EventToolExecEnd:
 		m.flushPend()
+		ind := indExec
+		if ev.Sub {
+			ind = indSub
+		}
 		if ev.IsError {
-			m.pushStyled(fmt.Sprintf("%s #%d %s %s %s", paint(cRed, "✘ done"), ev.ExecID, ev.ToolName,
+			m.pushStyled(ind + fmt.Sprintf("%s #%d %s %s", paint(cRed, "✘ done"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)), paint(cRed, sanitizeText(ev.Err))))
 		} else {
-			m.pushStyled(fmt.Sprintf("%s #%d %s %s", paint(cGreen, "✔ done"), ev.ExecID, ev.ToolName,
+			m.pushStyled(ind + fmt.Sprintf("%s #%d %s", paint(cGreen, "✔ done"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS))))
 		}
 
@@ -521,7 +542,7 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		if u == nil {
 			u = &agent.Usage{}
 		}
-		m.pushStyled(fmt.Sprintf("%s %s in=%d out=%d cache_read=%d %s %s",
+		m.pushStyled(indTool + fmt.Sprintf("%s %s in=%d out=%d cache_read=%d %s %s",
 			paint(cCyan, "🧠 subagent"), ev.ToolName,
 			u.Input, u.Output, u.CacheRead, sanitizeText(ev.Detail),
 			paint(cDim, fmt.Sprintf("%dms", ev.DurationMS))))
