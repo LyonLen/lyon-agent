@@ -55,7 +55,8 @@ go run ./cmd/lyon tools                                     # 列出全部工具
 ```
 
 常用旗标：`-model` `-effort` `-workspace`（shell/文件禁闭根）`-approve`（shell/写
-文件前人工确认）`-shell-allow echo,ls,git`（白名单）`-mcp name=cmd args`（接 MCP 服
+文件前人工确认；**chat 交互式默认开启**，`-approve=false` 关、管道 stdin 不弹防脚本
+卡死，`lyon run` 仅显式 `-approve` 时开启）`-shell-allow echo,ls,git`（白名单）`-mcp name=cmd args`（接 MCP 服
 务器）`-mcp-http name=url` `-prewarm`（首 prompt 前预热缓存）`-max-turns N`（全局
 并发 turn 上限）`-web-tools server|client|off`。
 
@@ -93,8 +94,11 @@ command），无匹配则照常作为本地命令处理；`esc` 关闭后继续�
 命令：`/stats` 用量与缓存命中表 · `/clear` 清屏（会话历史保留）·
 `/resume` 恢复存档（多份时**直接弹列表选**，`/resume N` 指定第 N 份）·
 `/sessions` 列出全部存档 · `/new` 开新会话（当前对话先归档）· `/think` 同
-`ctrl+t` · `/help` · `/quit`。带 `-approve` 时 shell/写文件工具会在状态行弹
-y/n 浮层（超时/关窗一律拒绝，fail closed）。
+`ctrl+t` · `/help` · `/quit`。交互式 chat **默认**对 shell/写文件工具在状态行弹
+y/n 浮层（`-approve=false` 关闭、管道 stdin 自动关闭）：`y` 一次放行 ·
+**`a` 本会话该工具全部放行**（审批默认开后长任务不被同一问题打断十次）· `n` 拒绝
+（超时/关窗一律拒绝，fail closed；拒绝不持久化）。`lyon run` 默认不弹，
+`-approve` 开启（stdin 关闭即拒绝，fail closed）。
 
 ### 会话恢复与记忆
 
@@ -396,7 +400,8 @@ hits: 3
 ## plan mode / bypass mode（/mode 切换）
 
 - **三种执行模式**（会话级，引擎强制，TUI/REPL 同款）：
-  - `default` — 按配置走：`-approve` 弹 y/n，否则自动放行；
+  - `default` — **人工审批**：chat 交互式默认弹 y/n（`-approve=false` 关、管道
+    不弹），`lyon run` 默认自动（`-approve` 开）——bypass 对照放行的正是这层；
   - `plan` — **只读探索**：写文件、shell、记忆写入、MCP 工具与未注册工具
     一律 `blocked by plan mode`（fail closed：放行名单 = registry 的
     ParallelSafe 只读标注，`mcp_*` 因副作用未知额外排除，`run_subagent`

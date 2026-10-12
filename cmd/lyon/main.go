@@ -126,7 +126,7 @@ func registerFlags(fs *flag.FlagSet) commonFlags {
 		shellAllow: fs.String("shell-allow", "", "comma-separated shell command allowlist (e.g. echo,ls,git)"),
 		webTools:   fs.String("web-tools", "", "web tool mode: server|client|off (default: auto)"),
 		noWebTools: fs.Bool("no-web-tools", false, "disable web tools (shorthand for -web-tools=off)"),
-		approve:    fs.Bool("approve", false, "prompt y/n before shell/write/edit tools (y/N overlay in TUI)"),
+		approve:    fs.Bool("approve", false, "prompt y/n before shell/write/edit tools (chat asks on a TTY by default; -approve=false disables; run asks only with -approve)"),
 		mcpCmds:    mcpCmds,
 		mcpURLs:    mcpURLs,
 		subagent:   fs.String("subagent-model", "", "model for run_subagent (default LYON_SUBAGENT_MODEL/ANTHROPIC_MODEL/claude-haiku-5-5)"),
@@ -255,6 +255,18 @@ func (f commonFlags) buildEngine(cfg agent.Config) (*agent.Engine, *mcp.Manager,
 	return agent.NewEngine(cfg, reg), mgr, nil
 }
 
+// chatApproveOn decides whether chat injects the y/n approver. The mode
+// table promises default = "ask a human" (bypass exists precisely to skip
+// that ask), so an interactive TTY gets approvals unless -approve=false
+// explicitly opts out; a piped stdin stays silent so scripts can never
+// block on a prompt nobody will answer. Explicit -approve always wins.
+func chatApproveOn(set bool, v *bool, stdinTTY bool) bool {
+	if set && v != nil {
+		return *v
+	}
+	return stdinTTY
+}
+
 // newApprovalHook returns an interactive y/n ApproveFunc serializing prompts
 // (tool handlers run concurrently; two humans answers must not interleave).
 // Only wired for `run`: the chat REPL owns stdin.
@@ -349,6 +361,12 @@ func cmdChat(args []string) int {
 	fs.BoolVar(&resume, "c", false, "resume this workspace's saved conversation")
 	fs.BoolVar(&resume, "continue", false, "resume this workspace's saved conversation (alias of -c)")
 	fs.Parse(args)
+	approveSet := false
+	fs.Visit(func(f *flag.Flag) { // did the user actually type -approve?
+		if f.Name == "approve" {
+			approveSet = true
+		}
+	})
 
 	cfg, err := cf.buildConfig()
 	if err != nil {
@@ -362,7 +380,7 @@ func cmdChat(args []string) int {
 			cfg.Workspace = abs
 		}
 	}
-	if cf.approve != nil && *cf.approve {
+	if chatApproveOn(approveSet, cf.approve, isTTY(os.Stdin)) {
 		// TUI mode routes approvals through the overlay (tuiApprove reads
 		// the program pointer lazily); the plain REPL shares stdin with a
 		// line-hook instead.

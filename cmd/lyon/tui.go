@@ -145,6 +145,10 @@ type tuiModel struct {
 	pendingIdx int
 	status     string
 	appr       *approveReq
+	// allowAll pre-authorizes a tool for the rest of the session ("a" on
+	// the overlay) — approvals now default on, so a long run must not ask
+	// the same question ten times. Deny decisions never persist.
+	allowAll map[string]bool
 
 	hist    []string
 	histIdx int // len(hist) = not recalling; up decrements, down increments
@@ -1198,7 +1202,7 @@ func (m *tuiModel) clip(s string) string {
 
 func (m *tuiModel) statusLine() string {
 	if m.appr != nil {
-		return paint(cYellow, fmt.Sprintf("approve? %s %s  [y=yes n=no]",
+		return paint(cYellow, fmt.Sprintf("approve? %s %s  [y=yes n=no a=always]",
 			m.appr.ev.Name, shortJSON(m.appr.ev.Input, 120)))
 	}
 	if m.busy {
@@ -1216,7 +1220,8 @@ func (m *tuiModel) statusLine() string {
 func (m *tuiModel) inputLine() string {
 	if m.appr != nil {
 		return paint(cGreen, "y") + paint(cDim, "=approve  ") +
-			paint(cRed, "n") + paint(cDim, "=deny")
+			paint(cRed, "n") + paint(cDim, "=deny  ") +
+			paint(cYellow, "a") + paint(cDim, "=always")
 	}
 	return m.ti.View()
 }
@@ -1247,6 +1252,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 	case approveReq:
+		if m.allowAll[msg.ev.Name] {
+			msg.ch <- true // "a" already vouched for this tool this session
+			break
+		}
 		// First-come overlay; apprMu upstream guarantees no overlap.
 		m.appr = &msg
 		// The user is probably not watching the TUI — raise a system box.
@@ -1419,6 +1428,15 @@ func (m *tuiModel) updateApproval(msg tea.KeyMsg, cmds *[]tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y", "enter":
 		if m.appr != nil {
+			m.appr.ch <- true
+			m.appr = nil
+		}
+	case "a", "A":
+		if m.appr != nil {
+			if m.allowAll == nil {
+				m.allowAll = map[string]bool{}
+			}
+			m.allowAll[m.appr.ev.Name] = true // this tool, this session
 			m.appr.ch <- true
 			m.appr = nil
 		}
@@ -1609,6 +1627,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /quit    exit",
 			paint(cDim, "typing / pops the command list — tab completes · ↑/↓ choose · esc closes"),
 			paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt"),
+			paint(cDim, "approve overlay (shell/write/edit, on by default): y once · a allow this tool all session · n deny"),
 			paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
 		)
 	default:

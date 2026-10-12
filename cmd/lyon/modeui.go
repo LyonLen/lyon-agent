@@ -26,7 +26,7 @@ func modeBlurb(m agent.Mode) string {
 	case agent.ModeBypass:
 		return " · approvals auto-approved (policy & hooks still enforced)"
 	default:
-		return ""
+		return " · approvals ask y/n (chat default; -approve=false disables)"
 	}
 }
 
@@ -41,6 +41,8 @@ func modeSwitchLine(from, to agent.Mode) string {
 		head = paint(cYellow, "mode → plan — execution tools disabled (read-only exploration)")
 	case agent.ModeBypass:
 		head = paint(cRed, "mode → bypass — approvals auto-approved (policy & hooks still enforced)")
+	case agent.ModeDefault:
+		head = paint(cGreen, "mode → default — shell/write/edit ask y/n again (bypass skips them)")
 	}
 	return head + paint(cDim, "  (/mode "+string(from)+" to go back)")
 }
