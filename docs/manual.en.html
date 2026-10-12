@@ -459,7 +459,60 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       mutex-guarded and atomic in-process, but there is no cross-process lock — parallel
       writers on one <code class="inline">$LYON_HOME</code> overwrite each other.
     </p>
-    <!-- DEMO-RESULTS -->
+    <p>
+      <strong>Live-run results (2026-10-12 19:12 → 10-13 06:34, 11 h 21 m)</strong>:
+      <strong>224 rounds, all exited 0 (zero failures)</strong>, ~3 min/round.
+    </p>
+    <p>
+      <strong>Exams (§1.4)</strong>: 20 exams, <strong>18 PASS / 2 FAIL</strong>.
+      Key event — the research seat's sitting mimo-v2.6-flash lost two in a row
+      (23:06 scored 1/4, then 03:35 scored 2/4), triggering demotion
+      (<code class="inline">demoted after two failures — the seat is open</code>).
+      The seat then re-elected on production evidence: flash's trailing-10 average
+      had been dragged to ~0.94 by the 0.5 exam loss, so the earlier challenger
+      mimo-v2.6-pro won it at 0.95 and held it to the end — <strong>the expelled
+      agent does not get the seat back for free; seats are re-contested on
+      evidence</strong>.
+      <strong>Production scoring (§1.2)</strong>: 206 blind-judge scores filed,
+      range 0.80–1.00 including 4 genuine low scores (0.80/0.82/0.85/0.86), so
+      grades actually discriminate; 208 cards on the board total (50 per agent,
+      rolling).
+    </p>
+    <p>
+      <strong>Consumption loop (§5)</strong>: 8 recorded
+      <code class="inline">⇄ routing</code> swaps (sample
+      <code class="inline">⇄ routing [fix] mimo-v2.5-pro (12 samples, confidence
+      0.78)</code>); final routing table:
+    </p>
+    <table>
+      <thead><tr><th>Class</th><th>Samples</th><th>Confidence</th><th>Recommended model</th></tr></thead>
+      <tbody>
+        <tr><td>fix</td><td>100</td><td>0.96</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>coding</td><td>61</td><td>0.94</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>review</td><td>30</td><td>0.89</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>writing</td><td>30</td><td>0.87</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>research</td><td>30</td><td>0.85</td><td>mimo-v2.6-flash</td></tr>
+      </tbody>
+    </table>
+    <p>
+      <strong>Auto-freeze (§3.1)</strong>: the bugfix flow ran 18 consecutive
+      greens with 0 failures, frozen automatically from the third green and
+      refreshed on every green after (16 freezes), final provenance title
+      <code class="inline">缺陷修复标准流程 (frozen after 18 green runs · score
+      1.00 · mimo-v2.6-flash)</code>.
+      <strong>A persisted set of agents</strong>
+      (<code class="inline">$LYON_HOME</code> =
+      <code class="inline">.demo/evolve-home/</code>, restored as-is on restart):
+      <code class="inline">leaderboard.json</code> (7 class seats + 208 cards),
+      <code class="inline">routing.json</code> (the recommendation network),
+      <code class="inline">exams/*.json</code> (5 question banks),
+      <code class="inline">workflows/bugfix-proven.json</code> (the frozen
+      procedure), <code class="inline">flow-streak.json</code> (the freeze clock),
+      <code class="inline">audit/</code> (two days of scoring audit ≈2.4 MB).
+      <strong>Overnight fixes</strong>: judge timeout 60s→240s, thinking budget
+      1024→4096, flow's narrow judge 64→1024, classifier gained keyword keys —
+      zero judge failures in the final instance after the fixes.
+    </p>
   </section>
 
   <!-- ════════ 5 reference ════════ -->

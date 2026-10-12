@@ -404,7 +404,52 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       <strong>串行是硬约束</strong>：榜单/路由 JSON 进程内互斥 + 原子替换，
       但没有跨进程文件锁——并行写同一 <code class="inline">$LYON_HOME</code> 会互相覆盖。
     </p>
-    <!-- DEMO-RESULTS -->
+    <p>
+      <strong>实跑结果（2026-10-12 19:12 → 10-13 06:34，11 小时 21 分）</strong>：
+      <strong>224 轮全部成功退出（0 失败）</strong>，平均约 3 分钟/轮。
+    </p>
+    <p>
+      <strong>考试（§1.4）</strong>：共 20 场，<strong>18 PASS / 2 FAIL</strong>。
+      关键事件——research 在岗的 mimo-v2.6-flash 连续两场失利（23:06 得 1/4 →
+      03:35 得 2/4），触发降级（<code class="inline">demoted after two failures —
+      the seat is open</code>）。席位清空后由生产证据重新选举：flash 的近 10 场
+      均分被 0.5 败绩拖到 ~0.94，旧挑战者 mimo-v2.6-pro 以 0.95 当选并保持到收尾
+      ——<strong>被驱逐者不自动回位，席位靠证据重赛</strong>。
+      <strong>生产评分（§1.2）</strong>：206 次盲评入榜，得分区间 0.80–1.00，
+      含 4 个真实低分（0.80/0.82/0.85/0.86），评分确有区分度；榜单累计 208 张
+      记分卡（单 agent 上限 50 张滚动）。
+    </p>
+    <p>
+      <strong>消费闭环（§5）</strong>：<code class="inline">⇄ routing</code> 换手
+      实录 8 次（样例 <code class="inline">⇄ routing [fix] mimo-v2.5-pro (12
+      samples, confidence 0.78)</code>），终局路由表：
+    </p>
+    <table>
+      <thead><tr><th>类</th><th>样本</th><th>置信</th><th>推荐模型</th></tr></thead>
+      <tbody>
+        <tr><td>fix</td><td>100</td><td>0.96</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>coding</td><td>61</td><td>0.94</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>review</td><td>30</td><td>0.89</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>writing</td><td>30</td><td>0.87</td><td>mimo-v2.6-flash</td></tr>
+        <tr><td>research</td><td>30</td><td>0.85</td><td>mimo-v2.6-flash</td></tr>
+      </tbody>
+    </table>
+    <p>
+      <strong>自动固化（§3.1）</strong>：bugfix 流程 18 连绿、0 失败，自第 3 绿起
+      自动固化并随每盏绿灯刷新（共 16 次），终局溯源标题
+      <code class="inline">缺陷修复标准流程 (frozen after 18 green runs · score
+      1.00 · mimo-v2.6-flash)</code>。
+      <strong>持久化的一套 agent</strong>（<code class="inline">$LYON_HOME</code>
+      = <code class="inline">.demo/evolve-home/</code>，重启进程原样恢复）：
+      <code class="inline">leaderboard.json</code>（7 类在岗席位 + 208 张记分卡）、
+      <code class="inline">routing.json</code>（推荐网络）、
+      <code class="inline">exams/*.json</code>（5 类题库）、
+      <code class="inline">workflows/bugfix-proven.json</code>（固化流程）、
+      <code class="inline">flow-streak.json</code>（固化时钟）、
+      <code class="inline">audit/</code>（两日评分审计 ≈2.4MB）。
+      <strong>夜间补洞</strong>：judge 超时 60s→240s、thinking 预算 1024→4096、
+      flow 窄评 64→1024、分类器补关键词——修复后终版实例 judge 失败 0 次。
+    </p>
   </section>
 
   <!-- ════════ 5 reference ════════ -->

@@ -655,7 +655,38 @@ hits: 3
 
 ### 自进化 Demo 实跑结果（2026-10-13 晨）
 
-<!-- DEMO-RESULTS -->
+**整夜实跑：2026-10-12 19:12 → 10-13 06:34（11 小时 21 分），224 轮全部成功退出
+（0 失败），平均约 3 分钟/轮。**
+
+- **考试（§1.4 闭卷考）**：共 20 场，**18 PASS / 2 FAIL**。关键事件：research
+  在岗的 mimo-v2.6-flash 连续两场失利（23:06 得 1/4=25% → 03:35 得 2/4=50%），
+  触发降级（日志 `demoted after two failures — the seat is open`）。席位清空后由
+  生产证据重新选举：flash 的近 10 场均分被 0.5 败绩拖到 ~0.94，旧挑战者
+  mimo-v2.6-pro 以 0.95 当选并保持到收尾——**被驱逐者不自动回位，席位靠证据
+  重赛**（§1.4 设计原文行为的整夜实证）。
+- **生产评分（§1.2 盲评）**：206 次入榜，得分区间 **0.80–1.00**——含 4 个真实
+  低分（0.80 / 0.82 / 0.85 / 0.86），评分确有区分度而非清一色满分；两张考试
+  败绩卡（0.25、0.50）同档入档。榜单累计 208 张记分卡（单 agent 上限 50 张滚动）。
+- **消费闭环（§5 路由换手）**：`⇄ routing` 换手实录 8 次，样例
+  `⇄ routing [fix] mimo-v2.5-pro (12 samples, confidence 0.78)`。终局路由表：
+
+  | 类 | 样本 | 置信 | 推荐模型 |
+  | --- | --- | --- | --- |
+  | fix | 100 | 0.96 | mimo-v2.6-flash |
+  | coding | 61 | 0.94 | mimo-v2.6-flash |
+  | review | 30 | 0.89 | mimo-v2.6-flash |
+  | writing | 30 | 0.87 | mimo-v2.6-flash |
+  | research | 30 | 0.85 | mimo-v2.6-flash |
+
+- **workflow 自动固化（§3.1）**：bugfix 流程 **18 连绿、0 失败**，自第 3 绿起
+  自动固化并随每盏绿灯刷新，共 16 次；终局溯源标题
+  `缺陷修复标准流程 (frozen after 18 green runs · score 1.00 · mimo-v2.6-flash)`。
+- **持久化的一套 agent**（`$LYON_HOME` = `.demo/evolve-home/`，重启进程原样恢复）：
+  `leaderboard.json`（7 类在岗席位 + 208 张记分卡）、`routing.json`（分类→模型
+  推荐网络）、`exams/*.json`（5 类题库）、`workflows/bugfix-proven.json`（固化
+  流程）、`flow-streak.json`（固化时钟）、`audit/`（两日评分审计 jsonl ≈2.4MB）。
+- **夜间补洞**：judge 超时 60s→240s、thinking 吃预算 1024→4096 tokens、flow 窄评
+  64→1024、分类器补 `解释/分析` 等关键词——修复后终版实例 **judge 失败 0 次**。
 
 ### 命令与标志速查
 

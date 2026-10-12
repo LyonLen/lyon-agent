@@ -786,7 +786,45 @@ mechanical executor); wiring lives in TUI commands and `lyon run` flags.
 
 ### Self-evolution demo results (2026-10-13 morning)
 
-<!-- DEMO-RESULTS -->
+**Overnight run: 2026-10-12 19:12 → 10-13 06:34 (11 h 21 m), 224 rounds, all
+exited 0 (zero failures), ~3 min/round.**
+
+- **Exams (§1.4 closed-book)**: 20 exams, **18 PASS / 2 FAIL**. Key event: the
+  research seat's sitting mimo-v2.6-flash lost two in a row (23:06 scored 1/4=25%,
+  then 03:35 scored 2/4=50%), triggering demotion (log: `demoted after two
+  failures — the seat is open`). With the seat cleared, the next production
+  evidence re-elected: flash's trailing-10 average had been dragged to ~0.94 by the
+  0.5 exam loss, so the earlier challenger mimo-v2.6-pro won the seat at 0.95 and
+  held it to the end — **the expelled agent does not get the seat back for free;
+  seats are re-contested on evidence** (§1.4's design semantics, demonstrated live).
+- **Production scoring (§1.2 blind judge)**: 206 scores filed, range **0.80–1.00**
+  — including 4 genuine low scores (0.80 / 0.82 / 0.85 / 0.86), so grades actually
+  discriminate instead of uniformly hitting the ceiling; the two exam-failure cards
+  (0.25, 0.50) are archived the same way. 208 cards total on the board (50 per
+  agent, rolling).
+- **Consumption loop (§5 routing swaps)**: 8 recorded `⇄ routing` swaps, sample
+  `⇄ routing [fix] mimo-v2.5-pro (12 samples, confidence 0.78)`. Final routing table:
+
+  | Class | Samples | Confidence | Recommended model |
+  | --- | --- | --- | --- |
+  | fix | 100 | 0.96 | mimo-v2.6-flash |
+  | coding | 61 | 0.94 | mimo-v2.6-flash |
+  | review | 30 | 0.89 | mimo-v2.6-flash |
+  | writing | 30 | 0.87 | mimo-v2.6-flash |
+  | research | 30 | 0.85 | mimo-v2.6-flash |
+
+- **Workflow auto-freeze (§3.1)**: the bugfix flow ran **18 consecutive greens,
+  0 failures**; frozen automatically from the third green and refreshed on every
+  green after (16 freezes total); final provenance title
+  `缺陷修复标准流程 (frozen after 18 green runs · score 1.00 · mimo-v2.6-flash)`.
+- **A persisted set of agents** (`$LYON_HOME` = `.demo/evolve-home/`, restored
+  as-is after a process restart): `leaderboard.json` (7 class seats + 208 cards),
+  `routing.json` (class→model recommendation network), `exams/*.json` (5 question
+  banks), `workflows/bugfix-proven.json` (the frozen procedure), `flow-streak.json`
+  (the freeze clock), `audit/` (two days of scoring audit jsonl ≈2.4 MB).
+- **Overnight fixes**: judge timeout 60s→240s, thinking eating the budget
+  1024→4096 tokens, flow's narrow judge 64→1024, classifier gained `解释/分析`
+  keys — **zero judge failures** in the final instance after the fixes.
 
 ### Command & flag cheat sheet
 
