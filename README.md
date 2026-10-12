@@ -581,6 +581,10 @@ hits: 3
 - `/route` 裸命令 = 证据表 + 考核时钟 + 当前模型画像；`/route <text>` =
   分类 + 开放度 + 该类推荐 + 画像对比（任务开放度超过模型画像时提示换将）
   + workflow 匹配。
+- **消费闭环**：`lyon run` 未显式钉 `-model` 时自动 consult 推荐表——该任务类
+  的在岗席位样本 ≥3 且置信 ≥0.35，本次就直接用它干（打印 `⇄ routing [class]
+  model …`）；显式 `-model` 永远优先。考试与评分改写谁在岗，下一个任务就交给谁，
+  进化的输出真正变成行为。
 
 ### 知识覆盖率门禁（设计 §2）
 
@@ -605,6 +609,10 @@ hits: 3
   用户文件 `$LYON_HOME/workflows/*.json` 按 slug 覆盖内置；坏文件跳过不致命。
 - **冻结入口** `/flow save <slug>`：把本会话的 prompt 组序列化为节点——
   前置两道门：**该任务类闭卷考核通过** + 覆盖率门禁（缺口烙入）——才落盘。
+- **自动固化（§3.1）**：`lyon run -flow` 同一 slug **连续 3 次绿灯**后自动把该
+  workflow 冻结为 `$LYON_HOME/workflows/<slug>-proven.json`，标题带溯源
+  （streak 次数 · 最近得分 · 冻结时的模型）；红灯清零重计，`LYON_AUTOFREEZE=off`
+  关闭。经得起生产检验的流程自己变成工件。
 - **执行入口**：
   - `lyon run -flow <slug> "任务"` — CLI 机械执行：gate → 节点循环
     （drainText 收集模型输出、`Shell.Run` 跑 command 判据、窄 judge、
@@ -629,6 +637,26 @@ hits: 3
 - **空态提示**：账本无据时显示「每次完成的提问都会记一张评分卡并记一轮」的
   指引块；页脚常驻 `/exam · /route · alt+e close`。
 
+### 自进化 Demo（`demo/`，整夜实跑）
+
+- **一键复现**：`bash demo/evolve-loop.sh`——驱动脚本在 `.demo/` 下物化模板工程
+  `demo/template`（一个 3 函数的 Go 算术库），每轮 `git clone` 出干净工作区、
+  注入 bug 或布置新任务（修复/实现/评审/调研/写作轮转），用 3 个候选模型
+  （mimo-v2.6-flash / mimo-v2.6-pro / mimo-v2.5-pro）串行跑 `lyon run`：
+  前 9 轮钉模型铺证据，之后不钉 `-model` 让**路由表自己选将**；每 6 轮的修复
+  任务改走 `-flow bugfix` 机械流程；某类考试时钟到点自动带上 `-exam <class>`。
+- **产物**（全部持久化在 `.demo/evolve-home/`，即 demo 的 `$LYON_HOME`）：
+  `leaderboard.json`（各类在岗席位与候选记分卡）、`routing.json`（分类推荐
+  网络）、`exams/<class>.json`（题库）、`workflows/*-proven.json`（自动固化
+  的流程）、`flow-streak.json`（固化时钟）、`audit/`（评分审计）。
+- **为什么串行**：榜单/路由的 JSON 写入是进程内互斥 + 原子替换，**没有跨进程
+  文件锁**——并行写同一 `$LYON_HOME` 会互相覆盖，长跑驱动必须单实例。
+- 实跑结果见下节。
+
+### 自进化 Demo 实跑结果（2026-10-13 晨）
+
+<!-- DEMO-RESULTS -->
+
 ### 命令与标志速查
 
 | 入口 | 作用 |
@@ -640,6 +668,7 @@ hits: 3
 | `lyon run -coverage` | 覆盖率门禁 + 缺口注入 |
 | `lyon run -flow <slug>` | 机械执行 workflow，结果入榜 |
 | `LYON_SCORE=off` | 关闭普通 prompt 的盲评入榜（考核轮次照记） |
+| `LYON_AUTOFREEZE=off` | 关闭 workflow 连续绿灯自动固化（§3.1） |
 
 ## 测试
 

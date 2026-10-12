@@ -343,6 +343,15 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       model profile and suggests a swap when the task exceeds it, plus workflow match
       suggestions.
     </p>
+    <p>
+      <strong>Consumption loop</strong>: when <code class="inline">lyon run</code> doesn't pin
+      <code class="inline">-model</code>, it consults the recommendation table first — if the
+      class's on-duty seat has ≥3 samples and confidence ≥0.35, this run works with it right
+      away (prints <code class="inline">⇄ routing [class] model …</code>); an explicit
+      <code class="inline">-model</code> always wins. Exams and scored rewrites decide who
+      holds the seat, and the next task is handed to them —
+      <strong>the output of evolution becomes behavior</strong>.
+    </p>
 
     <h3>4.4 · Knowledge coverage gate</h3>
     <p>
@@ -394,6 +403,15 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       <code class="inline">SummarizeFailure</code>, producing checkable conditions + a patch —
       shown in the panel, recorded in audit.
     </p>
+    <p>
+      <strong>Auto-freeze (§3.1)</strong>: after the same slug survives
+      <strong>3 consecutive green runs</strong>, <code class="inline">lyon run -flow</code>
+      freezes the workflow into
+      <code class="inline">$LYON_HOME/workflows/&lt;slug&gt;-proven.json</code> with provenance
+      in the title (streak · latest score · the model frozen under); a red run resets the
+      streak, <code class="inline">LYON_AUTOFREEZE=off</code> opts out. A procedure that
+      survives production turns itself into an artifact.
+    </p>
 
     <div class="shots" style="margin-top:20px;">
       <figure class="term">
@@ -413,6 +431,35 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
         <figcaption>The command table of chapter 3 — these 20 ship with the binary.</figcaption>
       </figure>
     </div>
+
+    <h3>4.6 · Self-evolution demo (<code class="inline">demo/</code>, overnight live run)</h3>
+    <p>
+      <strong>Reproduce it</strong> with <code class="inline">bash demo/evolve-loop.sh</code>:
+      the driver materializes the template project
+      <code class="inline">demo/template</code> (a 3-function Go arithmetic library) under
+      <code class="inline">.demo/</code>, and every round
+      <code class="inline">git clone</code>s a clean workspace, injects a bug or assigns a new
+      task (fix / implement / review / research / writing rotation), and runs
+      <code class="inline">lyon run</code> serially across 3 candidate models: the first 9
+      rounds pin models to gather evidence, then <code class="inline">-model</code> is
+      dropped and the routing table picks the worker; every 6th fix task rides the mechanical
+      <code class="inline">-flow bugfix</code> workflow; when a class's exam clock strikes
+      the round automatically carries <code class="inline">-exam &lt;class&gt;</code>.
+    </p>
+    <p>
+      <strong>Artifacts</strong> all persist under <code class="inline">.demo/evolve-home/</code>
+      (the demo's <code class="inline">$LYON_HOME</code>):
+      <code class="inline">leaderboard.json</code> (on-duty seats + candidate scorecards),
+      <code class="inline">routing.json</code> (the recommendation network),
+      <code class="inline">exams/&lt;class&gt;.json</code> (question banks),
+      <code class="inline">workflows/*-proven.json</code> (auto-frozen procedures),
+      <code class="inline">flow-streak.json</code> (the freeze clock),
+      <code class="inline">audit/</code> (scoring audit).
+      <strong>Serial is a hard constraint</strong>: leaderboard/routing JSON writes are
+      mutex-guarded and atomic in-process, but there is no cross-process lock — parallel
+      writers on one <code class="inline">$LYON_HOME</code> overwrite each other.
+    </p>
+    <!-- DEMO-RESULTS -->
   </section>
 
   <!-- ════════ 5 reference ════════ -->
@@ -459,6 +506,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
         <tr><td><code>LYON_EXAM</code></td><td><code>off</code> disables automatic exam triggering (rounds still counted)</td></tr>
         <tr><td><code>LYON_SCORE</code></td><td><code>off</code> disables blind-judge entry for ordinary prompts (exam rounds still counted)</td></tr>
         <tr><td><code>LYON_FLOW_GATE</code></td><td><code>off</code> disables the coverage gate on <code>-flow</code></td></tr>
+        <tr><td><code>LYON_AUTOFREEZE</code></td><td><code>off</code> disables workflow auto-freeze after consecutive green runs (§4.5, design §3.1)</td></tr>
         <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> disables failure-cause summarization (SummarizeFailure)</td></tr>
         <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI-compatible base URL (same as <code>-openai-base</code>)</td></tr>
         <tr><td><code>LYON_SUBAGENT_MODEL</code></td><td>subagent model</td></tr>

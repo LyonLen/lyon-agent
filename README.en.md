@@ -695,6 +695,11 @@ mechanical executor); wiring lives in TUI commands and `lyon run` flags.
 - Bare `/route` = evidence table + exam clock + current model profile; `/route <text>` =
   classification + openness + that class's recommendation + profile comparison (suggests a
   different model when the task's openness exceeds the profile) + workflow matching.
+- **Consumption loop**: when `lyon run` doesn't pin `-model`, it consults the recommendation
+  table first — if the class's on-duty seat has ≥3 samples and confidence ≥0.35, this run
+  works with it right away (prints `⇄ routing [class] model …`); an explicit `-model` always
+  wins. Exams and scored rewrites decide who holds the seat, and the next task is handed to
+  them — the output of evolution becomes behavior.
 
 ### Knowledge coverage gate (design §2)
 
@@ -731,6 +736,11 @@ mechanical executor); wiring lives in TUI commands and `lyon run` flags.
     unless all pass.
   - TUI: `/flow list|show <slug>|match <text>|export <slug>` are local and instant;
     `/flow run` in-TUI execution is not wired yet (the CLI has validated the same executor).
+- **Auto-freeze (§3.1)**: after the same slug survives **3 consecutive green runs**,
+  `lyon run -flow` freezes the workflow into `$LYON_HOME/workflows/<slug>-proven.json` with
+  provenance in the title (streak · latest score · the model frozen under); a red run resets
+  the streak to zero, `LYON_AUTOFREEZE=off` opts out. A procedure that survives production
+  turns itself into an artifact.
 - **Failure diagnosis feedback**: failed prompts run `SummarizeFailure` async, producing
   checkable conditions + a patch — shown in the panel, recorded in audit (off with
   `LYON_DIAGNOSE=off`); flow retries use the same mechanism to append the constraint block
@@ -754,6 +764,30 @@ mechanical executor); wiring lives in TUI commands and `lyon run` flags.
   files a scorecard and books a round"); the footer permanently shows
   `/exam · /route · alt+e close`.
 
+### Self-evolution demo (`demo/`, overnight live run)
+
+- **Reproduce it**: `bash demo/evolve-loop.sh` — the driver materializes the template
+  project `demo/template` (a 3-function Go arithmetic library) under `.demo/`, and every
+  round `git clone`s a clean workspace, injects a bug or assigns a new task (fix /
+  implement / review / research / writing rotation), and runs `lyon run` serially across
+  3 candidate models (mimo-v2.6-flash / mimo-v2.6-pro / mimo-v2.5-pro): the first 9 rounds
+  pin models to gather evidence, then `-model` is dropped and the **routing table picks the
+  worker**; every 6th fix task rides the mechanical `-flow bugfix` workflow; when a class's
+  exam clock strikes the round automatically carries `-exam <class>`.
+- **Artifacts** (all persisted in `.demo/evolve-home/`, the demo's `$LYON_HOME`):
+  `leaderboard.json` (on-duty seats + candidate scorecards per class), `routing.json` (the
+  classification & recommendation network), `exams/<class>.json` (question banks),
+  `workflows/*-proven.json` (auto-frozen procedures), `flow-streak.json` (the freeze
+  clock), `audit/` (scoring audit).
+- **Why serial**: leaderboard/routing JSON writes are mutex-guarded in-process and atomic
+  (tmp + rename) but have **no cross-process file lock** — parallel writers on one
+  `$LYON_HOME` overwrite each other; a long-running driver must be single-instance.
+- Live-run results in the next section.
+
+### Self-evolution demo results (2026-10-13 morning)
+
+<!-- DEMO-RESULTS -->
+
 ### Command & flag cheat sheet
 
 | Entry | Purpose |
@@ -765,6 +799,7 @@ mechanical executor); wiring lives in TUI commands and `lyon run` flags.
 | `lyon run -coverage` | coverage gate + gap injection |
 | `lyon run -flow <slug>` | mechanically execute a workflow, results scored |
 | `LYON_SCORE=off` | disable blind-judge entry for ordinary prompts (exam rounds still count) |
+| `LYON_AUTOFREEZE=off` | disable workflow auto-freeze after consecutive green runs (§3.1) |
 
 ## Testing
 

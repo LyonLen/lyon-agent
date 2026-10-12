@@ -308,6 +308,14 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       <code class="inline">/route &lt;文本&gt;</code> 会把任务开放度与模型画像对比，
       开放度超过画像时提示换将，并附 workflow 匹配建议。
     </p>
+    <p>
+      <strong>消费闭环</strong>：<code class="inline">lyon run</code> 未显式钉
+      <code class="inline">-model</code> 时自动 consult 推荐表——该任务类的在岗席位
+      样本 ≥3 且置信 ≥0.35，本次就直接用它干（打印
+      <code class="inline">⇄ routing [class] model …</code>）；显式
+      <code class="inline">-model</code> 永远优先。考试与评分改写谁在岗，
+      下一个任务就交给谁——<strong>进化的输出真正变成行为</strong>。
+    </p>
 
     <h3>4.4 · 知识覆盖率门禁</h3>
     <p>
@@ -344,6 +352,14 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       非全过退出码 1。失败的 prompt 异步跑 <code class="inline">SummarizeFailure</code>，
       产出可核对条件 + patch，面板显示、audit 留痕。
     </p>
+    <p>
+      <strong>自动固化（§3.1）</strong>：同一 slug <strong>连续 3 次绿灯</strong>后，
+      <code class="inline">lyon run -flow</code> 自动把该 workflow 冻结为
+      <code class="inline">$LYON_HOME/workflows/&lt;slug&gt;-proven.json</code>，
+      标题带溯源（streak 次数 · 最近得分 · 冻结时的模型）；红灯清零重计，
+      <code class="inline">LYON_AUTOFREEZE=off</code> 关闭。
+      经得起生产检验的流程自己变成工件。
+    </p>
 
     <div class="shots" style="margin-top:20px;">
       <figure class="term">
@@ -363,6 +379,32 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <figcaption>本手册第 3 章的指令表就是这 17 条，随二进制内置。</figcaption>
       </figure>
     </div>
+
+    <h3>4.6 · 自进化 Demo（<code class="inline">demo/</code>，整夜实跑）</h3>
+    <p>
+      <strong>一键复现</strong> <code class="inline">bash demo/evolve-loop.sh</code>：
+      驱动脚本在 <code class="inline">.demo/</code> 下物化模板工程
+      <code class="inline">demo/template</code>（一个 3 函数的 Go 算术库），
+      每轮 <code class="inline">git clone</code> 出干净工作区、注入 bug 或布置新任务
+      （修复/实现/评审/调研/写作轮转），用 3 个候选模型串行跑
+      <code class="inline">lyon run</code>：前 9 轮钉模型铺证据，之后不钉
+      <code class="inline">-model</code> 让路由表自己选将；每 6 轮的修复任务改走
+      <code class="inline">-flow bugfix</code> 机械流程；考试时钟到点自动带上
+      <code class="inline">-exam &lt;class&gt;</code>。
+    </p>
+    <p>
+      <strong>产物</strong>全部持久化在 <code class="inline">.demo/evolve-home/</code>
+      （即 demo 的 <code class="inline">$LYON_HOME</code>）：
+      <code class="inline">leaderboard.json</code>（在岗席位与候选记分卡）、
+      <code class="inline">routing.json</code>（分类推荐网络）、
+      <code class="inline">exams/&lt;class&gt;.json</code>（题库）、
+      <code class="inline">workflows/*-proven.json</code>（自动固化的流程）、
+      <code class="inline">flow-streak.json</code>（固化时钟）、
+      <code class="inline">audit/</code>（评分审计）。
+      <strong>串行是硬约束</strong>：榜单/路由 JSON 进程内互斥 + 原子替换，
+      但没有跨进程文件锁——并行写同一 <code class="inline">$LYON_HOME</code> 会互相覆盖。
+    </p>
+    <!-- DEMO-RESULTS -->
   </section>
 
   <!-- ════════ 5 reference ════════ -->
@@ -409,6 +451,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>LYON_EXAM</code></td><td><code>off</code> 关闭自动考核触发（轮次照记）</td></tr>
         <tr><td><code>LYON_SCORE</code></td><td><code>off</code> 关闭普通 prompt 的盲评入榜（考核轮次照记）</td></tr>
         <tr><td><code>LYON_FLOW_GATE</code></td><td><code>off</code> 关闭 <code>-flow</code> 的覆盖率门禁</td></tr>
+        <tr><td><code>LYON_AUTOFREEZE</code></td><td><code>off</code> 关闭 workflow 连续绿灯自动固化（§4.5 §3.1）</td></tr>
         <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> 关闭失败错因归纳（SummarizeFailure）</td></tr>
         <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI 兼容 base URL（等价 <code>-openai-base</code>）</td></tr>
         <tr><td><code>LYON_SUBAGENT_MODEL</code></td><td>子代理模型</td></tr>
