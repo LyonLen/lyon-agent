@@ -17,15 +17,18 @@ import (
 // rows in memRows so "/memory N" addresses what the user is looking at.
 
 // rememberDone carries an async /remember result back into the UI loop.
+// step is the panel row the run opened (steps.go), resolved on arrival.
 type rememberDone struct {
-	n   int
-	err error
+	n    int
+	err  error
+	step int
 }
 
 // memSyncDone carries an async /memory sync result back into the loop.
 type memSyncDone struct {
 	pushed, pulled int
 	err            error
+	step           int
 }
 
 // memoryTable renders the store as display lines plus the numbered rows

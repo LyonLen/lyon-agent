@@ -21,6 +21,7 @@ import (
 	isatty "github.com/mattn/go-isatty"
 
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/eval"
 	"lyon-agent/pkg/memory"
 	"lyon-agent/pkg/tools"
 )
@@ -527,6 +528,8 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		} else if ev.Err != "" {
 			m.pushStyled(paint(cRed, "✗ prompt failed"), paint(cDim, sanitizeText(ev.Err)))
 			m.status = idleStatus
+			// 错因归纳: post-mortem the failed run while the UI idles.
+			m.kickDiagnose(ev.Err)
 		} else {
 			m.pushStyled(paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
 			m.status = idleStatus
@@ -1343,10 +1346,13 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		switch {
 		case msg.err != nil:
+			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
 			m.pushCmd(paint(cYellow, "remember: "+sanitizeText(msg.err.Error())))
 		case msg.n == 0:
+			m.finishStep(msg.step, stepDone, "nothing durable to add", "")
 			m.pushCmd(paint(cDim, "remember: nothing durable to add"))
 		default:
+			m.finishStep(msg.step, stepDone, fmt.Sprintf("saved %d fact(s)", msg.n), "")
 			m.pushCmd(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
 				paint(cCyan, "🧠 memory"), msg.n))
 		}
@@ -1355,10 +1361,40 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case memSyncDone:
 		m.status = ""
 		if msg.err != nil {
+			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
 			m.pushCmd(paint(cYellow, "memory sync: "+sanitizeText(msg.err.Error())))
 		} else {
+			m.finishStep(msg.step, stepDone,
+				fmt.Sprintf("pushed %d, pulled %d", msg.pushed, msg.pulled), "")
 			m.pushCmd(fmt.Sprintf("%s sync: pushed %d, pulled %d",
 				paint(cCyan, "🧠 memory"), msg.pushed, msg.pulled))
+		}
+		m.refresh()
+
+	case diagDone:
+		switch {
+		case msg.err != nil:
+			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
+		default:
+			d := msg.diag
+			detail := strings.Join(d.FailedConditions, "; ")
+			if detail == "" {
+				detail = d.Patch
+			}
+			if detail == "" {
+				detail = "no checkable conditions extracted"
+			}
+			m.finishStep(msg.step, stepDone, detail, "")
+			// The answer area shows the full post-mortem: conditions and
+			// the constraint patch a retry would inherit.
+			lines := []string{paint(cMagenta, "✎ 错因归纳")}
+			for _, c := range d.FailedConditions {
+				lines = append(lines, "• "+sanitizeText(c))
+			}
+			if d.Patch != "" {
+				lines = append(lines, paint(cDim, "patch: "+sanitizeText(d.Patch)))
+			}
+			m.pushCmd(lines...)
 		}
 		m.refresh()
 
@@ -1798,12 +1834,13 @@ func (m *tuiModel) showMemory(args string) {
 	case args == "sync":
 		ws := m.workspace
 		m.status = "memory sync…"
+		step := m.pushAsyncStep(stepMemory, "memory.sync", "pushing/pulling cloud…")
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			pushed, pulled, err := syncMemory(ctx, ws)
 			if p := tuiProg.Load(); p != nil {
-				p.Send(memSyncDone{pushed: pushed, pulled: pulled, err: err})
+				p.Send(memSyncDone{pushed: pushed, pulled: pulled, err: err, step: step})
 			}
 		}()
 	case args == "reload":
@@ -1865,6 +1902,73 @@ func (m *tuiModel) kickTitleCheck() {
 // titleUpdated nudges a redraw after an async title refresh lands.
 type titleUpdated struct{}
 
+// diagnoseMaxTokens bounds the post-mortem reply: a handful of conditions
+// plus one patch sentence, as JSON.
+const diagnoseMaxTokens = 1000
+
+// diagDone carries an async failure post-mortem back into the loop.
+type diagDone struct {
+	step int
+	diag eval.Diagnosis
+	err  error
+}
+
+// kickDiagnose post-mortems a failed prompt (design §1.3): one cheap
+// subagent-tier call turning the trajectory into checkable conditions and
+// a patch a retry would inherit. The panel's stepDiagnose row opens here
+// and closes on diagDone; LYON_DIAGNOSE=off disables (mirrors LYON_TITLE).
+func (m *tuiModel) kickDiagnose(fail string) {
+	if strings.EqualFold(os.Getenv("LYON_DIAGNOSE"), "off") {
+		return
+	}
+	prompt := ""
+	if len(m.hist) > 0 {
+		prompt = m.hist[len(m.hist)-1]
+	}
+	traj := m.diagTrajectory(prompt, fail)
+	step := m.pushAsyncStep(stepDiagnose, "diagnose", "post-mortem of the failed run…")
+	sess := m.sess
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		d, err := eval.SummarizeFailure(ctx,
+			func(ctx context.Context, system, user string) (string, error) {
+				return sess.Ask(ctx, system, user, diagnoseMaxTokens)
+			}, traj)
+		if p := tuiProg.Load(); p != nil {
+			p.Send(diagDone{step: step, diag: d, err: err})
+		}
+	}()
+}
+
+// diagTrajectory builds the failed run's evidence for the diagnoser: the
+// prompt, the error, and the recent step tail — the panel's own audit
+// doubles as the post-mortem's input.
+func (m *tuiModel) diagTrajectory(prompt, fail string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Prompt:\n%s\n\nError:\n%s\n\nRecent steps:\n", prompt, fail)
+	tail := m.steps
+	if len(tail) > 14 {
+		tail = tail[len(tail)-14:]
+	}
+	stat := [...]string{"running", "ok", "failed"} // stepRunning/stepDone/stepError
+	for _, s := range tail {
+		st := "ok"
+		if int(s.status) < len(stat) {
+			st = stat[s.status]
+		}
+		if s.agent != "" {
+			fmt.Fprintf(&b, "#%d %s@%s [%s] %s\n", s.n, s.name, s.agent, st, s.detail)
+		} else {
+			fmt.Fprintf(&b, "#%d %s [%s] %s\n", s.n, s.name, st, s.detail)
+		}
+		if s.status == stepError && s.err != "" {
+			fmt.Fprintf(&b, "    error: %s\n", s.err)
+		}
+	}
+	return b.String()
+}
+
 // rememberNow distills the session's learnings into memory on a
 // goroutine: the model call takes seconds and the TUI must stay live.
 // histMu waits out any in-flight drive; the result arrives as rememberDone.
@@ -1874,13 +1978,14 @@ func (m *tuiModel) rememberNow() tea.Cmd {
 		return nil
 	}
 	m.status = "distilling learnings into memory…"
+	step := m.pushAsyncStep(stepMemory, "memory.distill", "extracting durable facts…")
 	sess := m.sess
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		n, err := sess.Distill(ctx)
 		if p := tuiProg.Load(); p != nil {
-			p.Send(rememberDone{n: n, err: err})
+			p.Send(rememberDone{n: n, err: err, step: step})
 		}
 	}()
 	return nil

@@ -94,9 +94,13 @@ type Session struct {
 	lastCompactInput float64
 
 	// memoryText is the workspace memory block injected into this session's
-	// first prompt, exactly once (memoryInjected).
+	// first prompt, exactly once (memoryInjected). memEcho asks the drive
+	// goroutine to announce that injection on the event stream — set inside
+	// buildHistory (which tests call without a consumer), fired by drive
+	// right after, so a direct assembly test never blocks on the channel.
 	memoryText     string
 	memoryInjected bool
+	memEcho        bool
 
 	// compactArmed defers an already-triggered compaction until the next
 	// turn has run its pending tool calls, so the summary covers their
@@ -351,6 +355,15 @@ func (s *Session) drive(prompt string) {
 		s.currentHistoryLocked())
 
 	hist := s.buildHistory(s.takePendingNote(), prompt)
+	if s.memEcho {
+		s.memEcho = false
+		// Renderers show this as "memory rides into this session" — the
+		// one moment the hot tier is visible from the outside.
+		s.emit(Event{
+			Type:   EventMemoryInjected,
+			Detail: fmt.Sprintf("%d bytes of hot memory", len(s.memoryText)),
+		})
+	}
 
 	s.runner = s.eng.client.Beta.Messages.NewToolRunnerStreaming(s.betaTools, anthropic.BetaToolRunnerParams{
 		BetaMessageNewParams: s.baseParams(hist),
@@ -750,6 +763,7 @@ func (s *Session) buildHistory(note, prompt string) []anthropic.BetaMessageParam
 		}
 		if inject {
 			blocks = append(blocks, anthropic.NewBetaTextBlock(s.memoryText))
+			s.memEcho = true // drive announces it on the event stream
 		}
 		s.memoryInjected = true
 	}

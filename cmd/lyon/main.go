@@ -756,6 +756,9 @@ func render(ev agent.Event) {
 			u.Input, u.Output, u.CacheRead, u.CacheCreation,
 			ev.StopReason, paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)))
 
+	case agent.EventMemoryInjected:
+		fmt.Printf("\n%s %s\n", paint(cYellow, "🧠 memory"), paint(cDim, ev.Detail))
+
 	case agent.EventCompaction:
 		u := ev.Usage
 		line := ev.Detail

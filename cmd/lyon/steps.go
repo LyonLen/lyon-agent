@@ -40,13 +40,17 @@ const (
 	stepServer
 	stepSubagent
 	stepCompact
-	stepPrompt // a prompt round: the titled parent of the steps after it
+	stepPrompt   // a prompt round: the titled parent of the steps after it
+	stepMemory   // memory injection / distill / sync — the hot tier at work
+	stepDiagnose // 错因归纳: the async post-mortem of a failed prompt
 )
 
 // execStep is one audited action. toolID pairs with tool_use_start /
 // server_tool_result events, execID with tool_exec_start/end; zero means
 // the pairing has not happened yet. under links a subagent's inner
-// execution to its task node (0 = top level).
+// execution to its task node (0 = top level). agent is the model badge:
+// which model did this work (prompt groups carry the main tier, task
+// nodes the subagent tier) — "who" for a multi-agent session.
 type execStep struct {
 	n      int
 	kind   stepKind
@@ -54,6 +58,7 @@ type execStep struct {
 	execID uint64
 	name   string
 	detail string
+	agent  string
 	status stepStatus
 	durMS  int64
 	err    string
@@ -165,8 +170,54 @@ func (m *tuiModel) startPromptStep(prompt string) {
 	}
 	m.steps = append(m.steps, execStep{
 		n: m.stepSeq, kind: stepPrompt, detail: title,
+		agent:  m.cfg.Model, // badge: which model is answering this round
 		status: stepDone, ts: time.Now(),
 	})
+}
+
+// pushAsyncStep opens a running row for an operation that finishes off
+// the event stream (memory distill, cloud sync, failure diagnosis). The
+// returned number is the handle finishStep resolves later.
+func (m *tuiModel) pushAsyncStep(kind stepKind, name, detail string) int {
+	return m.addStep(kind, "", name, detail).n
+}
+
+// finishStep resolves an async step by its number: status, final detail
+// and error text. A trimmed-out step (ancient session) is a silent no-op.
+func (m *tuiModel) finishStep(n int, status stepStatus, detail, errStr string) {
+	s := m.stepBy(n)
+	if s == nil {
+		return
+	}
+	s.status = status
+	s.durMS = time.Since(s.ts).Milliseconds()
+	if detail != "" {
+		s.detail = detail
+	}
+	if errStr != "" {
+		s.err = errStr
+	}
+}
+
+// stepBy resolves a step by its number (the handle async messages carry);
+// nil once trimmed out of the audit tail.
+func (m *tuiModel) stepBy(n int) *execStep {
+	for i := range m.steps {
+		if m.steps[i].n == n {
+			return &m.steps[i]
+		}
+	}
+	return nil
+}
+
+// stepByKind returns the newest step of a kind, or nil.
+func (m *tuiModel) stepByKind(k stepKind) *execStep {
+	for i := len(m.steps) - 1; i >= 0; i-- {
+		if m.steps[i].kind == k {
+			return &m.steps[i]
+		}
+	}
+	return nil
 }
 
 // stepEvent folds one engine event into the step list. It runs on the UI
@@ -178,7 +229,12 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 		if ev.Server {
 			kind = stepServer
 		}
-		m.addStep(kind, ev.ToolID, ev.ToolName, detail)
+		s := m.addStep(kind, ev.ToolID, ev.ToolName, detail)
+		if ev.ToolName == "run_subagent" {
+			// Task nodes wear the subagent tier's badge from birth; the
+			// end event confirms the model actually used.
+			s.agent = m.cfg.SubagentModel
+		}
 
 	case agent.EventToolExecStart:
 		var s *execStep
@@ -259,9 +315,22 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 		p.kind = stepSubagent
 		p.status = stepDone
 		p.durMS = ev.DurationMS
+		if ev.ToolName != "" {
+			p.agent = ev.ToolName // the end event names the model that ran it
+		}
 		if ev.Detail != "" {
 			p.detail += " · " + ev.Detail // task title · "3 API calls"
 		}
+
+	case agent.EventMemoryInjected:
+		// The hot tier rides into the first message of the session — the
+		// panel shows the moment injection actually happened.
+		detail := sanitizeText(ev.Detail)
+		if detail == "" {
+			detail = "hot memory injected"
+		}
+		s := m.addStep(stepMemory, "", "memory.inject", detail)
+		s.status = stepDone // injection is instantaneous — born finished
 
 	case agent.EventCompaction:
 		status, errStr := stepDone, ""
@@ -405,6 +474,10 @@ func stepColor(s execStep) string {
 		return cYellow
 	case stepSubagent:
 		return cBlue
+	case stepMemory:
+		return cYellow // memory is a write, like save_memory
+	case stepDiagnose:
+		return cMagenta // meta-analysis: its own family
 	}
 	switch s.name {
 	case "run_shell":
@@ -536,10 +609,21 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 
 	if s.kind == stepPrompt {
 		pre := indent + paint(cDim, fmt.Sprintf("#%d", s.n)) + " " + paint(cCyan, "▸") + " "
-		if avail := w - ansi.StringWidth(pre); avail > 2 {
-			pre += paint(cBold, ansi.Truncate(sanitizeText(s.detail), avail, "…"))
+		if s.agent == "" {
+			if avail := w - ansi.StringWidth(pre); avail > 2 {
+				pre += paint(cBold, ansi.Truncate(sanitizeText(s.detail), avail, "…"))
+			}
+			return pre
 		}
-		return pre
+		// Model badge hugs the right edge: titles vary in length, the
+		// badge stays put.
+		badge := paint(cDim, "["+shortModel(s.agent)+"]")
+		avail := w - ansi.StringWidth(pre) - ansi.StringWidth(badge)
+		if avail > 2 {
+			title := ansi.Truncate(sanitizeText(s.detail), avail, "…")
+			pre += paint(cBold, title) + strings.Repeat(" ", avail-ansi.StringWidth(title))
+		}
+		return pre + badge
 	}
 
 	var glyph, gcolor string
@@ -566,13 +650,18 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 		timing = "err"
 	}
 
-	head := fmt.Sprintf("%s%s %s %s %s",
+	head := fmt.Sprintf("%s%s %s %s",
 		indent,
 		paint(cDim, fmt.Sprintf("#%d", s.n)),
 		paint(gcolor, glyph),
 		paint(stepColor(s), s.name),
-		paint(cDim, timing),
 	)
+	if s.agent != "" {
+		// Model badge — who did this (task nodes; prompt groups render
+		// theirs right-aligned in the branch above).
+		head += " " + paint(cDim, "["+shortModel(s.agent)+"]")
+	}
+	head += " " + paint(cDim, timing)
 	// Detail (or the error) fills what is left of the row.
 	if rest := w - ansi.StringWidth(head) - 1; rest > 2 {
 		tail := s.detail
@@ -727,6 +816,17 @@ func fitRow(s string, w int) string {
 		s += strings.Repeat(" ", pad)
 	}
 	return s
+}
+
+// shortModel makes a model id badge-sized: the "claude-" family prefix
+// carries no information ("claude-opus-5-5" is opus-5-5 to a reader of
+// this panel), and a runaway id is clipped so it cannot eat the row.
+func shortModel(id string) string {
+	id = strings.TrimPrefix(id, "claude-")
+	if r := []rune(id); len(r) > 18 {
+		return string(r[:18]) + "…"
+	}
+	return id
 }
 
 // fmtDur compresses milliseconds the way a glance wants to read them.

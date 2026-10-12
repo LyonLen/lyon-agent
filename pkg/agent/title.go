@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // Session title: a terse intent label shown in the header and persisted
@@ -71,22 +69,11 @@ func (s *Session) RefreshTitle(ctx context.Context) (string, bool, error) {
 	user := fmt.Sprintf("First user message:\n%s\n\nCurrent title: %s\n\nLatest user message:\n%s",
 		clipRunes(first, titlePromptCap), current, clipRunes(last, titlePromptCap))
 
-	resp, err := s.eng.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
-		Model:     s.eng.cfg.SubagentModel,
-		MaxTokens: titleMaxTokens,
-		System:    []anthropic.BetaTextBlockParam{{Text: titleSystemPrompt}},
-		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(user))},
-	})
+	reply, err := s.Ask(ctx, titleSystemPrompt, user, titleMaxTokens)
 	if err != nil {
 		return cur, false, err
 	}
-	var parts []string
-	for _, b := range resp.Content {
-		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
-			parts = append(parts, b.Text)
-		}
-	}
-	changed, title := parseTitleReply(strings.Join(parts, "\n"))
+	changed, title := parseTitleReply(reply)
 	if !changed {
 		return cur, false, nil
 	}

@@ -22,6 +22,7 @@ const (
 	EventServerToolResult EventType = "server_tool_result" // server-side tool (web_search/fetch) returned results
 	EventCompaction       EventType = "compaction"         // context compaction triggered / completed
 	EventSubagentEnd      EventType = "subagent_end"       // run_subagent finished (independent usage line)
+	EventMemoryInjected   EventType = "memory_injected"    // hot memory block rode into the first message
 	EventTurnEnd          EventType = "turn_end"           // one API turn finished (usage here)
 	EventPromptEnd        EventType = "prompt_end"         // whole tool loop for one prompt finished
 	EventError            EventType = "error"
