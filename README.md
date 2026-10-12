@@ -4,6 +4,10 @@
 agent 循环（流式输出、工具调用、上下文压缩、子代理），对外提供 HTTP/SSE 服务
 和交互式 CLI；自带压力验收套件，性能阈值不达标直接 FAIL。
 
+> 📘 **文档站**：浏览器打开 [`docs/index.html`](docs/index.html)（产品介绍 + 截图）
+> 与 [`docs/manual.html`](docs/manual.html)（使用手册：上手 → 界面 → 演化机制 →
+> 配置参考 → FAQ），纯本地静态页、无网络资源，双击即可读。
+
 ```
 go build ./...          # 构建
 go test ./... -count=1  # 全量测试（含 bench 验收）
@@ -40,7 +44,8 @@ bench               性能验收套件（阈值强制）
 ```
 
 默认配置：模型 `claude-opus-5-5`（`ANTHROPIC_MODEL` 可覆盖）、effort medium、
-`MaxIterations=20`、压缩阈值 0.7×200k、子代理默认低配额档。
+`MaxIterations=50`（单 prompt 的 API 调用预算，防跑飞；`-max-iter` 或
+`LYON_MAX_ITER` 可调）、压缩阈值 0.7×200k、子代理默认低配额档。
 
 ## 快速开始
 
@@ -252,7 +257,10 @@ go test ./bench -run 'TestLoad|TestCache|TestSSE' -v
 `interrupted` 收尾（不发红色 error 事件）。若历史停在 assistant 的 `tool_use`
 上（工具没跑完就被打断，或 `MaxIterations` 在派发前切断），`repairInterrupted-
 History` 会给每个悬空调用排入合成 `tool_result`，与下一条用户消息合并进同一条
-user message，保证 role 交替完整、API 不会拒绝。busy 锁在发出 prompt_end **之前**
+user message，保证 role 交替完整、API 不会拒绝。若干净收尾却仍需补偿，说明是
+迭代预算到顶（`prompt_end.stop_reason="max_iterations"`）：TUI 显示
+`⚡ budget reached` 并提示回车继续，被跳过的 step 如实标 `over budget`。
+busy 锁在发出 prompt_end **之前**
 释放，避免事件缓冲消费者立刻重投时撞上 `ErrPromptInProgress`。
 
 ## 统计、审计与安全控制（hooks）

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lyon-agent — 会自我演化的终端 AI 编程智能体</title>
+<meta name="description" content="lyon-agent：Go 编写、本地优先的终端 AI 编程智能体。生产评分、闭卷考核、任务路由、知识覆盖率门禁、机械式 workflow 执行——一套可学习、可演化的 Agent 系统。">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html"><span class="tick">❯</span> lyon-agent</a>
+  <nav class="site">
+    <a href="index.html">介绍</a>
+    <a href="#features">能力</a>
+    <a href="#screens">截图</a>
+    <a href="#install">安装</a>
+    <a href="manual.html">手册</a>
+  </nav>
+  <span class="version">docs · v1</span>
+</header>
+
+<main>
+
+  <!-- ── hero ─────────────────────────────────────── -->
+  <div class="hero">
+    <span class="kicker">Go · bubbletea TUI · 本地优先 · 无云依赖</span>
+    <h1>让 AI 智能体<br><span class="accent">自己学会变强</span></h1>
+    <p class="sub">
+      lyon-agent 是一个跑在终端里的编程智能体。除了常规的对话、工具调用与全屏工作台，
+      它内置一套<strong>演化机制</strong>：生产评分、闭卷考核、任务路由、知识覆盖率门禁、
+      机械式 workflow——让「用得越多、越好用」成为可度量的事实，而不是口号。
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="#install">快速开始</a>
+      <a class="btn" href="manual.html">阅读手册 →</a>
+    </div>
+  </div>
+
+  <!-- ── hero shot ────────────────────────────────── -->
+  <figure class="term tall">
+    <div class="bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="title">lyon chat — 全屏工作台：流式转录 + 右侧步骤审计面板</span>
+    </div>
+    <iframe src="screens/tui-workbench.html" title="lyon TUI 工作台截图" scrolling="auto"></iframe>
+    <figcaption>
+      左侧是实时转录（含工具调用、thinking 折叠、<code class="inline">[turn N]</code> 回合计数），
+      右侧是步骤审计面板：每一步工具执行的名称、耗时、状态一览无余，Alt 键可展开详情。
+    </figcaption>
+  </figure>
+
+  <!-- ── features ─────────────────────────────────── -->
+  <section id="features">
+    <h2><span class="hash">#</span>核心能力</h2>
+    <p class="lede">六块拼图组成完整闭环：跑任务 → 留审计 → 打分 → 考核 → 路由 → 固化流程。</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="icon">🖥️</div>
+        <h3>全屏 TUI 工作台</h3>
+        <p>流式转录、thinking 折叠、审批浮层、图片预览；右侧步骤审计面板记录每一次工具执行的名称、耗时与结果。/resume 后步骤与 [turn N] 回合计数完整恢复。</p>
+        <span class="tag">cmd/lyon · bubbletea</span>
+      </div>
+      <div class="card">
+        <div class="icon">📊</div>
+        <h3>生产评分与在岗榜单</h3>
+        <p>按成功率、耗时、成本、用户复核四维给每个模型打分，写入本地 leaderboard。在岗的必须是达标的——不达标就降级，换人上场。</p>
+        <span class="tag">pkg/eval</span>
+      </div>
+      <div class="card">
+        <div class="icon">📝</div>
+        <h3>闭卷考核</h3>
+        <p>每 10 轮触发一次带标准答案的闭卷考试，失败自动归纳错因。连挂 2 次撤销上岗资格，修复后重新认证——淘汰机制落到代码里。</p>
+        <span class="tag">/exam · LYON_EXAM</span>
+      </div>
+      <div class="card">
+        <div class="icon">🧭</div>
+        <h3>任务分类与推荐路由</h3>
+        <p>先给任务分类，再结合能力画像与推荐表缓存选出最合适的 Agent。多次请求收敛成稳定的总入口路由网络。</p>
+        <span class="tag">pkg/routing</span>
+      </div>
+      <div class="card">
+        <div class="icon">🧪</div>
+        <h3>知识覆盖率门禁</h3>
+        <p>开卷干活之前，先用题库闭卷测一次知识覆盖率；低于 0.6 不放行，只注入缺口对应的定向材料。学过了才算会。</p>
+        <span class="tag">coverage ≥ 0.6</span>
+      </div>
+      <div class="card">
+        <div class="icon">⚙️</div>
+        <h3>机械式 Workflow 执行</h3>
+        <p>控制流是数据不是提示词：workflow 通过门禁冻结后，步骤按固定顺序机械执行，LLM 只负责节点内的填空，走一步算一步的抖动不复存在。</p>
+        <span class="tag">/flow · pkg/flow</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── screenshots ──────────────────────────────── -->
+  <section id="screens">
+    <h2><span class="hash">#</span>截图</h2>
+    <p class="lede">全部由仓库内 <code class="inline">gen_screens_test.go</code> 离线渲染真实 TUI 帧生成，非手工拼贴——所见即所得。</p>
+
+    <div class="shots">
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/route — 任务路由</span>
+        </div>
+        <iframe src="screens/tui-route.html" title="路由截图" scrolling="auto"></iframe>
+        <figcaption>任务分类 → 打分 → 推荐路由，一眼看到「为什么交给这个 Agent」。</figcaption>
+      </figure>
+
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/flow — 机械工作流</span>
+        </div>
+        <iframe src="screens/tui-flow.html" title="workflow 截图" scrolling="auto"></iframe>
+        <figcaption>冻结后的 feature-dev 流程：每个节点写死做什么，状态可查、可复盘。</figcaption>
+      </figure>
+
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/exam — 闭卷考核</span>
+        </div>
+        <iframe src="screens/tui-exam.html" title="考核截图" scrolling="auto"></iframe>
+        <figcaption>考核异步跑在步骤面板里，带标准答案判卷、错因归纳，不打断你手头的活。</figcaption>
+      </figure>
+
+      <figure class="term">
+        <div class="bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">/help — 指令速查</span>
+        </div>
+        <iframe src="screens/tui-help.html" title="帮助截图" scrolling="auto"></iframe>
+        <figcaption>全部斜杠指令内置说明，输入时向下展开候选，回车即执行选中项。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ── install ──────────────────────────────────── -->
+  <section id="install">
+    <h2><span class="hash">#</span>快速开始</h2>
+    <p class="lede">零依赖（Go ≥ 1.25 编译即可跑），Anthropic 与 OpenAI 兼容端点都支持。</p>
+
+    <h3>1 · 构建</h3>
+<pre><span class="c"># 仓库根目录</span>
+go build <span class="k">-o</span> bin/lyon   ./cmd/lyon      <span class="c"># 终端主程序（CLI + 全屏 TUI）</span>
+go build <span class="k">-o</span> bin/lyond  ./cmd/lyond     <span class="c"># OpenAI 兼容网关（可选）</span></pre>
+
+    <h3>2 · 配置凭证</h3>
+<pre><span class="c"># Anthropic 官方</span>
+<span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=sk-ant-...
+
+<span class="c"># 或任意 OpenAI 兼容端点（key 与 base URL 二选一配置即可）</span>
+<span class="p">$</span> export ANTHROPIC_BASE_URL=<span class="s">https://token-plan-cn.xiaomimimo.com/v1</span>
+<span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=<span class="s">&lt;your-key&gt;</span></pre>
+
+    <h3>3 · 启动</h3>
+<pre><span class="p">$</span> ./bin/lyon chat            <span class="c"># 全屏 TUI 工作台</span>
+<span class="p">$</span> ./bin/lyon -p <span class="s">"重构这个函数"</span>  <span class="c"># 单次 CLI 执行，打完即走</span>
+<span class="p">$</span> ./bin/lyon chat            <span class="c"># 会话自动落盘，/resume 随时续上</span></pre>
+
+    <div class="note">
+      <strong>数据都在本地：</strong>会话、榜单、考核记录全部存在 <code class="inline">$LYON_HOME</code>（默认 <code class="inline">~/.lyon</code>）。
+      无遥测、无云同步。
+    </div>
+  </section>
+
+  <!-- ── learning ─────────────────────────────────── -->
+  <section>
+    <h2><span class="hash">#</span>从这里开始学</h2>
+    <p class="lede">新用户建议按顺序读——每一章都能独立上手。</p>
+
+    <ol class="flow">
+      <li>
+        <strong><a href="manual.html#quickstart">快速上手</a></strong>
+        <span>构建、凭证、第一次对话；TUI 按键与斜杠指令速查。</span>
+      </li>
+      <li>
+        <strong><a href="manual.html#tour">界面导览</a></strong>
+        <span>四个区域各干什么：转录区、输入区、临时输出区、步骤审计面板。</span>
+      </li>
+      <li>
+        <strong><a href="manual.html#evolution">演化机制详解</a></strong>
+        <span>评分 → 考核 → 路由 → 覆盖门禁 → workflow 冻结，五级火箭怎么串起来。</span>
+      </li>
+      <li>
+        <strong><a href="manual.html#reference">命令与配置参考</a></strong>
+        <span>全部斜杠指令、启动标志、环境变量一张表查清。</span>
+      </li>
+      <li>
+        <strong><a href="manual.html#faq">常见问题</a></strong>
+        <span>迭代预算为什么会停、resume 恢复了什么、门禁会不会卡死……</span>
+      </li>
+    </ol>
+  </section>
+
+</main>
+
+<footer class="site">
+  <div class="foot-links">
+    <a href="index.html">介绍</a>
+    <a href="manual.html">手册</a>
+    <a href="#screens">截图</a>
+    <a href="../README.md">README</a>
+  </div>
+  <div>lyon-agent · 本地优先、可演化的终端 AI 编程智能体 · 文档随仓库分发，无网络资源</div>
+</footer>
+
+</body>
+</html>
