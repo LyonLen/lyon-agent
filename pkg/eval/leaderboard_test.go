@@ -4,13 +4,34 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
-// lbFor points the ledger at a scratch LYON_HOME (no parallel tests in
-// this package — env is process-wide).
+// scratchHome points LYON_HOME at a fresh temp dir and schedules a
+// retrying cleanup: Windows file scanners can hold a just-written file
+// just long enough that the framework's immediate RemoveAll hits a
+// delete-pending entry ("directory not empty"). No parallel tests in
+// this package — env is process-wide.
+func scratchHome(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		var err error
+		for i := 0; i < 40; i++ {
+			if err = os.RemoveAll(dir); err == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Logf("settle cleanup failed: %v", err)
+	})
+	t.Setenv("LYON_HOME", dir)
+}
+
+// lbFor points the ledger at a scratch LYON_HOME.
 func lbFor(t *testing.T) *Leaderboard {
 	t.Helper()
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	return OpenLeaderboard()
 }
 
@@ -113,8 +134,8 @@ func TestExamCardsAloneNeverHandOutTheSeat(t *testing.T) {
 }
 
 func TestLeaderboardPersistsAcrossReloads(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("LYON_HOME", dir)
+	scratchHome(t)
+	dir := os.Getenv("LYON_HOME")
 	lb := OpenLeaderboard()
 	lb.Record("c", prodCard("a", 0.9, true))
 	lb.CountRound("c")

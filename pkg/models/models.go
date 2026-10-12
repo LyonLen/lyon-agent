@@ -32,6 +32,21 @@ type Pricing struct {
 	CacheWrite float64 // USD/Mtok to write the cache; 0 beside a priced CacheRead = free
 }
 
+// Profile is a coarse capability map on a 0–5 scale — the self-knowledge
+// data behind the recommendation router (docs/design/agent-evolution.md
+// §5): how hard this model can think, how long it can stay on a task, how
+// well it handles open-ended work, how fast it answers, how light the
+// bill is. Curated hints, not benchmarks; CapProfile() defaults blanks
+// to a flat mid-scale so an unprofiled entry never reads as "bad at
+// everything".
+type Profile struct {
+	Reasoning byte `json:"reasoning"` // depth of thought on hard problems
+	LongHaul  byte `json:"long_haul"` // staying power across long runs
+	Openness  byte `json:"openness"`  // open-ended design/writing ability
+	Speed     byte `json:"speed"`     // latency character (5 = fastest)
+	Thrift    byte `json:"thrift"`    // cost efficiency (5 = cheapest)
+}
+
 // Info is one known model. Context/MaxOutput are token counts (0 =
 // unstated). Temperature/TopP carry the vendor's recommendation as free
 // text because the shapes differ (some models reject the fields entirely).
@@ -42,96 +57,123 @@ type Info struct {
 	Context     int64 // input context window in tokens
 	MaxOutput   int64 // max output tokens
 	Pricing     Pricing
-	Temperature string // recommended temperature, or "unsupported"
-	TopP        string // recommended top_p, or "unsupported"
-	Reasoning   bool   // reasoning model: sampling params are fixed
-	Cutoff      string // knowledge cutoff, "YYYY-MM" or ""
+	Profile     Profile // capability dimensions (0–5); see CapProfile
+	Temperature string  // recommended temperature, or "unsupported"
+	TopP        string  // recommended top_p, or "unsupported"
+	Reasoning   bool    // reasoning model: sampling params are fixed
+	Cutoff      string  // knowledge cutoff, "YYYY-MM" or ""
 	Notes       []string
+}
+
+// CapProfile returns the capability profile, filling an unset one with a
+// flat 3s mid-scale.
+func (i *Info) CapProfile() Profile {
+	if i.Profile == (Profile{}) {
+		return Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 3, Thrift: 3}
+	}
+	return i.Profile
 }
 
 var registry = []Info{
 	// ── Anthropic Claude ────────────────────────────────────────────────
 	{ID: "claude-opus-5-5", Family: "Claude Opus 5", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 64000,
+		Profile:     Profile{Reasoning: 5, LongHaul: 5, Openness: 5, Speed: 2, Thrift: 1},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内",
 		Notes: []string{"与 top_p 二选一，勿同时调", "1M 上下文为 beta 选项"}},
 	{ID: "claude-opus-5*", Family: "Claude Opus 5", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 64000,
+		Profile:     Profile{Reasoning: 5, LongHaul: 5, Openness: 5, Speed: 2, Thrift: 1},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内",
 		Notes: []string{"与 top_p 二选一，勿同时调"}},
 	{ID: "claude-opus-4-5", Family: "Claude Opus 4.5", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 64000,
 		Pricing:     Pricing{Input: 5, Output: 25},
+		Profile:     Profile{Reasoning: 5, LongHaul: 5, Openness: 5, Speed: 2, Thrift: 2},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内",
 		Cutoff: "2025-01",
 		Notes:  []string{"1M 上下文为 beta 选项"}},
 	{ID: "claude-opus-4*", Family: "Claude Opus 4", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 32000,
 		Pricing:     Pricing{Input: 15, Output: 75},
+		Profile:     Profile{Reasoning: 5, LongHaul: 5, Openness: 5, Speed: 2, Thrift: 1},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内",
 		Cutoff: "2025-04"},
 	{ID: "claude-sonnet-4-5*", Family: "Claude Sonnet 4.5", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 64000,
 		Pricing:     Pricing{Input: 3, Output: 15},
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 3, Thrift: 3},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内",
 		Cutoff: "2025-07",
 		Notes:  []string{"1M 上下文为 beta 选项"}},
 	{ID: "claude-sonnet-4*", Family: "Claude Sonnet 4", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 64000,
 		Pricing:     Pricing{Input: 3, Output: 15},
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 3, Thrift: 3},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内",
 		Cutoff: "2025-04"},
 	{ID: "claude-haiku-4-5*", Family: "Claude Haiku 4.5", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 64000,
 		Pricing:     Pricing{Input: 1, Output: 5},
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 5, Thrift: 4},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内",
 		Cutoff: "2025-07"},
 	{ID: "claude-3-7-sonnet*", Family: "Claude 3.7 Sonnet", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 64000,
 		Pricing:     Pricing{Input: 3, Output: 15},
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 3, Thrift: 3},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内"},
 	{ID: "claude-3-5-haiku*", Family: "Claude 3.5 Haiku", Provider: "Anthropic",
 		Context: 200000, MaxOutput: 8192,
 		Pricing:     Pricing{Input: 0.8, Output: 4},
+		Profile:     Profile{Reasoning: 3, LongHaul: 2, Openness: 3, Speed: 5, Thrift: 4},
 		Temperature: "1.0（官方默认）", TopP: "0.95 内"},
 
 	// ── OpenAI ─────────────────────────────────────────────────────────
 	{ID: "gpt-4o-mini*", Family: "GPT-4o mini", Provider: "OpenAI",
 		Context: 128000, MaxOutput: 16384,
 		Pricing:     Pricing{Input: 0.15, Output: 0.6},
+		Profile:     Profile{Reasoning: 3, LongHaul: 2, Openness: 3, Speed: 5, Thrift: 5},
 		Temperature: "1.0（官方默认）", TopP: "1.0（默认）", Cutoff: "2024-10"},
 	{ID: "gpt-4o*", Family: "GPT-4o", Provider: "OpenAI",
 		Context: 128000, MaxOutput: 16384,
 		Pricing:     Pricing{Input: 2.5, Output: 10},
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 3},
 		Temperature: "1.0（官方默认）", TopP: "1.0（默认）", Cutoff: "2024-10"},
 	{ID: "gpt-4.1-mini*", Family: "GPT-4.1 mini", Provider: "OpenAI",
 		Context: 1047576, MaxOutput: 32768,
 		Pricing:     Pricing{Input: 0.4, Output: 1.6},
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 5},
 		Temperature: "0.7（社区常用）", TopP: "1.0（默认）", Cutoff: "2024-01"},
 	{ID: "gpt-4.1*", Family: "GPT-4.1", Provider: "OpenAI",
 		Context: 1047576, MaxOutput: 32768,
 		Pricing:     Pricing{Input: 2, Output: 8},
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 3, Thrift: 4},
 		Temperature: "0.7（社区常用）", TopP: "1.0（默认）", Cutoff: "2024-06"},
 	{ID: "o3-mini*", Family: "o3-mini", Provider: "OpenAI",
 		Context: 200000, MaxOutput: 100000,
 		Pricing:     Pricing{Input: 1.1, Output: 4.4},
+		Profile:     Profile{Reasoning: 4, LongHaul: 3, Openness: 3, Speed: 3, Thrift: 4},
 		Temperature: "unsupported", TopP: "unsupported", Reasoning: true,
 		Cutoff: "2024-04",
 		Notes:  []string{"推理模型：temp/top_p 必须留默认，reasoning_effort 可调"}},
 	{ID: "o3*", Family: "o3", Provider: "OpenAI",
 		Context: 200000, MaxOutput: 100000,
 		Pricing:     Pricing{Input: 2, Output: 8},
+		Profile:     Profile{Reasoning: 5, LongHaul: 4, Openness: 3, Speed: 2, Thrift: 2},
 		Temperature: "unsupported", TopP: "unsupported", Reasoning: true,
 		Cutoff: "2024-06",
 		Notes:  []string{"推理模型：temp/top_p 必须留默认"}},
 	{ID: "o4-mini*", Family: "o4-mini", Provider: "OpenAI",
 		Context: 200000, MaxOutput: 100000,
 		Pricing:     Pricing{Input: 1.1, Output: 4.4},
+		Profile:     Profile{Reasoning: 4, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 4},
 		Temperature: "unsupported", TopP: "unsupported", Reasoning: true,
 		Notes: []string{"推理模型：temp/top_p 必须留默认"}},
 	{ID: "o1*", Family: "o1", Provider: "OpenAI",
 		Context: 200000, MaxOutput: 100000,
 		Pricing:     Pricing{Input: 15, Output: 60},
+		Profile:     Profile{Reasoning: 5, LongHaul: 4, Openness: 3, Speed: 1, Thrift: 1},
 		Temperature: "unsupported", TopP: "unsupported", Reasoning: true,
 		Notes: []string{"推理模型：temp/top_p 必须留默认"}},
 
@@ -139,25 +181,30 @@ var registry = []Info{
 	{ID: "gemini-2.5-pro*", Family: "Gemini 2.5 Pro", Provider: "Google",
 		Context: 1048576, MaxOutput: 65536,
 		Pricing:     Pricing{Input: 1.25, Output: 10},
+		Profile:     Profile{Reasoning: 5, LongHaul: 5, Openness: 4, Speed: 3, Thrift: 3},
 		Temperature: "1.0（默认）", TopP: "0.95", Cutoff: "2025-01",
 		Notes: []string{"≤200K 输入按低价档计费，超出阶梯加价", "2M 上下文为 preview"}},
 	{ID: "gemini-2.5-flash*", Family: "Gemini 2.5 Flash", Provider: "Google",
 		Context: 1048576, MaxOutput: 65536,
 		Pricing:     Pricing{Input: 0.3, Output: 2.5},
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 5, Thrift: 4},
 		Temperature: "1.0（默认）", TopP: "0.95", Cutoff: "2025-01"},
 	{ID: "gemini-2.0-flash*", Family: "Gemini 2.0 Flash", Provider: "Google",
 		Context: 1048576, MaxOutput: 8192,
 		Pricing:     Pricing{Input: 0.1, Output: 0.4},
+		Profile:     Profile{Reasoning: 3, LongHaul: 2, Openness: 3, Speed: 5, Thrift: 5},
 		Temperature: "1.0（默认）", TopP: "0.95"},
 
 	// ── DeepSeek ───────────────────────────────────────────────────────
 	{ID: "deepseek-chat", Family: "DeepSeek V3", Provider: "DeepSeek",
 		Context: 65536, MaxOutput: 8192,
 		Pricing:     Pricing{Input: 0.27, Output: 1.1},
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 5},
 		Temperature: "0.6（官方推荐）", TopP: "0.95 内", Cutoff: "2024-12"},
 	{ID: "deepseek-reasoner", Family: "DeepSeek R1", Provider: "DeepSeek",
 		Context: 65536, MaxOutput: 8192,
 		Pricing:     Pricing{Input: 0.55, Output: 2.19},
+		Profile:     Profile{Reasoning: 5, LongHaul: 4, Openness: 4, Speed: 3, Thrift: 5},
 		Temperature: "0.6（官方推荐）", TopP: "0.95 内", Reasoning: true,
 		Cutoff: "2024-12",
 		Notes:  []string{"思维链输出计入 completion tokens"}},
@@ -165,21 +212,26 @@ var registry = []Info{
 	// ── 其他常见开源/托管 ───────────────────────────────────────────────
 	{ID: "qwen2.5-72b-instruct*", Family: "Qwen2.5 72B", Provider: "Alibaba",
 		Context: 131072, MaxOutput: 8192,
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 4},
 		Temperature: "0.7（官方默认）", TopP: "0.95 内"},
 	{ID: "qwen-max*", Family: "Qwen Max", Provider: "Alibaba",
 		Context: 32768, MaxOutput: 8192,
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 3, Thrift: 4},
 		Temperature: "0.7（官方默认）", TopP: "0.95 内",
 		Notes: []string{"价格以人民币计，未收录换算"}},
 	{ID: "qwen-plus*", Family: "Qwen Plus", Provider: "Alibaba",
 		Context: 131072, MaxOutput: 8192,
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 5},
 		Temperature: "0.7（官方默认）", TopP: "0.95 内",
 		Notes: []string{"价格以人民币计，未收录换算"}},
 	{ID: "llama-3.3-70b*", Family: "Llama 3.3 70B", Provider: "Meta",
 		Context: 131072, MaxOutput: 8192,
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 4},
 		Temperature: "0.6（官方示例）", TopP: "0.9 内",
 		Notes: []string{"托管商价格差异大，未收录"}},
 	{ID: "mistral-large*", Family: "Mistral Large", Provider: "Mistral",
 		Context: 131072, MaxOutput: 8192,
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 4, Thrift: 4},
 		Temperature: "0.7（官方默认）", TopP: "1.0（默认）"},
 
 	// ── Xiaomi MiMo — the model this gateway actually serves ─────────
@@ -192,6 +244,7 @@ var registry = []Info{
 	{ID: "mimo-v2.6-flash", Family: "MiMo V2.6 Flash", Provider: "Xiaomi",
 		Context: 1000000, MaxOutput: 128000,
 		Pricing:     Pricing{Input: 0.14, Output: 0.28, CacheRead: 0.0028},
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 5, Thrift: 5},
 		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
 		Notes: []string{
 			"缓存命中 $0.0028/M、写入限时期免费；Batch 半价",
@@ -201,6 +254,7 @@ var registry = []Info{
 	{ID: "mimo-v2.6-pro", Family: "MiMo V2.6 Pro", Provider: "Xiaomi",
 		Context: 1000000, MaxOutput: 128000,
 		Pricing:     Pricing{Input: 0.435, Output: 0.87, CacheRead: 0.0036},
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 4, Thrift: 4},
 		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
 		Notes: []string{
 			"缓存命中 $0.0036/M、写入限时期免费",
@@ -209,6 +263,7 @@ var registry = []Info{
 	{ID: "mimo-v2.6-pro-ultraspeed", Family: "MiMo V2.6 Pro UltraSpeed", Provider: "Xiaomi",
 		Context: 1000000, MaxOutput: 128000,
 		Pricing:     Pricing{Input: 4.35, Output: 8.7, CacheRead: 0.036},
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 5, Thrift: 1},
 		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
 		Notes: []string{
 			"缓存命中 $0.036/M、写入限时期免费；不支持 Batch API",
@@ -217,6 +272,7 @@ var registry = []Info{
 	{ID: "mimo-v2.5", Family: "MiMo V2.5", Provider: "Xiaomi",
 		Context: 1000000, MaxOutput: 128000,
 		Pricing:     Pricing{Input: 0.14, Output: 0.28, CacheRead: 0.0028},
+		Profile:     Profile{Reasoning: 3, LongHaul: 3, Openness: 3, Speed: 5, Thrift: 5},
 		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
 		Notes: []string{
 			"2026-10-21 10:00（北京时间）正式下线，迁 mimo-v2.6-flash",
@@ -225,6 +281,7 @@ var registry = []Info{
 	{ID: "mimo-v2.5-pro", Family: "MiMo V2.5 Pro", Provider: "Xiaomi",
 		Context: 1000000, MaxOutput: 128000,
 		Pricing:     Pricing{Input: 0.435, Output: 0.87, CacheRead: 0.0036},
+		Profile:     Profile{Reasoning: 4, LongHaul: 4, Openness: 4, Speed: 4, Thrift: 4},
 		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
 		Notes: []string{
 			"2026-10-21 10:00（北京时间）正式下线，迁 mimo-v2.6-pro",

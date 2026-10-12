@@ -29,7 +29,7 @@ func TestCheckAnswerRules(t *testing.T) {
 }
 
 func TestRunExamGradesAndPasses(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	ex := Exam{Class: "coding", Questions: []Question{
 		{Q: "how to run tests?", Expected: "go test ./..."},
 		{Q: "port?", Expected: "8080"},
@@ -60,7 +60,7 @@ func TestRunExamGradesAndPasses(t *testing.T) {
 }
 
 func TestRunExamAnswererErrorGradesAsMiss(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	ex := Exam{Class: "c", Questions: []Question{{Q: "q", Expected: "a"}}}
 	res := RunExam(context.Background(), ex, func(context.Context, string) (string, error) {
 		return "", fmt.Errorf("gateway down")
@@ -71,7 +71,7 @@ func TestRunExamAnswererErrorGradesAsMiss(t *testing.T) {
 }
 
 func TestExamEmptyQuestionListNeverPasses(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	res := RunExam(context.Background(), Exam{Class: "c"},
 		func(context.Context, string) (string, error) { return "x", nil })
 	if res.Passed || res.Pct != 0 {
@@ -80,7 +80,7 @@ func TestExamEmptyQuestionListNeverPasses(t *testing.T) {
 }
 
 func TestExamSaveLoadRoundtripAndPathSafety(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	ex := Exam{Class: "coding", Pass: 0.9, Questions: []Question{{Q: "q1", Expected: "e1"}}}
 	if err := SaveExam(ex); err != nil {
 		t.Fatal(err)
