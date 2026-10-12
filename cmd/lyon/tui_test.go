@@ -267,20 +267,30 @@ func TestTUISlashPopup(t *testing.T) {
 		t.Fatalf("unique match did not execute /stats:\n%s", m.renderTranscript())
 	}
 
-	// An ambiguous prefix keeps the input and asks for completion.
+	// Ambiguous prefix + enter runs the highlighted entry — no tab-then-
+	// enter detour. Walk to /clear so the effect is observable.
 	m.ti.SetValue("/")
 	m.updateSuggestions()
+	m.Update(tea.KeyMsg{Type: tea.KeyDown}) // sugIdx 0 → 1 (/clear)
+	if len(m.sugs) < 2 || m.sugs[m.sugIdx].cmd != "/clear" {
+		t.Fatalf("selection walk: idx=%d %#v", m.sugIdx, m.sugs)
+	}
 	if cmd := m.submit(); cmd != nil {
-		t.Fatal("ambiguous enter must not submit")
+		t.Fatal("ambiguous enter must not return a tea.Cmd")
 	}
-	if m.ti.Value() != "/" {
-		t.Fatalf("ambiguous enter consumed the input: %q", m.ti.Value())
+	if v := m.ti.Value(); v != "" {
+		t.Fatalf("enter left input %q, want empty", v)
 	}
-	if !strings.Contains(m.status, "match") {
-		t.Fatalf("status lacks completion hint: %q", m.status)
+	if len(m.sugs) != 0 {
+		t.Fatalf("popup still open after enter: %#v", m.sugs)
+	}
+	if strings.Contains(m.renderTranscript(), "no turns yet") {
+		t.Fatal("selected command did not run — transcript not cleared")
 	}
 
 	// ↑/↓ walk the list (wrapping), esc closes it, typing re-arms it.
+	m.ti.SetValue("/")
+	m.updateSuggestions()
 	m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	if m.sugIdx != len(slashCommands)-1 {
 		t.Fatalf("after up: sugIdx = %d, want %d", m.sugIdx, len(slashCommands)-1)

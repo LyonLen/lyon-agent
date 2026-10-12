@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -96,6 +97,13 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 	if c := strings.TrimSpace(args.Context); c != "" {
 		task += "\n\nContext:\n" + c
 	}
+
+	// Mark the whole nested run so OnToolStart/End stamp Event.Sub —
+	// renderers nest these executions under this task instead of mixing
+	// them into the main flow. The run_subagent exec itself brackets this
+	// window (its own start/end fire outside), so it stays at depth 0.
+	atomic.AddInt32(&s.subNest, 1)
+	defer atomic.AddInt32(&s.subNest, -1)
 
 	// The subagent gets every parallel-safe (read-only) tool of this engine
 	// except run_subagent itself — no recursion, no workspace mutation.

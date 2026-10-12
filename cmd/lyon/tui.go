@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -173,6 +174,12 @@ type tuiModel struct {
 	stepSeq int
 	stepsOn bool
 	tw, pw  int
+	// stepSel is the selected step's number (0 = live-follow the tail),
+	// stepOpen expands it; panelW is the user-chosen panel width
+	// (0 = default panelWidth). alt+↑/↓/enter/←/→ drive all three.
+	stepSel  int
+	stepOpen bool
+	panelW   int
 }
 
 func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) *tuiModel {
@@ -247,6 +254,8 @@ func (m *tuiModel) resetTranscript() {
 	// the snapshot, so the panel restarts with the replayed transcript.
 	m.steps = nil
 	m.stepSeq = 0
+	m.stepSel = 0
+	m.stepOpen = false
 }
 
 func (m *tuiModel) Init() tea.Cmd { return m.ti.Focus() }
@@ -362,7 +371,8 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 			case b.OfToolUse != nil:
 				in, _ := json.Marshal(b.OfToolUse.Input)
 				m.pushStyled(fmt.Sprintf("%s %s %s", paint(cCyan, "⚒ tool_use"),
-					b.OfToolUse.Name, paint(cDim, shortJSON(in, 160))))
+					b.OfToolUse.Name, paint(cDim,
+						truncateRunes(stepArgPreview(b.OfToolUse.Name, in), 160))))
 
 			case b.OfToolResult != nil:
 				marker := paint(cMagenta, "⤷ result")
@@ -411,7 +421,7 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		m.flushPend()
 		if ev.Server {
 			m.pushStyled(fmt.Sprintf("%s %s %s", paint(cMagenta, "🌐 server"), ev.ToolName,
-				paint(cDim, shortJSON(ev.Input, 160))))
+				paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160))))
 		} else {
 			m.pushStyled(fmt.Sprintf("%s %s %s", paint(cCyan, "⚒ tool_use"), ev.ToolName,
 				paint(cDim, ev.ToolID)))
@@ -428,7 +438,7 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 	case agent.EventToolExecStart:
 		m.flushPend()
 		m.pushStyled(fmt.Sprintf("%s #%d %s %s", paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName,
-			paint(cDim, shortJSON(ev.Input, 160))))
+			paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160))))
 
 	case agent.EventToolExecEnd:
 		m.flushPend()
@@ -731,7 +741,7 @@ var slashCommands = []sugItem{
 	{"/model", "model card: context window, official params, pricing"},
 	{"/mode", "switch plan (read-only) / bypass (auto-approve) / default"},
 	{"/think", "expand/collapse thinking blocks"},
-	{"/steps", "toggle the right-hand action audit panel"},
+	{"/steps", "action audit panel: bare toggles, open/close/width N"},
 	{"/help", "list commands and keys"},
 	{"/quit", "exit"},
 }
@@ -1357,6 +1367,44 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleThinking()
 			return m, nil
 
+		// Steps panel navigation (steps.go): walk the audit, expand the
+		// selected step, resize the column. The panel owns these while it
+		// is on; they never reach the input.
+		case "alt+up":
+			m.armedQuit = false
+			if m.panelOn() {
+				m.stepMove(-1)
+			}
+			return m, nil
+
+		case "alt+down":
+			m.armedQuit = false
+			if m.panelOn() {
+				m.stepMove(+1)
+			}
+			return m, nil
+
+		case "alt+enter":
+			m.armedQuit = false
+			if m.panelOn() {
+				m.stepToggleOpen()
+			}
+			return m, nil
+
+		case "alt+right":
+			m.armedQuit = false
+			if m.panelOn() {
+				m.stepResize(+4)
+			}
+			return m, nil
+
+		case "alt+left":
+			m.armedQuit = false
+			if m.panelOn() {
+				m.stepResize(-4)
+			}
+			return m, nil
+
 		case "enter":
 			m.armedQuit = false
 			return m, m.submit()
@@ -1457,11 +1505,16 @@ func (m *tuiModel) submit() tea.Cmd {
 	}
 	if strings.HasPrefix(line, "/") || line == ":q" {
 		// Resolve through the popup: a unique match runs as-is (or by
-		// prefix, "/st" → /stats), an ambiguous one waits for tab/↑↓
-		// instead of dying as "unknown command".
+		// prefix, "/st" → /stats); with several matches Enter runs the
+		// one the popup has highlighted — tab-then-enter was one step
+		// too many for choosing.
 		if s := m.sugs; len(s) > 1 {
-			m.status = fmt.Sprintf("%d commands match — tab to complete, ↑/↓ to choose", len(s))
-			return nil
+			idx := m.sugIdx
+			if idx < 0 || idx >= len(s) {
+				idx = 0
+			}
+			line = s[idx].cmd
+			m.status = ""
 		} else if len(s) == 1 {
 			line = s[0].cmd
 			m.status = "" // popup hint has served its purpose
@@ -1488,6 +1541,9 @@ func (m *tuiModel) submit() tea.Cmd {
 		return nil
 	}
 	m.busy = true
+	// The prompt opens a titled group in the steps panel: the parent row
+	// that says what the following steps are for (steps.go).
+	m.startPromptStep(line)
 	m.status = ""
 	m.follow = true
 	m.refresh()
@@ -1598,15 +1654,44 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 	case "/think":
 		m.toggleThinking()
 	case "/steps":
-		m.stepsOn = !m.stepsOn
-		m.relayout()
-		state := "on"
-		if !m.stepsOn {
-			state = "off"
-		} else if !m.panelOn() {
-			state = "on (terminal too narrow — needs 110+ columns)"
+		// Bare toggles; open/close/width N mirror the alt+ keys.
+		switch sub, rest, _ := strings.Cut(strings.TrimSpace(args), " "); sub {
+		case "":
+			m.stepsOn = !m.stepsOn
+			m.relayout()
+			state := "on"
+			if !m.stepsOn {
+				state = "off"
+			} else if !m.panelOn() {
+				state = "on (terminal too narrow — needs 110+ columns)"
+			}
+			m.status = "steps panel " + state
+		case "open":
+			m.stepsOn = true
+			m.relayout()
+			m.stepToggleOpen()
+			if m.stepSel > 0 {
+				m.status = fmt.Sprintf("steps panel on — expanded #%d", m.stepSel)
+			} else {
+				m.status = "steps panel on"
+			}
+		case "close":
+			m.stepOpen = false
+			m.status = "steps collapsed"
+		case "width":
+			n, err := strconv.Atoi(strings.TrimSpace(rest))
+			if err != nil || n < panelWMin || n > panelWMax {
+				m.status = fmt.Sprintf("usage: /steps width %d..%d", panelWMin, panelWMax)
+				return nil
+			}
+			m.panelW = n
+			m.relayout()
+			m.status = fmt.Sprintf("panel width %d", n)
+		default:
+			m.status = "usage: /steps [open|close|width N]"
 		}
-		m.status = "steps panel " + state
+		m.refresh()
+		return nil
 	case "/help":
 		m.flushPend()
 		m.pushStyled(
@@ -1622,11 +1707,12 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 			"  /model   model card: /model current · /model list · /model <id>",
 			"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
 			"  /think   expand/collapse thinking blocks",
-			"  /steps   toggle the right-hand action audit panel (tools, compact, subagents)",
+			"  /steps   right-hand action audit panel: bare toggles, /steps open|close|width N",
 			"  /help    this help",
 			"  /quit    exit",
-			paint(cDim, "typing / pops the command list — tab completes · ↑/↓ choose · esc closes"),
+			paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),
 			paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt"),
+			paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+←/→ resize"),
 			paint(cDim, "approve overlay (shell/write/edit, on by default): y once · a allow this tool all session · n deny"),
 			paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
 		)

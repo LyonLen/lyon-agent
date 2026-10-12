@@ -53,6 +53,11 @@ type Event struct {
 	// Server marks a tool_use the Anthropic API executes server-side
 	// (web_search, web_fetch): no harness execution events follow it.
 	Server bool `json:"server,omitempty"`
+	// Sub marks a harness execution that happened inside a run_subagent
+	// call — renderers nest these under the subagent's task instead of
+	// mixing them into the main flow (exec events only; the subagent's
+	// own loop has no tool_use_start on this stream).
+	Sub bool `json:"sub,omitempty"`
 
 	// DurationMS / IsError / Err describe tool executions and failures.
 	DurationMS int64  `json:"duration_ms,omitempty"`

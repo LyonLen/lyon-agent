@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,12 +12,18 @@ import (
 	"lyon-agent/pkg/agent"
 )
 
-// The right-hand steps panel is the session's live action audit: every
-// effective decision the model made — tool calls, server-side tools,
-// subagents, compactions — lands here as a numbered step with a running /
-// done / error state, so a long run can be reviewed without re-reading the
-// transcript. Steps derive purely from the engine event stream; nothing
-// extra is sent to the model.
+// The right-hand steps panel is the session's live action audit, shaped
+// like the conversation's task tree: every prompt opens a titled group row
+// (the "why" behind what follows), tool executions sit indented under it,
+// and run_subagent becomes a task node whose inner executions (Event.Sub)
+// nest one level deeper — so a viewer can always tell which problem a
+// stretch of steps belongs to and what the new work was for. Steps derive
+// purely from the engine event stream; nothing extra is sent to the model.
+//
+// Interaction: alt+↑/↓ walk the history (window follows the selection,
+// past the newest returns to live-follow), alt+enter expands the selected
+// step's full operation, alt+←/→ resizes the panel; /steps toggles and
+// /steps open|close|width N mirrors the keys as commands.
 
 type stepStatus uint8
 
@@ -32,11 +40,13 @@ const (
 	stepServer
 	stepSubagent
 	stepCompact
+	stepPrompt // a prompt round: the titled parent of the steps after it
 )
 
 // execStep is one audited action. toolID pairs with tool_use_start /
 // server_tool_result events, execID with tool_exec_start/end; zero means
-// the pairing has not happened yet.
+// the pairing has not happened yet. under links a subagent's inner
+// execution to its task node (0 = top level).
 type execStep struct {
 	n      int
 	kind   stepKind
@@ -48,17 +58,24 @@ type execStep struct {
 	durMS  int64
 	err    string
 	ts     time.Time
+	under  int
 }
 
 const (
-	// panelWidth is the right column's width; the transcript takes the rest.
+	// panelWidth is the default right column's width; the transcript takes
+	// the rest. alt+←/→ moves it within [panelWMin, panelWMax].
 	panelWidth = 40
+	panelWMin  = 28
+	panelWMax  = 72
 	// panelMinWidth hides the panel on narrow terminals — a cramped
 	// transcript helps nobody. /steps cannot override the floor.
 	panelMinWidth = 110
 	// maxSteps caps the audit tail so an all-day session cannot grow the
 	// panel state without bound; numbering keeps counting past the trim.
 	maxSteps = 300
+	// expandMaxRows caps how many rows one expanded step may eat, so a
+	// long command can never swallow the whole panel.
+	expandMaxRows = 6
 )
 
 // panelOn reports whether the right column is drawn at the current width.
@@ -67,14 +84,21 @@ func (m *tuiModel) panelOn() bool {
 }
 
 // relayout recomputes the two column widths and re-arms the viewport.
-// Call after any change to width or the /steps toggle.
+// Call after any change to width or the /steps toggle. The panel width
+// is user-adjustable but never at the cost of a usable transcript column.
 func (m *tuiModel) relayout() {
 	m.tw, m.pw = m.width, 0
 	if m.panelOn() {
-		m.pw = panelWidth
-		m.tw = m.width - panelWidth - 2 // space + │ gutter column
-		if m.tw < 40 {
-			m.tw, m.pw = m.width, 0
+		pw := m.panelW
+		if pw <= 0 {
+			pw = panelWidth // zero-value default (tests, fresh models)
+		}
+		if m.width-pw-2 < 40 { // keep a readable transcript column
+			pw = m.width - 42
+		}
+		if pw >= panelWMin {
+			m.pw = pw
+			m.tw = m.width - pw - 2 // space + │ gutter column
 		}
 	}
 	m.vp.Width = m.tw
@@ -114,29 +138,70 @@ func (m *tuiModel) findToolStep(name string) *execStep {
 	return fallback
 }
 
+// activeSubagent returns the running run_subagent step (the task node its
+// inner executions nest under), searching from the newest backwards.
+func (m *tuiModel) activeSubagent() *execStep {
+	for i := len(m.steps) - 1; i >= 0; i-- {
+		s := &m.steps[i]
+		if s.name == "run_subagent" && s.status == stepRunning &&
+			(s.kind == stepTool || s.kind == stepSubagent) {
+			return s
+		}
+	}
+	return nil
+}
+
+// startPromptStep opens a new prompt group — one titled parent row that
+// answers "what problem are these steps solving". The title is the
+// prompt itself, collapsed to a single line.
+func (m *tuiModel) startPromptStep(prompt string) {
+	title := strings.Join(strings.Fields(prompt), " ")
+	if title == "" {
+		return
+	}
+	m.stepSeq++
+	if len(m.steps) >= maxSteps {
+		m.steps = m.steps[len(m.steps)/2:]
+	}
+	m.steps = append(m.steps, execStep{
+		n: m.stepSeq, kind: stepPrompt, detail: title,
+		status: stepDone, ts: time.Now(),
+	})
+}
+
 // stepEvent folds one engine event into the step list. It runs on the UI
 // thread inside applyEvent, so no locking.
 func (m *tuiModel) stepEvent(ev agent.Event) {
 	switch ev.Type {
 	case agent.EventToolUseStart:
-		kind, detail := stepTool, shortJSON(ev.Input, 80)
+		kind, detail := stepTool, stepArgPreview(ev.ToolName, ev.Input)
 		if ev.Server {
 			kind = stepServer
 		}
 		m.addStep(kind, ev.ToolID, ev.ToolName, detail)
 
 	case agent.EventToolExecStart:
-		// The harness always follows a tool_use with exec events (the
-		// observer fires before approval, and OnToolEnd is deferred), so
-		// the pairing target normally exists; create one defensively.
-		s := m.findToolStep(ev.ToolName)
-		if s == nil {
-			s = m.addStep(stepTool, "", ev.ToolName, shortJSON(ev.Input, 80))
+		var s *execStep
+		if ev.Sub {
+			// Inside a run_subagent: never pair with a main-flow step of
+			// the same name — hang this execution off the active task.
+			s = m.addStep(stepTool, "", ev.ToolName, stepArgPreview(ev.ToolName, ev.Input))
+			if p := m.activeSubagent(); p != nil {
+				s.under = p.n
+			}
+		} else {
+			// The harness always follows a tool_use with exec events (the
+			// observer fires before approval, and OnToolEnd is deferred), so
+			// the pairing target normally exists; create one defensively.
+			s = m.findToolStep(ev.ToolName)
+			if s == nil {
+				s = m.addStep(stepTool, "", ev.ToolName, stepArgPreview(ev.ToolName, ev.Input))
+			}
+			if ev.Input != nil && s.detail == "" {
+				s.detail = stepArgPreview(ev.ToolName, ev.Input)
+			}
 		}
 		s.execID = ev.ExecID
-		if ev.Input != nil && s.detail == "" {
-			s.detail = shortJSON(ev.Input, 80)
-		}
 
 	case agent.EventToolExecEnd:
 		var s *execStep
@@ -175,15 +240,28 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 		}
 
 	case agent.EventSubagentEnd:
-		m.stepSeq++
-		if len(m.steps) >= maxSteps {
-			m.steps = m.steps[len(m.steps)/2:]
+		// The run_subagent step (created at tool_use) becomes the parent
+		// task node; its inner execs already hang under it via `under`.
+		p := m.activeSubagent()
+		if p == nil {
+			// Defensive: use_start never arrived. Record a standalone node.
+			m.stepSeq++
+			if len(m.steps) >= maxSteps {
+				m.steps = m.steps[len(m.steps)/2:]
+			}
+			m.steps = append(m.steps, execStep{
+				n: m.stepSeq, kind: stepSubagent, name: "run_subagent",
+				detail: sanitizeText(ev.Detail), status: stepDone,
+				durMS: ev.DurationMS, ts: time.Now(),
+			})
+			return
 		}
-		m.steps = append(m.steps, execStep{
-			n: m.stepSeq, kind: stepSubagent, name: ev.ToolName,
-			detail: sanitizeText(ev.Detail), status: stepDone,
-			durMS: ev.DurationMS, ts: time.Now(),
-		})
+		p.kind = stepSubagent
+		p.status = stepDone
+		p.durMS = ev.DurationMS
+		if ev.Detail != "" {
+			p.detail += " · " + ev.Detail // task title · "3 API calls"
+		}
 
 	case agent.EventCompaction:
 		status, errStr := stepDone, ""
@@ -222,39 +300,248 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 	}
 }
 
-// renderSteps produces exactly h rows of at most w cells: a header, then
-// the newest steps that fit (oldest first, like the transcript's flow),
+// ── human-readable arguments ──────────────────────────────────────────
+
+// stepArgPreview renders tool input as a one-line human summary instead
+// of raw JSON: the command, query, URL, path or task the model actually
+// asked for. Document-order fallback keeps it deterministic; only an
+// input that survives none of that falls back to truncated JSON.
+func stepArgPreview(name string, input json.RawMessage) string {
+	if len(input) == 0 {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(input, &obj); err != nil {
+		return oneLine(string(input))
+	}
+	if k := preferArgKey(name); k != "" {
+		if s := argString(obj[k]); s != "" {
+			return oneLine(s)
+		}
+	}
+	for _, k := range []string{"command", "path", "url", "query", "pattern", "task", "title", "prompt"} {
+		if s := argString(obj[k]); s != "" {
+			return oneLine(s)
+		}
+	}
+	// First string VALUE in document order (unknown schemas, MCP tools).
+	// Decoder tokens hand object keys as plain strings too, so track
+	// key/value position: after '{' or ',' a string is a key, after a
+	// key comes its value — nested '[' flips values back on.
+	dec := json.NewDecoder(bytes.NewReader(input))
+	expectValue := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case string:
+			if expectValue {
+				if strings.TrimSpace(t) != "" {
+					return oneLine(t)
+				}
+				expectValue = false // empty value: the next string is a key
+			} else {
+				expectValue = true // a key: the next string is its value
+			}
+		case json.Delim:
+			expectValue = t == '['
+		default: // number/bool/null: a value — the next string is a key
+			expectValue = false
+		}
+	}
+	return shortJSON(input, 80)
+}
+
+// preferArgKey names the field that best answers "what is this call
+// doing" for each built-in tool.
+func preferArgKey(name string) string {
+	switch name {
+	case "run_shell":
+		return "command"
+	case "web_search":
+		return "query"
+	case "web_fetch":
+		return "url"
+	case "run_subagent":
+		return "task"
+	case "grep", "glob":
+		return "pattern"
+	case "save_memory", "forget_memory":
+		return "title"
+	case "read_memory":
+		return "query"
+	}
+	return "" // file tools fall through to the generic key list (path)
+}
+
+func argString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return s
+}
+
+// oneLine collapses whitespace runs (newlines, tabs, double spaces) so a
+// multi-line command reads as a single panel row.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// ── colors & rows ─────────────────────────────────────────────────────
+
+// stepColor distinguishes tool categories at a glance: shell green,
+// subagent blue, writes yellow, web/MCP magenta, reads and unknowns cyan.
+func stepColor(s execStep) string {
+	switch s.kind {
+	case stepPrompt:
+		return cCyan
+	case stepCompact:
+		return cYellow
+	case stepSubagent:
+		return cBlue
+	}
+	switch s.name {
+	case "run_shell":
+		return cGreen
+	case "run_subagent":
+		return cBlue
+	case "write_file", "edit_file", "save_memory", "forget_memory":
+		return cYellow
+	case "web_search", "web_fetch":
+		return cMagenta
+	}
+	if strings.HasPrefix(s.name, "mcp_") {
+		return cMagenta
+	}
+	return cCyan
+}
+
+// stepDepth is the indent level: prompt titles at 0, main-flow steps at
+// 1, a subagent's inner executions at 2.
+func (m *tuiModel) stepDepth(s execStep) int {
+	switch {
+	case s.kind == stepPrompt:
+		return 0
+	case s.under != 0:
+		return 2
+	default:
+		return 1
+	}
+}
+
+// reverseRow marks the selected row (guarded like paint for NO_COLOR).
+func reverseRow(s string) string {
+	if !color || s == "" {
+		return s
+	}
+	return "\x1b[7m" + s + "\x1b[27m"
+}
+
+// renderSteps produces exactly h rows of at most w cells: a header (with
+// the selection marker), then the visible window of steps — live tail by
+// default, or centered on the selection (expanded block kept whole) —
 // then blanks. ANSI-aware so the column edge stays aligned.
 func (m *tuiModel) renderSteps(w, h int) []string {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	rows := make([]string, 0, h)
 	header := paint(cBold, "steps")
 	if n := len(m.steps); n > 0 {
 		header += paint(cDim, fmt.Sprintf(" · %d", n))
 	}
-	rows = append(rows, fitRow(header, w))
+	if m.stepSel > 0 {
+		header += paint(cYellow, fmt.Sprintf(" · @#%d", m.stepSel))
+	}
 
-	// Tail window: newest last, as many as fit under the header.
-	lo := len(m.steps) - (h - 1)
-	if lo < 0 {
-		lo = 0
+	// Build every row; the selected step may span several (expanded).
+	type prow struct {
+		n    int
+		text string
 	}
-	for _, s := range m.steps[lo:] {
-		if len(rows) >= h {
-			break
+	var rows []prow
+	for _, s := range m.steps {
+		sel := m.stepSel != 0 && s.n == m.stepSel
+		lines := []string{m.stepLine(s, w)}
+		if sel && m.stepOpen {
+			lines = append(lines, m.stepExpandRows(s, w)...)
 		}
-		rows = append(rows, fitRow(m.stepLine(s, w), w))
+		for _, ln := range lines {
+			t := fitRow(ln, w)
+			if sel {
+				t = reverseRow(t)
+			}
+			rows = append(rows, prow{n: s.n, text: t})
+		}
 	}
-	for len(rows) < h {
-		rows = append(rows, "")
+
+	avail := h - 1 // one row is the header
+	if avail <= 0 {
+		return []string{fitRow(header, w)}
 	}
-	return rows
+	lo := 0
+	if len(rows) > avail {
+		lo = len(rows) - avail // live follow: newest at the bottom
+		if m.stepSel > 0 {
+			idx := -1
+			for i, r := range rows {
+				if r.n == m.stepSel {
+					idx = i
+					break
+				}
+			}
+			if idx >= 0 {
+				block := 1
+				for idx+block < len(rows) && rows[idx+block].n == m.stepSel {
+					block++
+				}
+				if block > avail {
+					block = avail
+				}
+				lo = idx - (avail - block) // selection block sits at the bottom
+				if max := len(rows) - avail; lo > max {
+					lo = max
+				}
+				if lo < 0 {
+					lo = 0
+				}
+			}
+		}
+	}
+
+	out := make([]string, 0, h)
+	out = append(out, fitRow(header, w))
+	end := lo + avail
+	if end > len(rows) {
+		end = len(rows)
+	}
+	for _, r := range rows[lo:end] {
+		out = append(out, r.text)
+	}
+	for len(out) < h {
+		out = append(out, "")
+	}
+	return out
 }
 
-// stepLine renders one step: #n · status glyph · name · detail · timing.
+// stepLine renders one step: indent · #n · status glyph · name · detail ·
+// timing. Prompt groups render as a bold titled rule instead.
 func (m *tuiModel) stepLine(s execStep, w int) string {
+	indent := strings.Repeat("  ", m.stepDepth(s))
+
+	if s.kind == stepPrompt {
+		pre := indent + paint(cDim, fmt.Sprintf("#%d", s.n)) + " " + paint(cCyan, "▸") + " "
+		if avail := w - ansi.StringWidth(pre); avail > 2 {
+			pre += paint(cBold, ansi.Truncate(sanitizeText(s.detail), avail, "…"))
+		}
+		return pre
+	}
+
 	var glyph, gcolor string
 	switch s.status {
 	case stepRunning:
@@ -263,15 +550,6 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 		glyph, gcolor = "✓", cGreen
 	default:
 		glyph, gcolor = "✗", cRed
-	}
-	kindColor := cCyan
-	switch s.kind {
-	case stepServer:
-		kindColor = cMagenta
-	case stepSubagent:
-		kindColor = cCyan
-	case stepCompact:
-		kindColor = cYellow
 	}
 
 	var timing string
@@ -288,10 +566,11 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 		timing = "err"
 	}
 
-	head := fmt.Sprintf("%s %s %s %s",
+	head := fmt.Sprintf("%s%s %s %s %s",
+		indent,
 		paint(cDim, fmt.Sprintf("#%d", s.n)),
 		paint(gcolor, glyph),
-		paint(kindColor, s.name),
+		paint(stepColor(s), s.name),
 		paint(cDim, timing),
 	)
 	// Detail (or the error) fills what is left of the row.
@@ -305,6 +584,138 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 		}
 	}
 	return head
+}
+
+// stepExpandRows renders the body rows under the selected step's first
+// line: the full operation text, the full error when any, and the start
+// time — capped so a huge command cannot eat the panel.
+func (m *tuiModel) stepExpandRows(s execStep, w int) []string {
+	indent := strings.Repeat("  ", m.stepDepth(s)+1)
+	avail := w - len(indent)
+	if avail < 8 {
+		avail = 8
+	}
+	var out []string
+	add := func(text, style string) {
+		for _, ln := range wrapPlain(text, avail) {
+			out = append(out, indent+paint(style, ln))
+		}
+	}
+	if d := sanitizeText(s.detail); d != "" {
+		add(d, cDim)
+	}
+	if s.status == stepError && s.err != "" {
+		add(sanitizeText(s.err), cRed)
+	}
+	add("started "+s.ts.Format("15:04:05"), cDim)
+	if len(out) > expandMaxRows {
+		out = out[:expandMaxRows]
+		last := out[expandMaxRows-1]
+		if ansi.StringWidth(last)+2 > w { // the marker must not overflow
+			last = ansi.Truncate(last, w-2, "")
+		}
+		out[expandMaxRows-1] = last + paint(cDim, " …")
+	}
+	return out
+}
+
+// wrapPlain hard-wraps plain (ANSI-free) text at w columns, honoring
+// existing newlines.
+func wrapPlain(s string, w int) []string {
+	if w < 4 {
+		w = 4
+	}
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		runes := []rune(para)
+		if len(runes) == 0 {
+			out = append(out, "")
+			continue
+		}
+		for len(runes) > 0 {
+			n := w
+			if len(runes) < n {
+				n = len(runes)
+			}
+			out = append(out, string(runes[:n]))
+			runes = runes[n:]
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "")
+	}
+	return out
+}
+
+// ── interaction ───────────────────────────────────────────────────────
+
+// stepMove walks the audit history. First alt+up selects the newest step;
+// further moves walk older ones. Moving past the newest returns to
+// live-follow (stepSel = 0); the render window follows the selection.
+func (m *tuiModel) stepMove(dir int) {
+	if len(m.steps) == 0 {
+		return
+	}
+	if m.stepSel == 0 {
+		if dir > 0 {
+			return // already following the live tail
+		}
+		m.stepSel = m.steps[len(m.steps)-1].n
+		return
+	}
+	pos := -1
+	for i, s := range m.steps {
+		if s.n == m.stepSel {
+			pos = i
+			break
+		}
+	}
+	if pos < 0 { // trimmed out of the audit tail
+		m.stepSel = 0
+		m.stepOpen = false
+		return
+	}
+	np := pos + dir
+	if np < 0 {
+		return
+	}
+	if np >= len(m.steps) {
+		m.stepSel = 0 // walked past the newest → back to live
+		m.stepOpen = false
+		return
+	}
+	m.stepSel = m.steps[np].n
+}
+
+// stepToggleOpen expands/collapses the selected step; with nothing
+// selected it selects the newest (the natural first thing to inspect).
+func (m *tuiModel) stepToggleOpen() {
+	if len(m.steps) == 0 {
+		return
+	}
+	if m.stepSel == 0 {
+		m.stepSel = m.steps[len(m.steps)-1].n
+		m.stepOpen = true
+		return
+	}
+	m.stepOpen = !m.stepOpen
+}
+
+// stepResize grows/shrinks the panel, clamped; the transcript re-flows
+// through relayout.
+func (m *tuiModel) stepResize(dw int) {
+	if m.panelW <= 0 {
+		m.panelW = panelWidth
+	}
+	m.panelW += dw
+	if m.panelW < panelWMin {
+		m.panelW = panelWMin
+	}
+	if m.panelW > panelWMax {
+		m.panelW = panelWMax
+	}
+	m.relayout()
+	m.status = fmt.Sprintf("panel width %d", m.panelW)
 }
 
 // fitRow truncates then space-pads one panel row to exactly w cells.

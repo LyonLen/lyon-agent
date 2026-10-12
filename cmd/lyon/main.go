@@ -34,6 +34,7 @@ const (
 	cYellow  = "\x1b[33m"
 	cRed     = "\x1b[31m"
 	cMagenta = "\x1b[35m"
+	cBlue    = "\x1b[34m"
 )
 
 var color = os.Getenv("NO_COLOR") == ""
@@ -717,7 +718,7 @@ func render(ev agent.Event) {
 	case agent.EventToolUseStart:
 		if ev.Server {
 			fmt.Printf("\n%s %s %s\n", paint(cMagenta, "🌐 server"), ev.ToolName,
-				paint(cDim, shortJSON(ev.Input, 160)))
+				paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160)))
 		} else {
 			fmt.Printf("\n%s %s %s\n", paint(cCyan, "⚒ tool_use"), ev.ToolName, paint(cDim, ev.ToolID))
 		}
@@ -731,7 +732,8 @@ func render(ev agent.Event) {
 
 	case agent.EventToolExecStart:
 		fmt.Printf("%s #%d %s %s\n",
-			paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName, paint(cDim, shortJSON(ev.Input, 160)))
+			paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName,
+			paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160)))
 
 	case agent.EventToolExecEnd:
 		if ev.IsError {
