@@ -18,9 +18,18 @@ import (
 )
 
 // Pricing is USD per million tokens (input / output). Zero = unknown.
+// CacheRead/CacheWrite are USD per million for prompt-cache reads and
+// writes; when both are zero CostUSD falls back to Anthropic's
+// published multipliers (0.1× and 1.25× the input rate) — the only
+// shape every other entry in this table states. A vendor that prices
+// cache its own way fills them in instead: MiMo charges 2% of input
+// for a hit and writes are free for now, so 0.1×/1.25× would overstate
+// the bill by an order of magnitude.
 type Pricing struct {
-	Input  float64
-	Output float64
+	Input      float64
+	Output     float64
+	CacheRead  float64 // USD/Mtok on a cache hit; 0 with CacheWrite 0 = use default multipliers
+	CacheWrite float64 // USD/Mtok to write the cache; 0 beside a priced CacheRead = free
 }
 
 // Info is one known model. Context/MaxOutput are token counts (0 =
@@ -172,6 +181,55 @@ var registry = []Info{
 	{ID: "mistral-large*", Family: "Mistral Large", Provider: "Mistral",
 		Context: 131072, MaxOutput: 8192,
 		Temperature: "0.7（官方默认）", TopP: "1.0（默认）"},
+
+	// ── Xiaomi MiMo — the model this gateway actually serves ─────────
+	// Source: mimo.mi.com/llms.txt → static/docs (model summary, the
+	// pay-as-you-go price tables, model hyperparameters). All five text
+	// models are 1M context / 128K output; prices are the overseas USD
+	// rates (the domestic table is in RMB and is not converted here).
+	// Cache rates are per-entry because MiMo's shape (hit at 2% of
+	// input, write free for now) is nothing like Anthropic's.
+	{ID: "mimo-v2.6-flash", Family: "MiMo V2.6 Flash", Provider: "Xiaomi",
+		Context: 1000000, MaxOutput: 128000,
+		Pricing:     Pricing{Input: 0.14, Output: 0.28, CacheRead: 0.0028},
+		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
+		Notes: []string{
+			"缓存命中 $0.0028/M、写入限时期免费；Batch 半价",
+			"Deep Thinking 由 reasoning 参数开启，开启时 temperature/top_p 强制 1.0/0.95",
+			"限流 RPM 100 / TPM 10M",
+		}},
+	{ID: "mimo-v2.6-pro", Family: "MiMo V2.6 Pro", Provider: "Xiaomi",
+		Context: 1000000, MaxOutput: 128000,
+		Pricing:     Pricing{Input: 0.435, Output: 0.87, CacheRead: 0.0036},
+		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
+		Notes: []string{
+			"缓存命中 $0.0036/M、写入限时期免费",
+			"Deep Thinking 由 reasoning 参数开启，开启时 temperature/top_p 强制 1.0/0.95",
+		}},
+	{ID: "mimo-v2.6-pro-ultraspeed", Family: "MiMo V2.6 Pro UltraSpeed", Provider: "Xiaomi",
+		Context: 1000000, MaxOutput: 128000,
+		Pricing:     Pricing{Input: 4.35, Output: 8.7, CacheRead: 0.036},
+		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
+		Notes: []string{
+			"缓存命中 $0.036/M、写入限时期免费；不支持 Batch API",
+			"面向强实时场景，单价是 flash 的 31 倍",
+		}},
+	{ID: "mimo-v2.5", Family: "MiMo V2.5", Provider: "Xiaomi",
+		Context: 1000000, MaxOutput: 128000,
+		Pricing:     Pricing{Input: 0.14, Output: 0.28, CacheRead: 0.0028},
+		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
+		Notes: []string{
+			"2026-10-21 10:00（北京时间）正式下线，迁 mimo-v2.6-flash",
+			"官方价格与 mimo-v2.6-flash 同组",
+		}},
+	{ID: "mimo-v2.5-pro", Family: "MiMo V2.5 Pro", Provider: "Xiaomi",
+		Context: 1000000, MaxOutput: 128000,
+		Pricing:     Pricing{Input: 0.435, Output: 0.87, CacheRead: 0.0036},
+		Temperature: "1.0（默认，0~1.5）", TopP: "0.95（默认，0.01~1）",
+		Notes: []string{
+			"2026-10-21 10:00（北京时间）正式下线，迁 mimo-v2.6-pro",
+			"官方价格与 mimo-v2.6-pro 同组",
+		}},
 }
 
 func init() {
@@ -234,15 +292,22 @@ func (i *Info) FormatContext() string {
 func (p Pricing) Known() bool { return p.Input > 0 && p.Output > 0 }
 
 // CostUSD prices one API turn in USD: input and output at face value,
-// cache read at 0.1× and cache write at 1.25× the input rate (the
-// published multipliers — the only cache shape this table knows).
+// cache read and cache write at the rates this entry carries. An entry
+// that records no cache rate at all (both zero) keeps the published
+// Anthropic multipliers — reads at 0.1×, writes at 1.25× the input
+// rate. A zero CacheWrite beside a priced CacheRead means the vendor's
+// writes are free (MiMo's limited-time offer), not "unset".
 // Unknown pricing returns 0; gate on Known() first.
 func (p Pricing) CostUSD(input, output, cacheRead, cacheCreation int64) float64 {
 	if !p.Known() {
 		return 0
 	}
+	cr, cw := p.CacheRead, p.CacheWrite
+	if cr == 0 && cw == 0 {
+		cr, cw = p.Input*0.1, p.Input*1.25
+	}
 	return (float64(input)*p.Input +
-		float64(cacheRead)*p.Input*0.1 +
-		float64(cacheCreation)*p.Input*1.25 +
+		float64(cacheRead)*cr +
+		float64(cacheCreation)*cw +
 		float64(output)*p.Output) / 1e6
 }

@@ -73,11 +73,11 @@ func TestGaugeKnowledgePricing(t *testing.T) {
 	}
 }
 
-// TestGaugeUnknownAndOverride: an unregistered model (the live gateway
-// case) shows tokens but never invents a price — unless the operator
-// declares one via LYON_PRICE_IN/OUT (both required).
+// TestGaugeUnknownAndOverride: a model nobody has published shows
+// tokens but never invents a price — unless the operator declares one
+// via LYON_PRICE_IN/OUT (both required).
 func TestGaugeUnknownAndOverride(t *testing.T) {
-	cfg := agent.Config{Model: "mimo-v2.6-flash", ContextWindow: 200000}
+	cfg := agent.Config{Model: "totally-unknown-9000", ContextWindow: 200000}
 	turns := []agent.TurnStat{{Usage: agent.Usage{Input: 5000, Output: 1000}}}
 	g := newGauge(cfg, turns, nil)
 	if g.window != 200000 || g.priced || g.cost != 0 {
@@ -100,6 +100,32 @@ func TestGaugeUnknownAndOverride(t *testing.T) {
 	// 5000×0.5 + 1000×2 = 4500 per Mtok → $0.0045
 	if diff := g.cost - 0.0045; diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("env cost = %.9f, want 0.0045", g.cost)
+	}
+}
+
+// TestGaugeLiveGateway: the gateway model is on file now, so the gauge
+// stops falling back — the window comes from the knowledge base (1M,
+// not the 200k config default) and the bill uses MiMo's cache rates
+// instead of Anthropic's multipliers.
+func TestGaugeLiveGateway(t *testing.T) {
+	cfg := agent.Config{Model: "mimo-v2.6-flash", ContextWindow: 200000}
+	turns := []agent.TurnStat{{Usage: agent.Usage{
+		Input: 1000, Output: 500, CacheRead: 2000, CacheCreation: 100,
+	}}}
+	g := newGauge(cfg, turns, nil)
+	if g.window != 1000000 {
+		t.Fatalf("window = %d, want knowledge base 1000000 — the 200k fallback must lose",
+			g.window)
+	}
+	if !g.priced {
+		t.Fatal("the live gateway model has prices — gauge must be priced")
+	}
+	want := (1000*0.14 + 2000*0.0028 + 100*0 + 500*0.28) / 1e6
+	if diff := g.cost - want; diff > 1e-12 || diff < -1e-12 {
+		t.Fatalf("cost = %.12f, want %.12f", g.cost, want)
+	}
+	if line := g.detailLine(); !strings.Contains(line, "参考价") {
+		t.Fatalf("priced detail line: %q", line)
 	}
 }
 

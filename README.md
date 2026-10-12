@@ -359,7 +359,9 @@ hits: 3
 - **离线知识库**（`pkg/models`）：常见模型家族的上下文窗口、输出上限、官方推荐
   参数（温度/top_p/推理模型约束）、知识截止与**参考价**（USD/百万 token）——
   Anthropic Claude、OpenAI GPT/o 系、Google Gemini、DeepSeek、Qwen、Llama、
-  Mistral，无网络查询，编译进二进制。
+  Mistral、**Xiaomi MiMo（网关默认 `mimo-v2.6-flash`）**，无网络查询，编译进
+  二进制。缓存命中/写入价按厂商各自记录（MiMo 命中 2%、写入限时期免费），
+  未记录的条目沿用 Anthropic 的 0.1×/1.25×。
 - **查找规则**：先精确匹配（不分大小写），再最长通配前缀
   （`gpt-4o-mini-2024-07-18` → `gpt-4o-mini*` 卡片而不是 `gpt-4o*`）；
   **未收录返回 nil，绝不猜窗口**——调用方回退到配置值。

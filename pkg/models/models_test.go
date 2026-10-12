@@ -35,14 +35,66 @@ func TestLookupWildcard(t *testing.T) {
 }
 
 // TestLookupMiss: unknown ids return nil — never guess a window.
+// mimo-v2.6-flash sat in this list while the gateway model was kept
+// out of the knowledge base; it is on file now (see
+// TestLookupLiveGateway), so what is left are ids nobody has published.
 func TestLookupMiss(t *testing.T) {
 	for _, id := range []string{
 		"", "   ", "totally-made-up-model", "gpt-5",
-		"mimo-v2.6-flash", // the live gateway model — deliberately absent
+		"mimo-v2.9", // a future MiMo release — no wildcard guessing
 	} {
 		if got := Lookup(id); got != nil {
 			t.Fatalf("Lookup(%q) = %+v, want nil", id, got)
 		}
+	}
+}
+
+// TestLookupLiveGateway: the model this process actually talks to is on
+// file — 1M window, 128K output, both rates, cache priced by MiMo's own
+// numbers instead of Anthropic's multipliers.
+func TestLookupLiveGateway(t *testing.T) {
+	got := Lookup("mimo-v2.6-flash")
+	if got == nil {
+		t.Fatal("the live gateway model is missing from the knowledge base")
+	}
+	if got.Context != 1000000 || got.MaxOutput != 128000 {
+		t.Fatalf("limits: %+v", got)
+	}
+	if got.Family != "MiMo V2.6 Flash" || got.Provider != "Xiaomi" {
+		t.Fatalf("identity: %+v", got)
+	}
+	if !got.Pricing.Known() || got.Pricing.CacheRead != 0.0028 ||
+		got.Pricing.CacheWrite != 0 {
+		t.Fatalf("cache rates: %+v", got.Pricing)
+	}
+	// Case-insensitive like every other id, and the whole family resolves.
+	for _, id := range []string{"MIMO-V2.6-PRO", "mimo-v2.6-pro-ultraspeed"} {
+		if Lookup(id) == nil {
+			t.Fatalf("Lookup(%q) = nil", id)
+		}
+	}
+	// The deprecated pair carries its retirement date in the notes.
+	v25 := Lookup("mimo-v2.5")
+	if v25 == nil ||
+		!strings.Contains(strings.Join(v25.Notes, " "), "2026-10-21") {
+		t.Fatalf("mimo-v2.5 deprecation note missing: %+v", v25)
+	}
+}
+
+// TestCacheRates: an entry that states its own cache prices bills with
+// them; an entry that states none keeps the Anthropic 0.1×/1.25× shape.
+func TestCacheRates(t *testing.T) {
+	// MiMo: hits at $0.0028/M, writes free (not 1.25× input).
+	m := Lookup("mimo-v2.6-flash")
+	want := (1000*0.14 + 2000*0.0028 + 100*0 + 500*0.28) / 1e6
+	if diff := m.Pricing.CostUSD(1000, 500, 2000, 100) - want; diff > 1e-12 || diff < -1e-12 {
+		t.Fatalf("mimo cost = %v, want %v", m.Pricing.CostUSD(1000, 500, 2000, 100), want)
+	}
+	// No cache rates on file → published multipliers still apply.
+	d := Lookup("deepseek-chat")
+	want = (1000*0.27 + 2000*0.27*0.1 + 100*0.27*1.25 + 500*1.1) / 1e6
+	if diff := d.Pricing.CostUSD(1000, 500, 2000, 100) - want; diff > 1e-12 || diff < -1e-12 {
+		t.Fatalf("default cache shape cost = %v, want %v", d.Pricing.CostUSD(1000, 500, 2000, 100), want)
 	}
 }
 
@@ -62,6 +114,13 @@ func TestAllSanity(t *testing.T) {
 		}
 		if strings.Contains(e.ID, "*") && !strings.HasSuffix(e.ID, "*") {
 			t.Errorf("%s: wildcard not trailing", e.ID)
+		}
+		if e.Pricing.CacheWrite > 0 && e.Pricing.CacheRead == 0 {
+			t.Errorf("%s: cache write priced without cache read — both zero "+
+				"is what \"use the default multipliers\" means", e.ID)
+		}
+		if e.Pricing.CacheRead > 0 && e.Pricing.CacheRead >= e.Pricing.Input {
+			t.Errorf("%s: a cache hit must cost less than a miss", e.ID)
 		}
 		if i > 0 && all[i-1].ID >= e.ID {
 			t.Errorf("registry not sorted: %s >= %s", all[i-1].ID, e.ID)
