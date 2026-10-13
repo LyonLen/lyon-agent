@@ -38,6 +38,11 @@ type ExecEvent struct {
 	Start        time.Time
 	Duration     time.Duration
 	Err          string
+	// ToolID is the API tool_use block id, stamped by the Observer when
+	// it can correlate the execution with its block (the SDK runner does
+	// not thread the id down to Execute). Empty when unknown — renderers
+	// then fall back to appending at the tail.
+	ToolID string
 }
 
 // Observer receives tool execution events. Callbacks run on the goroutine

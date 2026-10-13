@@ -104,8 +104,9 @@ func TestPromptGroupAndNesting(t *testing.T) {
 	promptRow := m.stepLine(m.steps[0], w)
 	mainRow := m.stepLine(m.steps[1], w)
 	innerRow := m.stepLine(m.steps[3], w)
-	if strings.HasPrefix(promptRow, " ") || !strings.Contains(promptRow, "▸") {
-		t.Fatalf("prompt row not a title: %q", promptRow)
+	if strings.HasPrefix(promptRow, " ") || !strings.Contains(promptRow, "#") ||
+		strings.Contains(promptRow, "▸") {
+		t.Fatalf("prompt row not a plain title: %q", promptRow)
 	}
 	if !strings.HasPrefix(mainRow, "  ") || strings.HasPrefix(mainRow, "   ") {
 		t.Fatalf("main step must indent 2: %q", mainRow)
@@ -208,28 +209,28 @@ func TestStepInteraction(t *testing.T) {
 		t.Fatal("second alt+enter must collapse")
 	}
 
-	// Resize: starts from the default, clamps at both ends, re-lays out.
+	// Resize: ← widens (the gutter moves left), → narrows; both clamp.
 	if m.pw != panelWidth {
 		t.Fatalf("pw at 140 = %d, want %d", m.pw, panelWidth)
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyLeft, Alt: true})
-	if m.panelW != panelWidth-4 || m.pw != panelWidth-4 {
-		t.Fatalf("shrink: panelW=%d pw=%d", m.panelW, m.pw)
+	if m.panelW != panelWidth+4 || m.pw != panelWidth+4 {
+		t.Fatalf("widen: panelW=%d pw=%d", m.panelW, m.pw)
 	}
-	if m.tw != 140-(panelWidth-4)-2 {
+	if m.tw != 140-(panelWidth+4)-2 {
 		t.Fatalf("transcript did not re-flow: tw=%d", m.tw)
 	}
 	for i := 0; i < 20; i++ {
 		m.Update(tea.KeyMsg{Type: tea.KeyLeft, Alt: true})
 	}
-	if m.panelW != panelWMin || m.pw != panelWMin {
-		t.Fatalf("clamp low: panelW=%d pw=%d", m.panelW, m.pw)
+	if m.panelW != panelWMax || m.pw != panelWMax {
+		t.Fatalf("clamp high: panelW=%d pw=%d", m.panelW, m.pw)
 	}
 	for i := 0; i < 30; i++ {
 		m.Update(tea.KeyMsg{Type: tea.KeyRight, Alt: true})
 	}
-	if m.panelW != panelWMax || m.pw != panelWMax {
-		t.Fatalf("clamp high: panelW=%d pw=%d", m.panelW, m.pw)
+	if m.panelW != panelWMin || m.pw != panelWMin {
+		t.Fatalf("clamp low: panelW=%d pw=%d", m.panelW, m.pw)
 	}
 	if !strings.Contains(m.status, "panel width") {
 		t.Fatalf("resize silent: status=%q", m.status)
@@ -242,6 +243,19 @@ func TestStepInteraction(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
 	if m.stepSel != before {
 		t.Fatalf("alt+up with panel off moved selection: %d → %d", before, m.stepSel)
+	}
+
+	// Fully closed column: the ← family (incl. ctrl+shift+left, which
+	// IDEs deliver as alt variants) OPENS the steps window — the key the
+	// user reached for got "反的" by shrinking instead.
+	m.evoOn = false
+	m.relayout()
+	if m.panelOn() {
+		t.Fatal("precondition: column fully closed")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyLeft, Alt: true})
+	if !m.stepsOn || !m.panelOn() {
+		t.Fatalf("alt+left did not open the panel: stepsOn=%v pw=%d", m.stepsOn, m.pw)
 	}
 }
 
@@ -361,13 +375,13 @@ func TestTUIPanelKeys(t *testing.T) {
 	if m.stepSel != 3 {
 		t.Fatalf("alt+shift+down: sel=%d, want 3", m.stepSel)
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyShiftRight, Alt: true})
-	if m.panelW != panelWidth+4 {
-		t.Fatalf("alt+shift+right did not resize: panelW=%d", m.panelW)
-	}
 	m.Update(tea.KeyMsg{Type: tea.KeyShiftLeft, Alt: true})
+	if m.panelW != panelWidth+4 {
+		t.Fatalf("alt+shift+left did not widen: panelW=%d", m.panelW)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftRight, Alt: true})
 	if m.panelW != panelWidth {
-		t.Fatalf("alt+shift+left did not resize: panelW=%d", m.panelW)
+		t.Fatalf("alt+shift+right did not narrow: panelW=%d", m.panelW)
 	}
 
 	// alt+e swaps the right column to the evolution panel.
@@ -389,11 +403,12 @@ func TestTUIPanelKeys(t *testing.T) {
 	if m.stepSel != 3 {
 		t.Fatalf("alt+up moved steps selection under evolution panel: %d", m.stepSel)
 	}
-	// Resize applies to both panels.
-	m.Update(tea.KeyMsg{Type: tea.KeyRight, Alt: true})
+	// Resize applies to both panels (← widens).
+	m.Update(tea.KeyMsg{Type: tea.KeyLeft, Alt: true})
 	if m.panelW != panelWidth+4 {
 		t.Fatalf("resize dead in evolution mode: panelW=%d", m.panelW)
 	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRight, Alt: true}) // restore for the flip-back below
 
 	// alt+e flips back; /evolve mirrors the key both ways.
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e"), Alt: true})

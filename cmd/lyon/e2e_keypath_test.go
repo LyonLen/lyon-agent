@@ -60,7 +60,7 @@ func TestE2ECtrlTExpandsFoldedThinking(t *testing.T) {
 
 	// The body must be folded away now (only the preview line shows).
 	waitFor(t, 2*time.Second, "thinking folded", func() bool {
-		return bytes.Contains([]byte(out.String()), []byte("▸ thinking"))
+		return bytes.Contains([]byte(out.String()), []byte("thinking"))
 	})
 	out.Reset()
 

@@ -91,6 +91,11 @@ type tline struct {
 	// contiguous run sharing an id renders as one collapsible block.
 	blk int
 	raw string
+	// tool / exec tag styled rows with the API tool_use id and the
+	// harness execution id, so parallel executions can insert themselves
+	// under their own tool_use instead of piling at the tail (#45).
+	tool string
+	exec uint64
 }
 
 // tuiModel is the full-screen chat: scrollable transcript viewport on top,
@@ -124,6 +129,10 @@ type tuiModel struct {
 	thinkSeq  int
 	curBlk    int
 	thinkOpen bool
+	// expandAll unfolds every collapsed region at once (ctrl+o, the
+	// Claude Code-style verbose toggle). Thinking blocks consult it in
+	// addition to their own fold; any future fold must too.
+	expandAll bool
 
 	// Slash popup: sugs holds the commands the current input matches,
 	// sugIdx the highlighted row, sugHide set by esc until typing resumes.
@@ -156,9 +165,21 @@ type tuiModel struct {
 	queued []string
 	// evoOn swaps the right column from the steps audit to the evolution
 	// panel (leaderboard + exam clock) — alt+e / /evolve.
-	evoOn  bool
-	status string
-	appr   *approveReq
+	evoOn bool
+	// evoFeed carries evolution output (score/exam cards) to the right
+	// panel while it is open; collapsed, the same cards fall through to
+	// the output box below the input.
+	evoFeed []string
+	// curAgent is the live badge for the run in flight: the task class
+	// the prompt was classified into (routing.Classify). Shown in the
+	// status line so the working agent is visible before any score
+	// lands — no more waiting for the ✎ score card.
+	curAgent string
+	status   string
+	appr     *approveReq
+	// apprSel is the highlighted option card on the approval popup
+	// (0=y approve, 1=n deny, 2=a always).
+	apprSel int
 	// allowAll pre-authorizes a tool for the rest of the session ("a" on
 	// the overlay) — approvals now default on, so a long run must not ask
 	// the same question ten times. Deny decisions never persist.
@@ -351,6 +372,55 @@ func (m *tuiModel) pushStyled(lines ...string) {
 	}
 }
 
+// insertLine splices one line at pos, shifting the tail right.
+func (m *tuiModel) insertLine(pos int, l tline) {
+	m.lines = append(m.lines, tline{})
+	copy(m.lines[pos+1:], m.lines[pos:])
+	m.lines[pos] = l
+}
+
+// pushTool appends a tool-intent row tagged with its API tool_use id so
+// the executions of this call can nest beneath it (unknown id — replay,
+// server tools — behaves like pushStyled).
+func (m *tuiModel) pushTool(toolID, s string) {
+	m.curBlk = 0
+	m.lines = append(m.lines, tline{kind: lineStyled, raw: s, tool: toolID})
+}
+
+// pushExec inserts an execution row directly under the latest row of its
+// tool_use (the intent row, or a previous execution of the same call),
+// falling back to the tail when the id is unknown — subagent-inner
+// executions have no main-flow intent row to nest under.
+func (m *tuiModel) pushExec(toolID string, execID uint64, s string) {
+	m.curBlk = 0
+	pos := len(m.lines)
+	if toolID != "" {
+		for i := len(m.lines) - 1; i >= 0; i-- {
+			if m.lines[i].tool == toolID {
+				pos = i + 1
+				break
+			}
+		}
+	}
+	m.insertLine(pos, tline{kind: lineStyled, raw: s, tool: toolID, exec: execID})
+}
+
+// pushExecDone inserts a completion row right beneath its own exec-start
+// row, so each execution reads as one pair wherever parallel runs land.
+func (m *tuiModel) pushExecDone(execID uint64, s string) {
+	m.curBlk = 0
+	pos := len(m.lines)
+	if execID != 0 {
+		for i := len(m.lines) - 1; i >= 0; i-- {
+			if m.lines[i].exec == execID {
+				pos = i + 1
+				break
+			}
+		}
+	}
+	m.insertLine(pos, tline{kind: lineStyled, raw: s, exec: execID})
+}
+
 // pushCmd routes command output to the temporary area under the
 // transcript instead of the conversation itself: tables, help text and
 // action feedback are explanations of the UI, not things that happened
@@ -361,6 +431,21 @@ func (m *tuiModel) pushCmd(lines ...string) {
 	m.flushPend() // a half-streamed answer line still belongs to the chat
 	m.curBlk = 0
 	m.cmdOut = append(m.cmdOut, lines...)
+}
+
+// evoOutput routes evolution feedback (#47): with the panel open the card
+// lands in the panel's own feed; collapsed it falls through to the output
+// box below the input — evo output belongs to the panel when it shows.
+// Entries may be multi-line; renderEvolve splits them into rows.
+func (m *tuiModel) evoOutput(entries ...string) {
+	if m.evoOn && m.pw > 0 {
+		m.evoFeed = append(m.evoFeed, entries...)
+		if len(m.evoFeed) > 24 {
+			m.evoFeed = m.evoFeed[len(m.evoFeed)-24:]
+		}
+		return
+	}
+	m.pushCmd(entries...)
 }
 
 // pushText commits a finished (non-streaming) text block as transcript
@@ -423,9 +508,8 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 
 			case b.OfToolUse != nil:
 				in, _ := json.Marshal(b.OfToolUse.Input)
-				m.pushStyled(indTool + fmt.Sprintf("%s %s %s", paint(cCyan, "⚒"),
-					b.OfToolUse.Name, paint(cDim,
-						truncateRunes(stepArgPreview(b.OfToolUse.Name, in), 160))))
+				m.pushStyled(indTool + fmt.Sprintf("%s %s", paint(cCyan, b.OfToolUse.Name),
+					paint(cDim, truncateRunes(stepArgPreview(b.OfToolUse.Name, in), 160))))
 
 			case b.OfToolResult != nil:
 				marker := paint(cMagenta, "⤷ result")
@@ -486,8 +570,9 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		} else {
 			// A compact intent row: the API call id is noise to a reader,
 			// and the live tool_use event carries no input yet — the exec
-			// row right below shows the actual arguments.
-			m.pushStyled(indTool + paint(cCyan, "⚒ "+ev.ToolName))
+			// row right below shows the actual arguments. Tagged with the
+			// block id so parallel executions nest under this row (#45).
+			m.pushTool(ev.ToolID, indTool+paint(cCyan, ev.ToolName))
 		}
 
 	case agent.EventServerToolResult:
@@ -500,14 +585,16 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 
 	case agent.EventToolExecStart:
 		m.flushPend()
-		// Executions nest under their tool_use row (and subagent-inner
-		// ones one level deeper); arguments live on this row.
+		// Executions nest under their own tool_use row (#45 — parallel
+		// tool calls each stay with their parent via the ToolID FIFO);
+		// subagent-inner ones go one level deeper at the tail.
 		ind := indExec
 		if ev.Sub {
 			ind = indSub
 		}
-		m.pushStyled(ind + fmt.Sprintf("%s #%d %s %s", paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName,
-			paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160))))
+		m.pushExec(ev.ToolID, ev.ExecID,
+			ind+fmt.Sprintf("%s #%d %s %s", paint(cCyan, "exec"), ev.ExecID, ev.ToolName,
+				paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160))))
 
 	case agent.EventToolExecEnd:
 		m.flushPend()
@@ -516,10 +603,10 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			ind = indSub
 		}
 		if ev.IsError {
-			m.pushStyled(ind + fmt.Sprintf("%s #%d %s %s", paint(cRed, "✘ done"), ev.ExecID,
+			m.pushExecDone(ev.ExecID, ind+fmt.Sprintf("%s #%d %s %s", paint(cRed, "failed"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)), paint(cRed, sanitizeText(ev.Err))))
 		} else {
-			m.pushStyled(ind + fmt.Sprintf("%s #%d %s", paint(cGreen, "✔ done"), ev.ExecID,
+			m.pushExecDone(ev.ExecID, ind+fmt.Sprintf("%s #%d %s", paint(cGreen, "done"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS))))
 		}
 
@@ -841,8 +928,8 @@ func (m *tuiModel) doNew() {
 // are discoverable without knowing /help exists (narrow terminals clip
 // the tail).
 const (
-	idleLegendEN = "enter send · esc interrupt · pgup/pgdn scroll · ctrl+t think · alt+↑↓ steps · alt+e evolve · alt+v paste · /help"
-	idleLegendZH = "enter 发送 · esc 中断 · pgup/pgdn 滚动 · ctrl+t 思考 · alt+↑↓ 步骤 · alt+e 进化 · alt+v 粘贴 · /help"
+	idleLegendEN = "enter send · ctrl+c interrupt · esc close output · ctrl+t think · ctrl+o all folds · pgup/pgdn scroll · alt+↑↓ steps · alt+e evolve · /help"
+	idleLegendZH = "enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+t 思考 · ctrl+o 全展开 · pgup/pgdn 滚动 · alt+↑↓ 面板 · alt+e 进化 · /help"
 )
 
 var idleStatus = tr(idleLegendEN, idleLegendZH)
@@ -883,7 +970,11 @@ func buildSlashCommands() []sugItem {
 // refresh rebuilds the viewport content from the transcript.
 func (m *tuiModel) refresh() {
 	m.vp.SetContent(m.renderTranscript())
-	if m.follow {
+	// While a prompt is streaming AND the user is typing, the viewport
+	// freezes: the tail must not scroll under a half-written question
+	// (#43 feedback — "typing one character scrolls the last line").
+	// Clearing the input (or sending) re-arms the follow.
+	if m.follow && !(m.busy && m.ti.Value() != "") {
 		m.vp.GotoBottom()
 	}
 }
@@ -936,14 +1027,16 @@ func (m *tuiModel) updateSuggestions() {
 // then a key hint while more than one command matches. While the session
 // picker is open it owns the same space instead.
 func (m *tuiModel) suggestionRows() []string {
-	if m.appr != nil { // approval overlay owns the bottom
-		return nil
+	if m.appr != nil { // approval card owns the bottom
+		return m.approvalRows()
 	}
 	if len(m.pick) > 0 {
 		return m.pickRows()
 	}
 	if len(m.sugs) == 0 {
-		return nil
+		// Nothing to pick — but parked prompts deserve to be READABLE,
+		// not just counted in the status line (#52).
+		return m.queueRows()
 	}
 	rows := make([]string, 0, len(m.sugs)+1)
 	for i, s := range m.sugs {
@@ -956,6 +1049,50 @@ func (m *tuiModel) suggestionRows() []string {
 	if len(m.sugs) > 1 {
 		rows = append(rows, paint(cDim, "  "+tr("tab complete · ↑/↓ choose · esc close",
 			"tab 补全 · ↑/↓ 选择 · esc 关闭")))
+	}
+	return rows
+}
+
+// approvalRows renders the tool approval as a card: the tool name, a peek
+// at its input, and three selectable option cards (y/n/a) with the current
+// choice highlighted. ↑/↓/tab move, enter commits (updateApproval).
+func (m *tuiModel) approvalRows() []string {
+	rows := []string{paint(cBold+cYellow, "approve? "+m.appr.ev.Name)}
+	if in := shortJSON(m.appr.ev.Input, 400); in != "" {
+		rows = append(rows, paint(cDim, "  "+truncateRunes(in, max(20, m.width-8))))
+	}
+	opts := []struct{ key, label string }{
+		{"y", tr("approve", "批准")},
+		{"n", tr("deny", "拒绝")},
+		{"a", tr("always", "总是允许")},
+	}
+	row := "  "
+	for i, o := range opts {
+		label := fmt.Sprintf(" %s %s ", o.key, o.label)
+		if i == m.apprSel {
+			row += paint(cBold+cCyan, "["+label+"]") + " "
+		} else {
+			row += paint(cDim, label) + " "
+		}
+	}
+	rows = append(rows, row)
+	rows = append(rows, paint(cDim, "  "+tr("↑↓/tab choose · enter confirm · y/n/a direct",
+		"↑↓/tab 选择 · enter 确认 · y/n/a 直接")))
+	return rows
+}
+
+// queueRows previews the prompts parked while a run is busy — the count
+// in the status line answers "how many", this answers "what" (#52).
+func (m *tuiModel) queueRows() []string {
+	if len(m.queued) == 0 {
+		return nil
+	}
+	rows := make([]string, 0, len(m.queued)+1)
+	rows = append(rows, paint(cDim, tr(fmt.Sprintf("queued (%d):", len(m.queued)),
+		fmt.Sprintf("已排队 (%d)：", len(m.queued)))))
+	for i, q := range m.queued {
+		rows = append(rows, paint(cDim, fmt.Sprintf("  %d› %s", i+1,
+			truncateRunes(oneLine(q), max(12, m.width-8)))))
 	}
 	return rows
 }
@@ -1102,21 +1239,20 @@ func (m *tuiModel) renderTranscript() string {
 // behind its header, so the last answer never auto-expands under a closed
 // fold; ctrl+t (or /think) opens everything.
 func (m *tuiModel) thinkBlockOpen(group []tline) bool {
-	return m.thinkOpen
+	// ctrl+o expands every fold at once; ctrl+t keeps its thinking-only
+	// meaning underneath.
+	return m.expandAll || m.thinkOpen
 }
 
-// thinkHeader is the fold marker — "▸ thinking · N lines" plus a one-line
-// preview while folded (▸ folded, ▾ open).
+// thinkHeader is the fold marker — "thinking · N lines" plus a one-line
+// preview while folded. No leading arrow: on fonts that substitute geometric
+// glyphs it rendered as a stray gutter dot.
 func (m *tuiModel) thinkHeader(group []tline, open bool) string {
-	arrow := "▸"
-	if open {
-		arrow = "▾"
-	}
 	unit := "lines"
 	if len(group) == 1 {
 		unit = "line"
 	}
-	s := paint(cDim+cMagenta, arrow+" thinking") +
+	s := paint(cDim+cMagenta, "thinking") +
 		paint(cDim, fmt.Sprintf(" · %d %s", len(group), unit))
 	if open {
 		return s
@@ -1316,13 +1452,21 @@ func (m *tuiModel) View() string {
 			rows = rows[lo : lo+max]
 		}
 	}
-	// -3 = bottom rule + status + input; the head carries its own rows.
-	avail := m.height - len(head) - 3 - len(rows)
+	// Below the transcript: rule + status + popup + input (3 + rows).
+	// The output box lives BELOW the input — a drawer under the chat, so
+	// input and output read as two separate zones (#48) and the split
+	// panel keeps the full transcript height (no right-hand void).
+	below := 3 + len(rows)
+	avail := m.height - len(head) - below
 	if avail < 1 {
 		avail = 1
 	}
-	cmd := m.cmdOutView(avail) // the temporary area claims its rows first…
-	vh := avail - len(cmd)     // …and the transcript gets whatever remains
+	outBudget := avail - 3 // keep a 3-row transcript floor for the drawer
+	if outBudget < 0 {
+		outBudget = 0
+	}
+	cmd := m.cmdOutView(outBudget)
+	vh := avail - len(cmd)
 	if vh < 1 {
 		vh = 1
 	}
@@ -1341,10 +1485,6 @@ func (m *tuiModel) View() string {
 	} else {
 		b.WriteString(m.vp.View())
 	}
-	for _, l := range cmd {
-		b.WriteByte('\n')
-		b.WriteString(l)
-	}
 	b.WriteByte('\n')
 	b.WriteString(m.clip(ruleRow(m.width))) // session area │ input area
 	b.WriteByte('\n')
@@ -1355,7 +1495,19 @@ func (m *tuiModel) View() string {
 		b.WriteByte('\n')
 	}
 	b.WriteString(m.clip(m.inputLine()))
-	return b.String()
+	for _, l := range cmd {
+		b.WriteByte('\n')
+		b.WriteString(l)
+	}
+	frame := b.String()
+	// Exact-height contract: always emit m.height rows. A short frame
+	// leaves stale rows for the renderer to clear — the Trae terminal
+	// mishandled that and tore the whole grid ("终端会坏掉"); blank tail
+	// rows cost nothing and keep the frame height constant.
+	if n := strings.Count(frame, "\n") + 1; n < m.height {
+		frame += strings.Repeat("\n", m.height-n)
+	}
+	return frame
 }
 
 // cmdOutMaxRows caps the temporary area's content rows — the "+N more"
@@ -1435,15 +1587,23 @@ func (m *tuiModel) clip(s string) string {
 
 func (m *tuiModel) statusLine() string {
 	if m.appr != nil {
-		return paint(cYellow, fmt.Sprintf("approve? %s %s  [y=yes n=no a=always]",
-			m.appr.ev.Name, shortJSON(m.appr.ev.Input, 120)))
+		// The card (suggestionRows) carries the input peek and the
+		// options; the status line just names the decision.
+		return paint(cYellow, fmt.Sprintf("approve? %s  [↑↓/tab · enter · y/n/a]",
+			m.appr.ev.Name))
 	}
 	if m.busy {
 		s := m.spin.View() + " working…"
+		if m.curAgent != "" {
+			// Live agent badge (#50): which class/model is on the job —
+			// visible mid-run, not only when the score card lands.
+			s += paint(cCyan, "  agent "+m.curAgent) +
+				paint(cDim, " · "+shortModel(m.cfg.Model))
+		}
 		if m.status != "" && m.status != idleStatus {
 			s += paint(cDim, "  "+m.status)
 		} else {
-			s += paint(cDim, "  esc interrupt")
+			s += paint(cDim, "  ctrl+c interrupt")
 		}
 		return s
 	}
@@ -1502,6 +1662,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ti.Width = msg.Width - 3
 		m.updateSuggestions() // sets vp.Height: header + status + input + popup
 		m.refresh()
+		// Resizes leave stale cells on some terminals (Trae): clear and
+		// repaint the whole frame instead of trusting a diff.
+		cmds = append(cmds, tea.ClearScreen)
 
 	case tuiEv:
 		m.applyEvent(msg.ev)
@@ -1527,6 +1690,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// First-come overlay; apprMu upstream guarantees no overlap.
 		m.appr = &msg
+		m.apprSel = 0 // card opens on "approve"
 		// The user is probably not watching the TUI — raise a system box.
 		notifyDecision("lyon: approval needed",
 			truncNotif(msg.ev.Name+" "+string(msg.ev.Input), 200))
@@ -1622,11 +1786,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			// A failed grade files nothing — say so and move on.
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
-			m.pushCmd(paint(cYellow, "✎ score"),
-				"  "+sanitizeText(msg.err.Error()))
+			m.evoOutput(paint(cYellow, "✎ score") + "  " + sanitizeText(msg.err.Error()))
 		default:
 			m.finishStep(msg.step, stepDone, msg.line, "")
-			m.pushCmd(paint(cCyan, "✎ score"), "  "+msg.line)
+			m.evoOutput(paint(cCyan, "✎ score") + "  " + msg.line)
 		}
 		m.refresh()
 
@@ -1635,7 +1798,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.err != nil:
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
-			m.pushCmd(paint(cYellow, tr("exam: ", "考试失败: ")+sanitizeText(msg.err.Error())))
+			m.evoOutput(paint(cYellow, tr("exam: ", "考试失败: ")+sanitizeText(msg.err.Error())))
 		default:
 			// §1.4: file the score, apply the exam clock, echo the table —
 			// two consecutive failures by the sitting agent demote them.
@@ -1646,17 +1809,16 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 			routing.Open().Record(msg.class, m.cfg.Model, m.cfg.Model, msg.res.Pct)
 			m.finishStep(msg.step, stepDone, msg.res.Summary(), "")
-			lines := []string{paint(cCyan, "✎ exam — "+msg.why), "  " + msg.res.Summary()}
+			card := paint(cCyan, "✎ exam — "+msg.why) + "  " + msg.res.Summary()
 			for _, a := range msg.res.Answers {
 				if !a.OK {
-					lines = append(lines, "  ✗ "+sanitizeText(oneLine(a.Q)))
+					card += "\n" + paint(cRed, "  ✗ "+sanitizeText(oneLine(a.Q)))
 				}
 			}
 			if demoted {
-				lines = append(lines,
-					paint(cRed, "  demoted after two failures — the seat is open"))
+				card += "\n" + paint(cRed, "  demoted after two failures — the seat is open")
 			}
-			m.pushCmd(lines...)
+			m.evoOutput(card)
 		}
 		m.refresh()
 
@@ -1698,24 +1860,43 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch k := msg.String(); k {
 		case "ctrl+c":
 			if m.busy && !m.armedQuit {
+				m.armedQuit = true
 				if m.sess.Interrupt() {
 					m.status = tr("interrupting… (ctrl+c again quits)", "正在中断…（再按 ctrl+c 退出）")
+					// The interrupt collapses streaming rows mid-frame;
+					// a clean repaint keeps the grid from tearing.
+					return m, tea.Batch(m.spin.Tick, tea.ClearScreen)
 				}
-				m.armedQuit = true
 				return m, nil
 			}
 			return m, tea.Quit
 
 		case "esc":
-			m.cmdOut = nil // dismiss the command-output area too
-			if m.busy && m.sess.Interrupt() {
-				m.status = tr("interrupting…", "正在中断…")
-				return m, nil
-			}
-			if len(m.sugs) > 0 { // idle: close the popup first
+			// esc dismisses overlays only — output area, slash popup.
+			// Interrupting a run belongs to ctrl+c alone now: too many
+			// sessions were killed by a reflex esc aimed at the output
+			// box ("我本来想管 output，把会话给中断了").
+			m.armedQuit = false
+			m.cmdOut = nil
+			if len(m.sugs) > 0 {
 				m.sugHide = true
 				m.updateSuggestions()
 			}
+			return m, nil
+
+		case "ctrl+o":
+			// Claude Code-style: one toggle unfolds every collapsed
+			// region (thinking blocks now, any future fold later).
+			m.armedQuit = false
+			m.expandAll = !m.expandAll
+			if m.expandAll {
+				m.status = tr("all folds expanded — ctrl+o folds back",
+					"已展开全部折叠 — ctrl+o 收回")
+			} else {
+				m.status = tr("folds restored — ctrl+o expands all",
+					"已恢复折叠 — ctrl+o 全部展开")
+			}
+			m.refresh()
 			return m, nil
 
 		case "tab":
@@ -1771,18 +1952,29 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "alt+right", "alt+shift+right":
-			m.armedQuit = false
-			if m.panelOn() {
-				m.stepResize(+4)
-			}
-			return m, nil
-
-		case "alt+left", "alt+shift+left":
+		// Width semantics follow the physical intuition: ← moves the
+		// gutter left (a wider panel), → moves it right (narrower). When
+		// the panel is closed the ← family OPENS the steps window — the
+		// "反的" complaint was ← shrinking a closed intent to expand.
+		// ctrl+shift+… variants included because IDEs remap plain alt.
+		case "alt+right", "alt+shift+right", "ctrl+right", "ctrl+shift+right":
 			m.armedQuit = false
 			if m.panelOn() {
 				m.stepResize(-4)
 			}
+			return m, nil
+
+		case "alt+left", "alt+shift+left", "ctrl+left", "ctrl+shift+left":
+			m.armedQuit = false
+			if !m.panelOn() {
+				m.stepsOn = true
+				m.relayout()
+				m.status = tr("steps panel · alt+← widen · alt+→ narrow · alt+e close",
+					"steps 面板 · alt+← 加宽 · alt+→ 收窄 · alt+e 关闭")
+				m.refresh()
+				return m, nil
+			}
+			m.stepResize(+4)
 			return m, nil
 
 		// alt+e flips the right column between the steps audit and the
@@ -1874,6 +2066,19 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *tuiModel) updateApproval(msg tea.KeyMsg, cmds *[]tea.Cmd) {
+	approve := func(always bool) {
+		if m.appr == nil {
+			return
+		}
+		if always {
+			if m.allowAll == nil {
+				m.allowAll = map[string]bool{}
+			}
+			m.allowAll[m.appr.ev.Name] = true // this tool, this session
+		}
+		m.appr.ch <- true
+		m.appr = nil
+	}
 	deny := func() {
 		if m.appr != nil {
 			m.appr.ch <- false
@@ -1881,20 +2086,23 @@ func (m *tuiModel) updateApproval(msg tea.KeyMsg, cmds *[]tea.Cmd) {
 		}
 	}
 	switch msg.String() {
-	case "y", "Y", "enter":
-		if m.appr != nil {
-			m.appr.ch <- true
-			m.appr = nil
+	case "up", "left", "shift+tab":
+		m.apprSel = (m.apprSel + 2) % 3
+	case "down", "right", "tab":
+		m.apprSel = (m.apprSel + 1) % 3
+	case "enter":
+		switch m.apprSel {
+		case 1:
+			deny()
+		case 2:
+			approve(true)
+		default:
+			approve(false)
 		}
+	case "y", "Y":
+		approve(false)
 	case "a", "A":
-		if m.appr != nil {
-			if m.allowAll == nil {
-				m.allowAll = map[string]bool{}
-			}
-			m.allowAll[m.appr.ev.Name] = true // this tool, this session
-			m.appr.ch <- true
-			m.appr = nil
-		}
+		approve(true)
 	case "n", "N", "esc":
 		deny()
 	case "ctrl+c":
@@ -1971,6 +2179,9 @@ func (m *tuiModel) sendPrompt(line string) tea.Cmd {
 		return nil
 	}
 	m.busy = true
+	// Live agent badge (#50): classify now so the status line names the
+	// working agent from the first second of the run, not at score time.
+	m.curAgent = string(routing.Classify(line))
 	// The prompt opens a titled group in the steps panel: the parent row
 	// that says what the following steps are for (steps.go).
 	m.startPromptStep(line)
@@ -2219,10 +2430,10 @@ func helpLines() []string {
 			"  /help    本帮助",
 			"  /quit    退出",
 			paint(cDim, "输入 / 弹出命令列表 — ↑/↓ 选择，enter 执行 · tab 补全 · esc 关闭"),
-			paint(cDim, "快捷键：pgup/pgdn 或滚轮滚动 · ↑/↓ 提问历史 · ctrl+t 思考折叠 · shift+tab 模式 · esc 中断 · alt+v 粘贴图片"),
-			paint(cDim, "steps 面板：alt+↑/↓ 选步骤 · alt+enter 展开 · alt+←/→ 调宽 — 也接受 alt+shift+…"),
-			paint(cDim, "进化面板：alt+e（或 /evolve）— 榜单、考试时钟 · 两个面板都用 alt+←/→ 调宽"),
-			paint(cDim, "批准浮层（shell/write/edit，默认开启）：y 一次 · a 本会话内放行该工具 · n 拒绝"),
+			paint(cDim, "快捷键：pgup/pgdn 或滚轮滚动 · ↑/↓ 提问历史 · ctrl+t 思考折叠 · ctrl+o 展开全部折叠 · shift+tab 模式 · ctrl+c 中断 · esc 关闭 output/弹层 · alt+v 粘贴图片"),
+			paint(cDim, "steps 面板：alt+↑/↓ 选步骤 · alt+enter 展开 · alt+←（或 ctrl+shift+←）打开/加宽 · alt+→ 收窄"),
+			paint(cDim, "进化面板：alt+e（或 /evolve）— 榜单、考试时钟 · 面板开着时评分/考试卡直接进面板"),
+			paint(cDim, "批准卡片（shell/write/edit，默认开启）：y 一次 · a 本会话内放行该工具 · n 拒绝 · ↑↓/tab 选卡片 · enter 确认"),
 			paint(cDim, "附件：@img.png 随提问发送图片（路径有空格要加引号：@\"my shot.png\"）"),
 		}
 	}
@@ -2249,10 +2460,10 @@ func helpLines() []string {
 		"  /help    this help",
 		"  /quit    exit",
 		paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),
-		paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · shift+tab mode · esc interrupt · alt+v paste image"),
-		paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+←/→ resize — alt+shift+… also accepted"),
-		paint(cDim, "evolution panel: alt+e (or /evolve) — leaderboard, exam clock · both panels resize with alt+←/→"),
-		paint(cDim, "approve overlay (shell/write/edit, on by default): y once · a allow this tool all session · n deny"),
+		paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · ctrl+o expand all folds · shift+tab mode · ctrl+c interrupt · esc close output/overlays · alt+v paste image"),
+		paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+← (or ctrl+shift+←) opens/widens · alt+→ narrows"),
+		paint(cDim, "evolution panel: alt+e (or /evolve) — leaderboard, exam clock · score/exam cards feed the panel while it is open"),
+		paint(cDim, "approve card (shell/write/edit, on by default): y once · a allow this tool all session · n deny · ↑↓/tab choose · enter"),
 		paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
 	}
 }

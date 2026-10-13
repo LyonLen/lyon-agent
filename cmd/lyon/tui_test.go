@@ -282,7 +282,7 @@ func TestTUIReplayThinkingFolds(t *testing.T) {
 	}
 	m.replay(snap)
 	got := m.renderTranscript()
-	if !strings.Contains(got, "▸ thinking") {
+	if !strings.Contains(got, "thinking") {
 		t.Fatalf("fold header missing after replay:\n%s", got)
 	}
 	if !strings.Contains(got, "replay plan alpha") {
@@ -363,7 +363,7 @@ func TestTUIThinkingFolds(t *testing.T) {
 
 	m.applyEvent(agent.Event{Type: agent.EventThinkingDelta, Thinking: "first line\nsecond line"})
 	got := m.renderTranscript()
-	if !strings.Contains(got, "▸ thinking") {
+	if !strings.Contains(got, "thinking") {
 		t.Fatalf("folded thinking header missing while streaming:\n%s", got)
 	}
 	if !strings.Contains(got, "first line") {
@@ -376,7 +376,7 @@ func TestTUIThinkingFolds(t *testing.T) {
 	// Text closes the block: still folded, the answer shows.
 	m.applyEvent(agent.Event{Type: agent.EventTextDelta, Text: "the answer"})
 	got = m.renderTranscript()
-	if !strings.Contains(got, "▸ thinking") {
+	if !strings.Contains(got, "thinking") {
 		t.Fatalf("folded thinking header missing:\n%s", got)
 	}
 	if strings.Contains(got, "second line") {

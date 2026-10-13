@@ -52,22 +52,22 @@ func TestTranscriptEventHierarchy(t *testing.T) {
 		return ""
 	}
 
-	tool := byPrefix(indTool + "⚒ run_shell")
+	tool := byPrefix(indTool + "run_shell")
 	if strings.Contains(tool, "call_") {
 		t.Fatalf("tool_use row must not expose the API call id: %q", tool)
 	}
-	exec := byPrefix(indExec + "▸ exec #7")
+	exec := byPrefix(indExec + "exec #7")
 	if !strings.Contains(exec, "grep -rn flow") {
 		t.Fatalf("exec row must carry the arguments: %q", exec)
 	}
-	done := byPrefix(indExec + "✔ done #7")
+	done := byPrefix(indExec + "done #7")
 	if strings.Contains(done, "run_shell") {
 		t.Fatalf("done row must not repeat the tool name: %q", done)
 	}
 	if !strings.Contains(done, "528ms") {
 		t.Fatalf("done row must carry the duration: %q", done)
 	}
-	subExec := byPrefix(indSub + "▸ exec #9")
+	subExec := byPrefix(indSub + "exec #9")
 	if !strings.HasPrefix(subExec, indSub) || len(indSub) <= len(indExec) {
 		t.Fatalf("subagent-inner exec must sit deeper than %q: %q", indExec, subExec)
 	}
@@ -89,7 +89,7 @@ func TestTranscriptEventHierarchy(t *testing.T) {
 	}
 	found := false
 	for _, l := range styled {
-		if strings.Contains(l, "✘ done #10") && strings.Contains(l, "exit status 1") {
+		if strings.Contains(l, "failed #10") && strings.Contains(l, "exit status 1") {
 			found = true
 		}
 		if strings.Contains(l, "call_") {
@@ -101,4 +101,70 @@ func TestTranscriptEventHierarchy(t *testing.T) {
 	}
 
 	checkView(t, m, "event hierarchy")
+}
+
+// TestParallelExecsNestUnderOwnToolUse: two tool_use blocks of the same
+// tool stream first, then their executions interleave — each exec/done
+// pair must sit under its OWN intent row, not pile under the last one
+// (the regression that sent both run_shells under the second ⚒ row).
+func TestParallelExecsNestUnderOwnToolUse(t *testing.T) {
+	m := newTestModel(t)
+	m.applyEvent(agent.Event{Type: agent.EventToolUseStart, ToolID: "call_aaa", ToolName: "run_shell"})
+	m.applyEvent(agent.Event{Type: agent.EventToolUseStart, ToolID: "call_bbb", ToolName: "run_shell"})
+	m.applyEvent(agent.Event{Type: agent.EventToolExecStart, ExecID: 1, ToolID: "call_aaa",
+		ToolName: "run_shell", Input: json.RawMessage(`{"command":"first"}`)})
+	m.applyEvent(agent.Event{Type: agent.EventToolExecStart, ExecID: 2, ToolID: "call_bbb",
+		ToolName: "run_shell", Input: json.RawMessage(`{"command":"second"}`)})
+	m.applyEvent(agent.Event{Type: agent.EventToolExecEnd, ExecID: 1, ToolName: "run_shell", DurationMS: 10})
+	m.applyEvent(agent.Event{Type: agent.EventToolExecEnd, ExecID: 2, ToolName: "run_shell", DurationMS: 20})
+
+	var styled []string
+	for _, l := range m.lines {
+		if l.kind == lineStyled {
+			styled = append(styled, stripColor(l.raw))
+		}
+	}
+	idxOf := func(sub string) int {
+		for i, l := range styled {
+			if strings.Contains(l, sub) {
+				return i
+			}
+		}
+		t.Fatalf("no row containing %q in %q", sub, styled)
+		return -1
+	}
+	// Nesting invariant: A's whole pair sits between A's intent row and
+	// B's intent row — parallel calls never share a parent visually.
+	iIntentA := idxOf(indTool + "run_shell")
+	iExecA := idxOf("exec #1")
+	iDoneA := idxOf("done #1")
+	iIntentB := -1
+	for i := iIntentA + 1; i < len(styled); i++ {
+		if strings.HasPrefix(styled[i], indTool+"run_shell") {
+			iIntentB = i
+			break
+		}
+	}
+	if iIntentB < 0 {
+		t.Fatalf("second intent row missing in %q", styled)
+	}
+	iExecB := -1
+	for i := iIntentB + 1; i < len(styled); i++ {
+		if strings.Contains(styled[i], "exec #2") {
+			iExecB = i
+			break
+		}
+	}
+	if iExecB < 0 {
+		t.Fatalf("exec #2 not under its own intent: %q", styled)
+	}
+	iDoneB := idxOf("done #2")
+	if !(iIntentA < iExecA && iExecA < iDoneA && iDoneA < iIntentB &&
+		iIntentB < iExecB && iExecB < iDoneB) {
+		t.Fatalf("interleaved order wrong: %q", styled)
+	}
+	// And the args prove the pairing: #1 carries the first command.
+	if !strings.Contains(styled[iExecA], "first") || !strings.Contains(styled[iExecB], "second") {
+		t.Fatalf("exec args paired with the wrong tool_use: %q", styled)
+	}
 }

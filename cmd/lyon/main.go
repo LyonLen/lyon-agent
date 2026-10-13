@@ -75,7 +75,7 @@ Usage:
   lyon run  [flags] "prompt"    run one task to completion (stdin piped also works)
   lyon chat [flags]             interactive chat TUI (type / for the command
                                 popup, /stats /clear /resume [N] /sessions /new
-                                /help /quit, esc interrupts a running prompt;
+                                /help /quit, ctrl+c interrupts a running prompt; esc closes output/overlays;
                                 -plain for a line-based REPL; -c resumes at
                                 startup)
   lyon tools [flags]            list registered tools
@@ -87,7 +87,7 @@ Run 'lyon <command> -h' for command flags.
   lyon run  [flags] "prompt"    跑完一个任务（也支持管道 stdin）
   lyon chat [flags]             交互式聊天 TUI（输入 / 唤出命令弹窗，
                                 /stats /clear /resume [N] /sessions /new
-                                /help /quit，esc 中断进行中的提问；
+                                /help /quit，ctrl+c 中断进行中的提问；esc 关闭 output/弹层；
                                 -plain 切到行式 REPL；-c 启动时续上
                                 上次会话）
   lyon tools [flags]            列出已注册工具
@@ -839,7 +839,7 @@ func render(ev agent.Event) {
 		} else {
 			// Compact intent row: no API call id (noise), and the live
 			// event carries no input — the exec row shows the arguments.
-			fmt.Printf("\n%s%s %s\n", indTool, paint(cCyan, "⚒"), ev.ToolName)
+			fmt.Printf("\n%s%s\n", indTool, paint(cCyan, ev.ToolName))
 		}
 
 	case agent.EventServerToolResult:
@@ -855,7 +855,7 @@ func render(ev agent.Event) {
 			ind = indSub
 		}
 		fmt.Printf("%s%s #%d %s %s\n", ind,
-			paint(cCyan, "▸ exec"), ev.ExecID, ev.ToolName,
+			paint(cCyan, "exec"), ev.ExecID, ev.ToolName,
 			paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160)))
 
 	case agent.EventToolExecEnd:
@@ -865,11 +865,11 @@ func render(ev agent.Event) {
 		}
 		if ev.IsError {
 			fmt.Printf("%s%s #%d %s %s\n", ind,
-				paint(cRed, "✘ done"), ev.ExecID,
+				paint(cRed, "failed"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)), paint(cRed, ev.Err))
 		} else {
 			fmt.Printf("%s%s #%d %s\n", ind,
-				paint(cGreen, "✔ done"), ev.ExecID,
+				paint(cGreen, "done"), ev.ExecID,
 				paint(cDim, fmt.Sprintf("%dms", ev.DurationMS)))
 		}
 

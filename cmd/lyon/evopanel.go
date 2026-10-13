@@ -46,7 +46,25 @@ func (m *tuiModel) renderEvolve(w, h int) []string {
 			fmt.Sprintf(" · 每 %d 轮考试", eval.ExamInterval)))
 	out := []string{fitRow(header, w)}
 
-	room := h - 2 // content rows; one row reserved for the footer
+	// The feed: recent evolution cards (score/exam) — the panel's own
+	// output area while the panel is open (evoOutput, #47). Entries may
+	// be multi-line; the newest rows win, capped so the class table
+	// stays primary.
+	var feed []string
+	for _, e := range m.evoFeed {
+		for _, l := range strings.Split(e, "\n") {
+			feed = append(feed, l)
+		}
+	}
+	feedCap := 6
+	if h/3 < feedCap {
+		feedCap = h / 3
+	}
+	if len(feed) > feedCap {
+		feed = feed[len(feed)-feedCap:]
+	}
+
+	room := h - 2 - len(feed) // content rows; footer takes one more
 	if room < 0 {
 		room = 0
 	}
@@ -64,6 +82,9 @@ func (m *tuiModel) renderEvolve(w, h int) []string {
 	}
 	for i := 0; i < room && i < len(content); i++ {
 		out = append(out, content[i])
+	}
+	for _, l := range feed {
+		out = append(out, fitRow(l, w))
 	}
 	for len(out) < h-1 {
 		out = append(out, "")

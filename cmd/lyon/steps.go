@@ -695,7 +695,7 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 	indent := strings.Repeat("  ", m.stepDepth(s))
 
 	if s.kind == stepPrompt {
-		pre := indent + paint(cDim, fmt.Sprintf("#%d", s.n)) + " " + paint(cCyan, "▸") + " "
+		pre := indent + paint(cDim, fmt.Sprintf("#%d", s.n)) + " "
 		if s.agent == "" {
 			if avail := w - ansi.StringWidth(pre); avail > 2 {
 				pre += paint(cBold, ansi.Truncate(sanitizeText(s.detail), avail, "…"))

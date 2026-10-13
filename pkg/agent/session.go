@@ -133,6 +133,16 @@ type Session struct {
 	// trade for not threading parent ids through the runner.
 	subNest int32
 
+	// toolUseQ correlates harness executions with their API tool_use
+	// block ids: the SDK runner executes blocks without threading the id
+	// down to Execute, but tool_use_start events stream in block order
+	// before execution — a per-name FIFO registered at stream time pairs
+	// each OnToolStart pop with its block (pops are mutex-guarded, so
+	// parallel executions each get exactly one id). Subagent-inner
+	// executions (subNest>0) never register or pop.
+	toolMu   sync.Mutex
+	toolUseQ map[string][]string
+
 	// Session intent title (title.go): recognized asynchronously after
 	// prompt_end, persisted with snapshots. Guarded by mu.
 	title       string
@@ -427,6 +437,9 @@ func (s *Session) drive(prompt string) {
 			}
 			got = true
 			if e := normalize(ev); e != nil {
+				if e.Type == EventToolUseStart && !e.Server {
+					s.trackToolUse(e.ToolID, e.ToolName)
+				}
 				s.emit(*e)
 			}
 		}
@@ -692,12 +705,45 @@ func (s *Session) recordSub(model string, u Usage) {
 	s.mu.Unlock()
 }
 
+// trackToolUse records one streamed tool_use block id against its tool
+// name so the matching execution can claim it (toolUseQ).
+func (s *Session) trackToolUse(id, name string) {
+	if id == "" || name == "" || atomic.LoadInt32(&s.subNest) > 0 {
+		return
+	}
+	s.toolMu.Lock()
+	if s.toolUseQ == nil {
+		s.toolUseQ = map[string][]string{}
+	}
+	s.toolUseQ[name] = append(s.toolUseQ[name], id)
+	s.toolMu.Unlock()
+}
+
+// takeToolUse pops the oldest pending block id for name — the execution
+// that just started claims its API tool_use id. Returns "" when there is
+// nothing to claim (subagent-inner executions, replayed history).
+func (s *Session) takeToolUse(name string) string {
+	if name == "" || atomic.LoadInt32(&s.subNest) > 0 {
+		return ""
+	}
+	s.toolMu.Lock()
+	defer s.toolMu.Unlock()
+	q := s.toolUseQ[name]
+	if len(q) == 0 {
+		return ""
+	}
+	s.toolUseQ[name] = q[1:]
+	return q[0]
+}
+
 // OnToolStart / OnToolEnd implement tools.Observer: they translate harness
 // execution into session events and forward to the external observer.
 func (s *Session) OnToolStart(e tools.ExecEvent) {
+	e.ToolID = s.takeToolUse(e.Name)
 	s.emit(Event{
 		Type:     EventToolExecStart,
 		ExecID:   e.ExecID,
+		ToolID:   e.ToolID,
 		ToolName: e.Name,
 		Input:    e.Input,
 		Sub:      atomic.LoadInt32(&s.subNest) > 0,
