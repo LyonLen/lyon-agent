@@ -42,7 +42,7 @@ func TestRollbackCommand(t *testing.T) {
 		anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock("seeded conversation")),
 	}})
 	m.slash("/rollback save third question")
-	if !strings.Contains(m.cmdOutText(), "★ checkpoint #1 saved") {
+	if !strings.Contains(m.cmdOutText(), "· checkpoint #1 saved") {
 		t.Fatalf("save not confirmed:\n%s", m.cmdOutText())
 	}
 	m.slash("/rollback save second question")

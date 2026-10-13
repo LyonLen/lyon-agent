@@ -146,7 +146,7 @@ func TestExamDoneHandler(t *testing.T) {
 		t.Fatalf("exam row after pass: %+v", got)
 	}
 	out := m.cmdOutText()
-	if !strings.Contains(out, "✎ exam") || !strings.Contains(out, "✗ q4") {
+	if !strings.Contains(out, "· exam") || !strings.Contains(out, "✗ q4") {
 		t.Fatalf("exam report output:\n%s", out)
 	}
 	// The score is on file: leaderboard exam card + routing evidence.
@@ -270,7 +270,7 @@ func TestScoreDoneClosesStep(t *testing.T) {
 		t.Fatalf("grade must close its row with the line: %+v", row)
 	}
 	out := m.cmdOutText()
-	if !strings.Contains(out, "✎ score") || !strings.Contains(out, "0.93") {
+	if !strings.Contains(out, "· score") || !strings.Contains(out, "0.93") {
 		t.Fatalf("score line missing from the answer area:\n%s", out)
 	}
 

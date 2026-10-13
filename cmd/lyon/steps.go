@@ -640,7 +640,19 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 		}
 	}
 
-	avail := h - 1 // one row is the header
+	// Header on top, a key-hint footer at the bottom (the evolution
+	// panel already had one; steps didn't — #41), the step window
+	// between them.
+	avail := h - 1
+	footer := ""
+	if h >= 2 {
+		avail = h - 2
+		// 35 cells EN / 34 ZH — fits the default 40-col panel whole;
+		// the alt+ prefix carries over from the row, only the first key
+		// spells it out.
+		footer = fitRow(paint(cDim, tr("alt+↑↓ select · enter open · ←→ width",
+			"alt+↑↓ 选择 · enter 展开 · ←→ 调宽")), w)
+	}
 	if avail <= 0 {
 		return []string{fitRow(header, w)}
 	}
@@ -686,6 +698,9 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 	for len(out) < h {
 		out = append(out, "")
 	}
+	if footer != "" {
+		out[h-1] = footer
+	}
 	return out
 }
 
@@ -716,7 +731,9 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 	var glyph, gcolor string
 	switch s.status {
 	case stepRunning:
-		glyph, gcolor = "⟳", cYellow
+		// » not ⟳: rotation glyphs fall back to emoji fonts that draw
+		// double-width, wrapping a full panel row (#46).
+		glyph, gcolor = "»", cYellow
 	case stepDone:
 		glyph, gcolor = "✓", cGreen
 	default:

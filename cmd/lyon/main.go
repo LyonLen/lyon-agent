@@ -904,14 +904,18 @@ func render(ev agent.Event) {
 		fmt.Printf("\n%s %s\n", paint(cRed, "error:"), ev.Err)
 
 	case agent.EventPromptEnd:
+		dur := ""
+		if ev.DurationMS > 0 {
+			dur = " · " + fmtDur(ev.DurationMS)
+		}
 		switch {
 		case ev.Err != "":
 			fmt.Printf("\n%s %s\n", paint(cRed, "✗ prompt failed"), paint(cDim, ev.Err))
 		case ev.StopReason == "max_iterations":
 			fmt.Printf("\n%s %s\n", paint(cYellow, "⚡ budget reached"),
-				paint(cDim, fmt.Sprintf("%d API calls — run again to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations)))
+				paint(cDim, fmt.Sprintf("%d API calls%s — run again to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations, dur)))
 		default:
-			fmt.Printf("\n%s %s\n", paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls", ev.Iterations)))
+			fmt.Printf("\n%s %s\n", paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls%s", ev.Iterations, dur)))
 		}
 	}
 }

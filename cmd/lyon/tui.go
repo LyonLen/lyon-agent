@@ -136,9 +136,16 @@ type tuiModel struct {
 
 	// Slash popup: sugs holds the commands the current input matches,
 	// sugIdx the highlighted row, sugHide set by esc until typing resumes.
+	// sugCat is the browsed category tab for bare "/" (←/→ switch it).
 	sugs    []sugItem
 	sugIdx  int
 	sugHide bool
+	sugCat  int
+
+	// statusSeen/statusAt timestamp the last status change so the idle
+	// status line can age a toast back into the resident legend (#45).
+	statusSeen string
+	statusAt   time.Time
 
 	// Session picker, opened by a bare /resume when the store holds several
 	// sessions: pick lists them newest-first, pickIdx the highlighted slot.
@@ -484,7 +491,7 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 				text := sanitizeText(b.OfText.Text)
 				switch {
 				case strings.HasPrefix(text, "[persistent-memory]"):
-					m.pushStyled(paint(cDim, "⌘ memory restored from a previous session"))
+					m.pushStyled(paint(cDim, "· memory restored from a previous session"))
 				case strings.HasPrefix(text, "[conversation compacted"):
 					head := strings.SplitN(text, "\n", 2)[0]
 					head = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(head, "[conversation compacted"), "]"))
@@ -525,7 +532,7 @@ func (m *tuiModel) replay(snap *agent.Snapshot) {
 				m.pushStyled(fmt.Sprintf("%s %s", marker,
 					paint(cDim, clipReplay(strings.Join(txt, " "), 200))))
 			case b.OfImage != nil:
-				m.pushStyled(paint(cDim, "🖼 image"))
+				m.pushStyled(paint(cDim, "· image"))
 			}
 		}
 	}
@@ -661,7 +668,7 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 				fmt.Sprintf("%d API calls complete — press enter for the next prompt", ev.Iterations))
 		}
 		if ev.Err == agent.ErrInterrupted.Error() {
-			m.pushStyled(paint(cYellow, "⏹ "+tr("interrupted", "已中断")),
+			m.pushStyled(paint(cYellow, "■ "+tr("interrupted", "已中断")),
 				paint(cDim, tr("history repaired — keep chatting", "历史已修复 — 继续聊就好")))
 			m.status = idleStatus
 		} else if ev.Err != "" {
@@ -671,18 +678,28 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			// 错因归纳: post-mortem the failed run while the UI idles.
 			m.kickDiagnose(ev.Err)
 		} else if budget {
+			// Total wall time of the whole prompt, next to the call
+			// count — "how long was I waiting" answered at a glance (#43).
+			dur := ""
+			if ev.DurationMS > 0 {
+				dur = " · " + fmtDur(ev.DurationMS)
+			}
 			m.pushStyled(paint(cYellow, "⚡ "+tr("budget reached", "预算耗尽")),
-				paint(cDim, tr(fmt.Sprintf("%d API calls — pending tools skipped, enter to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations),
-					fmt.Sprintf("%d 次 API 调用 — 未执行的工具已跳过，enter 继续 · -max-iter / LYON_MAX_ITER 可调高", ev.Iterations))))
+				paint(cDim, tr(fmt.Sprintf("%d API calls%s — pending tools skipped, enter to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations, dur),
+					fmt.Sprintf("%d 次 API 调用%s — 未执行的工具已跳过，enter 继续 · -max-iter / LYON_MAX_ITER 可调高", ev.Iterations, dur))))
 			m.status = idleStatus
 			m.countRound()
 			// The grade sees the partial answer as it stands — honest,
 			// not withheld: a cut run that answered nothing scores low.
 			m.kickScore(ev.Iterations)
 		} else {
+			dur := ""
+			if ev.DurationMS > 0 {
+				dur = " · " + fmtDur(ev.DurationMS)
+			}
 			m.pushStyled(paint(cGreen, "✓ "+tr("done", "完成")),
-				paint(cDim, tr(fmt.Sprintf("%d API calls", ev.Iterations),
-					fmt.Sprintf("%d 次 API 调用", ev.Iterations))))
+				paint(cDim, tr(fmt.Sprintf("%d API calls%s", ev.Iterations, dur),
+					fmt.Sprintf("%d 次 API 调用%s", ev.Iterations, dur))))
 			m.status = idleStatus
 			// §1.4 exam clock: book one production round; every tenth
 			// round the on-duty agent sits a closed-book exam
@@ -928,61 +945,77 @@ func (m *tuiModel) doNew() {
 // are discoverable without knowing /help exists (narrow terminals clip
 // the tail).
 const (
-	idleLegendEN = "enter send · ctrl+c interrupt · esc close output · ctrl+t think · ctrl+o all folds · pgup/pgdn scroll · alt+↑↓ steps · alt+e evolve · /help"
-	idleLegendZH = "enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+t 思考 · ctrl+o 全展开 · pgup/pgdn 滚动 · alt+↑↓ 面板 · alt+e 进化 · /help"
+	idleLegendEN = "enter send · ctrl+c interrupt · esc close output · ctrl+o all folds · pgup/pgdn scroll · shift+alt+↑↓ steps · alt+e evolve · /help"
+	idleLegendZH = "enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+o 全展开 · pgup/pgdn 滚动 · shift+alt+↑↓ 面板 · alt+e 进化 · /help"
 )
 
 var idleStatus = tr(idleLegendEN, idleLegendZH)
 
-// sugItem is one row of the slash-command popup.
-type sugItem struct{ cmd, desc string }
+// sugItem is one row of the slash-command popup, tagged with its
+// category so bare "/" can browse one tab at a time (#42).
+type sugItem struct{ cmd, desc, cat string }
 
 // slashCommands is the popup's source of truth — keep it in sync with
 // slash(): every entry must be a command that slash() actually handles.
 // Built through tr() so /lang can rebuild it (refreshBakedTexts).
 var slashCommands = buildSlashCommands()
 
-func buildSlashCommands() []sugItem {
-	return []sugItem{
-		{"/stats", tr("usage table — tokens, cache hits, tool latencies", "用量表 — token、缓存命中、工具耗时")},
-		{"/clear", tr("clear the transcript view (history kept)", "清空转录视图（会话历史保留）")},
-		{"/resume", tr("restore a saved session — bare /resume opens a picker", "恢复已保存会话 — 裸 /resume 打开选择器")},
-		{"/sessions", tr("list this workspace's saved sessions", "列出本工作区的已保存会话")},
-		{"/new", tr("start a fresh session (current one archived)", "开新会话（当前会话归档）")},
-		{"/memory", tr("layered memory store — view, toggle hot, cloud sync", "分层记忆库 — 查看、热词开关、云端同步")},
-		{"/remember", tr("distill this session's learnings into memory now", "立即把本会话的收获提炼进记忆")},
-		{"/rollback", tr("undo history to a checkpoint — list, or /rollback N", "回退历史到检查点 — 列出或 /rollback N")},
-		{"/model", tr("model card: context window, official params, pricing", "模型卡：上下文窗口、官方参数、定价")},
-		{"/mode", tr("switch plan (read-only) / bypass (auto-approve) / default", "切换 plan（只读）/ bypass（自动批准）/ default")},
-		{"/think", tr("expand/collapse thinking blocks", "展开/折叠思考块")},
-		{"/paste", tr("attach the clipboard image to your next prompt (alt+v)", "把剪贴板图片附到下一条提问（alt+v）")},
-		{"/steps", tr("action audit panel: bare toggles, open/close/width N", "操作审计面板：裸命令开关，open/close/width N")},
-		{"/evolve", tr("evolution panel: leaderboard, exam clock (alt+e)", "进化面板：分类榜单、考试时钟（alt+e）")},
-		{"/route", tr("task classifier + model profile — /route <text> routes a task", "任务分类器 + 模型画像 — /route <text> 给任务路由")},
-		{"/exam", tr("closed-book exam — /exam [class], auto every 10 rounds", "闭卷考试 — /exam [class]，每 10 轮自动考")},
-		{"/flow", tr("workflows: list · show · match · export · save <slug>", "工作流：list · show · match · export · save <slug>")},
-		{"/lang", tr("interface language: /lang zh|en", "界面语言: /lang zh|en")},
-		{"/help", tr("list commands and keys", "列出命令和快捷键")},
-		{"/quit", tr("exit", "退出")},
+// sugCats is the popup's category tabs in display order; sugCat indexes
+// into it. A typed prefix still searches across every category.
+var sugCats = []string{"session", "model", "panel", "evolve", "misc"}
+
+func sugCatLabel(cat string) string {
+	switch cat {
+	case "session":
+		return tr("session", "会话")
+	case "model":
+		return tr("model", "模型")
+	case "panel":
+		return tr("panel", "面板")
+	case "evolve":
+		return tr("evolve", "进化")
+	default:
+		return tr("misc", "其他")
 	}
 }
 
-// refresh rebuilds the viewport content from the transcript.
+func buildSlashCommands() []sugItem {
+	return []sugItem{
+		{"/clear", tr("clear the transcript view (history kept)", "清空转录视图（会话历史保留）"), "session"},
+		{"/sessions", tr("list this workspace's saved sessions", "列出本工作区的已保存会话"), "session"},
+		{"/resume", tr("restore a saved session — bare /resume opens a picker", "恢复已保存会话 — 裸 /resume 打开选择器"), "session"},
+		{"/new", tr("start a fresh session (current one archived)", "开新会话（当前会话归档）"), "session"},
+		{"/rollback", tr("undo history to a checkpoint — list, or /rollback N", "回退历史到检查点 — 列出或 /rollback N"), "session"},
+		{"/quit", tr("exit", "退出"), "session"},
+		{"/model", tr("model card: context window, official params, pricing", "模型卡：上下文窗口、官方参数、定价"), "model"},
+		{"/mode", tr("switch plan (read-only) / bypass (auto-approve) / default", "切换 plan（只读）/ bypass（自动批准）/ default"), "model"},
+		{"/think", tr("expand/collapse thinking blocks", "展开/折叠思考块"), "model"},
+		{"/steps", tr("action audit panel: bare toggles, open/close/width N", "操作审计面板：裸命令开关，open/close/width N"), "panel"},
+		{"/evolve", tr("evolution panel: leaderboard, exam clock (alt+e)", "进化面板：分类榜单、考试时钟（alt+e）"), "panel"},
+		{"/route", tr("task classifier + model profile — /route <text> routes a task", "任务分类器 + 模型画像 — /route <text> 给任务路由"), "evolve"},
+		{"/exam", tr("closed-book exam — /exam [class], auto every 10 rounds", "闭卷考试 — /exam [class]，每 10 轮自动考"), "evolve"},
+		{"/flow", tr("workflows: list · show · match · export · save <slug>", "工作流：list · show · match · export · save <slug>"), "evolve"},
+		{"/stats", tr("usage table — tokens, cache hits, tool latencies", "用量表 — token、缓存命中、工具耗时"), "misc"},
+		{"/memory", tr("layered memory store — view, toggle hot, cloud sync", "分层记忆库 — 查看、热词开关、云端同步"), "misc"},
+		{"/remember", tr("distill this session's learnings into memory now", "立即把本会话的收获提炼进记忆"), "misc"},
+		{"/paste", tr("attach the clipboard image to your next prompt (alt+v)", "把剪贴板图片附到下一条提问（alt+v）"), "misc"},
+		{"/lang", tr("interface language: /lang zh|en", "界面语言: /lang zh|en"), "misc"},
+		{"/help", tr("list commands and keys", "列出命令和快捷键"), "misc"},
+	}
+}
+
+// refresh rebuilds the viewport content from the transcript. Height and
+// bottom-pinning are owned by View — the single frame pass recomputes the
+// layout each render; a second owner here fought it (#39).
 func (m *tuiModel) refresh() {
 	m.vp.SetContent(m.renderTranscript())
-	// While a prompt is streaming AND the user is typing, the viewport
-	// freezes: the tail must not scroll under a half-written question
-	// (#43 feedback — "typing one character scrolls the last line").
-	// Clearing the input (or sending) re-arms the follow.
-	if m.follow && !(m.busy && m.ti.Value() != "") {
-		m.vp.GotoBottom()
-	}
 }
 
 // suggestions matches the current input against the command list. The popup
 // shows while the input is one bare slash token ("/stats", "/th", …); a
 // space ends it (the argument commands answer from slash(), not the popup)
-// and esc hides it until typing.
+// and esc hides it until typing. Bare "/" browses one category tab at a
+// time (←/→ switch); a typed prefix searches across every category.
 func (m *tuiModel) suggestions() []sugItem {
 	if m.sugHide || m.appr != nil {
 		return nil
@@ -991,8 +1024,15 @@ func (m *tuiModel) suggestions() []sugItem {
 	if !strings.HasPrefix(v, "/") || strings.ContainsAny(v, " \t") {
 		return nil
 	}
+	cat := ""
+	if v == "/" && m.sugCat >= 0 && m.sugCat < len(sugCats) {
+		cat = sugCats[m.sugCat]
+	}
 	out := make([]sugItem, 0, len(slashCommands))
 	for _, c := range slashCommands {
+		if cat != "" && c.cat != cat {
+			continue
+		}
 		if strings.HasPrefix(c.cmd, v) {
 			out = append(out, c)
 		}
@@ -1000,9 +1040,17 @@ func (m *tuiModel) suggestions() []sugItem {
 	return out
 }
 
-// updateSuggestions refreshes the popup cache and shrinks the viewport by
-// exactly the rows the popup will draw, so nothing is pushed off-screen.
-// Call it after every change to the input.
+// sugBrowse reports whether the popup is in category-browse mode (a bare
+// "/" with matches): the tab strip shows and ←/→ switch categories; with a
+// typed prefix the arrows stay with the text cursor.
+func (m *tuiModel) sugBrowse() bool {
+	return len(m.sugs) > 0 && m.ti.Value() == "/"
+}
+
+// updateSuggestions refreshes the popup cache. It no longer touches the
+// viewport: height and bottom-pinning belong to View alone — a second
+// height formula here (header/cmdOut rows uncounted) fought View's clamp
+// and made idle typing jump the tail (#39).
 func (m *tuiModel) updateSuggestions() {
 	v := m.ti.Value()
 	if !strings.HasPrefix(v, "/") {
@@ -1012,14 +1060,6 @@ func (m *tuiModel) updateSuggestions() {
 	m.sugs = m.suggestions()
 	if m.sugIdx >= len(m.sugs) {
 		m.sugIdx = 0
-	}
-	vh := m.height - 3 - len(m.suggestionRows()) // header + status + input
-	if vh < 1 {
-		vh = 1
-	}
-	m.vp.Height = vh
-	if m.follow {
-		m.vp.GotoBottom()
 	}
 }
 
@@ -1038,7 +1078,11 @@ func (m *tuiModel) suggestionRows() []string {
 		// not just counted in the status line (#52).
 		return m.queueRows()
 	}
-	rows := make([]string, 0, len(m.sugs)+1)
+	browse := m.sugBrowse()
+	rows := make([]string, 0, len(m.sugs)+2)
+	if browse { // category tab strip on top (#42)
+		rows = append(rows, m.sugTabRow())
+	}
 	for i, s := range m.sugs {
 		if i == m.sugIdx {
 			rows = append(rows, paint(cCyan, "❯ "+s.cmd)+paint(cDim, "  "+s.desc))
@@ -1046,11 +1090,29 @@ func (m *tuiModel) suggestionRows() []string {
 			rows = append(rows, paint(cCyan, "  "+s.cmd)+paint(cDim, "  "+s.desc))
 		}
 	}
-	if len(m.sugs) > 1 {
-		rows = append(rows, paint(cDim, "  "+tr("tab complete · ↑/↓ choose · esc close",
-			"tab 补全 · ↑/↓ 选择 · esc 关闭")))
+	if browse || len(m.sugs) > 1 {
+		rows = append(rows, paint(cDim, "  "+tr("↑↓ choose · ←/→ category · tab complete · esc close",
+			"↑↓ 选择 · ←/→ 切换类别 · tab 补全 · esc 关闭")))
 	}
 	return rows
+}
+
+// sugTabRow renders the category tab strip with the active tab bracketed.
+func (m *tuiModel) sugTabRow() string {
+	var b strings.Builder
+	b.WriteString("  ")
+	for i, c := range sugCats {
+		label := sugCatLabel(c)
+		if i == m.sugCat {
+			b.WriteString(paint(cCyan, "["+label+"]"))
+		} else {
+			b.WriteString(paint(cDim, label))
+		}
+		if i < len(sugCats)-1 {
+			b.WriteString(paint(cDim, " · "))
+		}
+	}
+	return b.String()
 }
 
 // approvalRows renders the tool approval as a card: the tool name, a peek
@@ -1297,8 +1359,12 @@ func truncateRunes(s string, n int) string {
 // SGR colors: our wrappers paint each line, and clipReplay/truncateRunes
 // cut by rune count, which would happily slice a color code in half.
 // Newlines are kept (line structure); tabs become four spaces. Idempotent.
+// Emoji-presentation symbols that terminals render double-width while
+// ansi.StringWidth counts them as one (⏹ ⏸ ⏺ ⚒ ⚠ ✎ ⌘ ★ 🖼 ⟳ — a
+// width-measure mismatch that soft-wraps a full-width line and tears the
+// whole frame, #46) are rewritten to measured-safe stand-ins.
 func sanitizeText(s string) string {
-	if !strings.ContainsAny(s, "\x1b\r\t\x7f") && !hasCtl(s) {
+	if !strings.ContainsAny(s, "\x1b\r\t\x7f⏸⏹⏺⚒⚠✎⌘★🖼⟳") && !hasCtl(s) {
 		return s // fast path: ordinary text
 	}
 	var b strings.Builder
@@ -1345,8 +1411,16 @@ func sanitizeText(s string) string {
 			i++
 		}
 	}
-	return b.String()
+	return wideRisk.Replace(b.String())
 }
+
+// wideRisk maps symbols the terminal may draw double-width (emoji font
+// fallback) although ansi measures them single — the mismatch that wraps
+// a full-width row by one cell (#46).
+var wideRisk = strings.NewReplacer(
+	"⏸", "■", "⏹", "■", "⏺", "●", "⚒", "»", "⚠", "!",
+	"✎", "·", "⌘", "·", "★", "*", "🖼", "·", "⟳", "»",
+)
 
 // hasCtl reports control bytes other than \n — the fast-path gate for
 // sanitizeText without allocating.
@@ -1471,7 +1545,14 @@ func (m *tuiModel) View() string {
 		vh = 1
 	}
 	m.vp.Height = vh
-	m.vp.SetYOffset(m.vp.YOffset) // re-clamp: Height may have just shrunk
+	// Pin to the tail unless scrolled away — and while a prompt streams
+	// under a half-written question the tail freezes instead (the draft
+	// must not scroll under the typing, #39/#43).
+	if m.follow && !(m.busy && m.ti.Value() != "") {
+		m.vp.GotoBottom()
+	} else {
+		m.vp.SetYOffset(m.vp.YOffset) // re-clamp: Height may have just shrunk
+	}
 	var b strings.Builder
 	for i, l := range head {
 		if i > 0 {
@@ -1607,14 +1688,23 @@ func (m *tuiModel) statusLine() string {
 		}
 		return s
 	}
-	// Async completions clear the status to "" without restoring it —
-	// fall back to the resident legend so the key hints never silently
-	// disappear after the first background event.
-	if m.status == "" {
+	// Transient toasts get a few seconds of the status line, then the
+	// resident legend takes the row back (#45 — after ctrl+o "这里要一直
+	// 是原始的那个提示"): feedback still lands, but it never parks there.
+	// Async completions that clear the status to "" fall back the same way.
+	if m.status != m.statusSeen {
+		m.statusSeen = m.status
+		m.statusAt = time.Now()
+	}
+	if m.status == "" || m.status == idleStatus || time.Since(m.statusAt) > statusToastTTL {
 		return paint(cDim, idleStatus)
 	}
 	return paint(cDim, m.status)
 }
+
+// statusToastTTL is how long a status toast holds the idle status line
+// before the resident key legend reclaims it.
+const statusToastTTL = 3 * time.Second
 
 // inputLine is the bottom row: the text field on the left, and the
 // resident context/cost gauge pinned to the bottom-right corner (moved
@@ -1762,7 +1852,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.finishStep(msg.step, stepDone, detail, "")
 			// The answer area shows the full post-mortem: conditions and
 			// the constraint patch a retry would inherit.
-			lines := []string{paint(cMagenta, "✎ 错因归纳")}
+			lines := []string{paint(cMagenta, "· 错因归纳")}
 			for _, c := range d.FailedConditions {
 				lines = append(lines, "• "+sanitizeText(c))
 			}
@@ -1786,10 +1876,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			// A failed grade files nothing — say so and move on.
 			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
-			m.evoOutput(paint(cYellow, "✎ score") + "  " + sanitizeText(msg.err.Error()))
+			m.evoOutput(paint(cYellow, "· score") + "  " + sanitizeText(msg.err.Error()))
 		default:
 			m.finishStep(msg.step, stepDone, msg.line, "")
-			m.evoOutput(paint(cCyan, "✎ score") + "  " + msg.line)
+			m.evoOutput(paint(cCyan, "· score") + "  " + msg.line)
 		}
 		m.refresh()
 
@@ -1809,7 +1899,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 			routing.Open().Record(msg.class, m.cfg.Model, m.cfg.Model, msg.res.Pct)
 			m.finishStep(msg.step, stepDone, msg.res.Summary(), "")
-			card := paint(cCyan, "✎ exam — "+msg.why) + "  " + msg.res.Summary()
+			card := paint(cCyan, "· exam — "+msg.why) + "  " + msg.res.Summary()
 			for _, a := range msg.res.Answers {
 				if !a.OK {
 					card += "\n" + paint(cRed, "  ✗ "+sanitizeText(oneLine(a.Q)))
@@ -1915,7 +2005,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, err := m.sess.SetMode(cycleMode(prev)); err == nil {
 				m.cmdOut = nil // feedback replaces, never stacks under, an old answer
 				m.pushCmd(modeSwitchLine(prev, m.sess.Mode()))
-				m.status = tr("mode: ", "模式: ") + string(m.sess.Mode())
+				m.status = modeToast(m.sess.Mode())
 				m.refresh()
 			}
 			return m, nil
@@ -2039,6 +2129,30 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateSuggestions()
 			}
 			return m, nil
+
+		case "left":
+			m.armedQuit = false
+			if m.sugBrowse() { // bare "/": ← switches the category tab
+				m.sugCat = (m.sugCat - 1 + len(sugCats)) % len(sugCats)
+				m.sugs = m.suggestions()
+				m.sugIdx = 0
+				return m, nil
+			}
+			var cmdL tea.Cmd
+			m.ti, cmdL = m.ti.Update(msg)
+			cmds = append(cmds, cmdL)
+
+		case "right":
+			m.armedQuit = false
+			if m.sugBrowse() { // bare "/": → switches the category tab
+				m.sugCat = (m.sugCat + 1) % len(sugCats)
+				m.sugs = m.suggestions()
+				m.sugIdx = 0
+				return m, nil
+			}
+			var cmdR tea.Cmd
+			m.ti, cmdR = m.ti.Update(msg)
+			cmds = append(cmds, cmdR)
 
 		case "pgup", "pgdown":
 			m.armedQuit = false
@@ -2278,7 +2392,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 				m.pushCmd(paint(cRed, "checkpoint: "+err.Error()))
 			} else {
 				m.pushCmd(fmt.Sprintf("%s %s",
-					paint(cGreen, "★ checkpoint #"+fmt.Sprint(info.ID)+" saved"),
+					paint(cGreen, "· checkpoint #"+fmt.Sprint(info.ID)+" saved"),
 					paint(cDim, fmt.Sprintf("%s · %d msgs", info.Label, info.Messages))))
 			}
 			m.refresh()
@@ -2308,7 +2422,7 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.showModel(args)
 	case "/mode":
 		m.pushCmd(modeAction(m.sess, args))
-		m.status = tr("mode: ", "模式: ") + string(m.sess.Mode())
+		m.status = modeToast(m.sess.Mode())
 	case "/think":
 		m.toggleThinking()
 	case "/route":

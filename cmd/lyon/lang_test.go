@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+// slashDesc looks up one popup entry's description by command — the list
+// is categorized now, so tests pin a command rather than an index.
+func slashDesc(cmd string) string {
+	for _, c := range slashCommands {
+		if c.cmd == cmd {
+			return c.desc
+		}
+	}
+	return ""
+}
+
 // TestLangSwitch: LYON_LANG seeds the language at startup, /lang flips it
 // at runtime, and the flip rebuilds every baked text — the resident
 // legend, the popup's descriptions and the /help body — then back again.
@@ -39,8 +50,8 @@ func TestLangSwitch(t *testing.T) {
 	if !strings.Contains(idleStatus, "发送") {
 		t.Fatalf("resident legend not rebuilt: %q", idleStatus)
 	}
-	if !strings.Contains(slashCommands[0].desc, "用量表") {
-		t.Fatalf("popup descriptions not rebuilt: %q", slashCommands[0].desc)
+	if !strings.Contains(slashDesc("/stats"), "用量表") {
+		t.Fatalf("popup descriptions not rebuilt: %q", slashDesc("/stats"))
 	}
 	if !strings.Contains(langLine(), "zh") {
 		t.Fatalf("lang line must state the current language: %q", langLine())
@@ -63,8 +74,8 @@ func TestLangSwitch(t *testing.T) {
 		strings.Contains(idleStatus, "发送") {
 		t.Fatalf("legend not restored to English: %q", idleStatus)
 	}
-	if !strings.Contains(slashCommands[0].desc, "usage table") {
-		t.Fatalf("popup descriptions not restored: %q", slashCommands[0].desc)
+	if !strings.Contains(slashDesc("/stats"), "usage table") {
+		t.Fatalf("popup descriptions not restored: %q", slashDesc("/stats"))
 	}
 	if help := strings.Join(helpLines(), "\n"); !strings.Contains(help, "this help") {
 		t.Fatalf("help body not restored to English:\n%s", help)

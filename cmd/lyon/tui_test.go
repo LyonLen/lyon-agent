@@ -492,22 +492,63 @@ func TestTUISlashAudit(t *testing.T) {
 func TestTUISlashPopup(t *testing.T) {
 	m := newTestModel(t)
 
-	// Bare slash lists every command plus the key hint, and the viewport
-	// gives up exactly the rows the popup will draw.
+	// Bare slash browses the first category (session): a tab strip, the
+	// category's commands, and the key hint. The viewport gives up
+	// exactly the rows the popup will draw — View owns that math now.
 	m.ti.SetValue("/")
 	m.updateSuggestions()
-	if got := len(m.sugs); got != len(slashCommands) {
-		t.Fatalf("bare slash matched %d commands, want %d", got, len(slashCommands))
+	var want []string
+	for _, c := range slashCommands {
+		if c.cat == sugCats[m.sugCat] {
+			want = append(want, c.cmd)
+		}
+	}
+	if got := len(m.sugs); got != len(want) {
+		t.Fatalf("bare slash matched %d commands, want %d of category %q", got, len(want), sugCats[m.sugCat])
+	}
+	for i, c := range want {
+		if m.sugs[i].cmd != c {
+			t.Fatalf("sugs[%d] = %q, want %q", i, m.sugs[i].cmd, c)
+		}
 	}
 	rows := m.suggestionRows()
-	if len(rows) != len(slashCommands)+1 {
-		t.Fatalf("popup rows = %d, want %d (commands + hint)", len(rows), len(slashCommands)+1)
+	// tab strip + commands + hint
+	if len(rows) != len(want)+2 {
+		t.Fatalf("popup rows = %d, want %d (tab + commands + hint)", len(rows), len(want)+2)
 	}
-	if !strings.Contains(strings.Join(rows, "\n"), "/stats") {
-		t.Fatalf("popup missing /stats:\n%s", strings.Join(rows, "\n"))
+	joined := strings.Join(rows, "\n")
+	if !strings.Contains(stripColor(joined), "["+sugCatLabel(sugCats[m.sugCat])+"]") {
+		t.Fatalf("tab strip missing active category:\n%s", joined)
 	}
-	if want := 30 - 3 - len(rows); m.vp.Height != want {
-		t.Fatalf("vp.Height = %d, want %d (terminal − chrome − popup)", m.vp.Height, want)
+	m.View() // View is the single owner of vp.Height
+	if wantH := 30 - len(m.headerRows()) - 3 - len(rows); m.vp.Height != wantH {
+		t.Fatalf("vp.Height = %d, want %d (terminal − chrome − popup)", m.vp.Height, wantH)
+	}
+
+	// →/← switch category tabs (wrapping); a typed prefix searches
+	// across every category instead, leaving the arrows to the cursor.
+	m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if m.sugCat != 1 || len(m.sugs) == 0 || m.sugs[0].cmd != "/model" {
+		t.Fatalf("right did not switch to model tab: cat=%d %#v", m.sugCat, m.sugs)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.sugCat != len(sugCats)-1 {
+		t.Fatalf("left did not wrap to the last tab: cat=%d", m.sugCat)
+	}
+	if m.sugs[0].cat != sugCats[m.sugCat] {
+		t.Fatalf("wrap did not re-filter: %q ∉ %q", m.sugs[0].cat, sugCats[m.sugCat])
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRight}) // back to session
+	m.ti.SetValue("/mo")
+	m.updateSuggestions()
+	if len(m.sugs) != 2 || m.sugs[0].cmd != "/model" || m.sugs[1].cmd != "/mode" {
+		t.Fatalf("cross-category search /mo → %#v", m.sugs)
+	}
+	cat := m.sugCat
+	m.Update(tea.KeyMsg{Type: tea.KeyRight}) // not browse mode: cursor key
+	if m.ti.Value() != "/mo" || m.sugCat != cat {
+		t.Fatalf("right with a prefix must move the cursor, not the tab: %q cat=%d→%d", m.ti.Value(), cat, m.sugCat)
 	}
 
 	// Filtering to a unique command, then tab completion. (/st alone is
@@ -528,11 +569,11 @@ func TestTUISlashPopup(t *testing.T) {
 		t.Fatalf("unique match did not execute /stats:\n%s", m.cmdOutText())
 	}
 
-	// Ambiguous prefix + enter runs the highlighted entry — no tab-then-
-	// enter detour. Walk to /clear so the effect is observable.
+	// Ambiguous pick + enter runs the highlighted entry — no tab-then-
+	// enter detour. The session tab starts at /clear, whose effect is
+	// observable.
 	m.ti.SetValue("/")
 	m.updateSuggestions()
-	m.Update(tea.KeyMsg{Type: tea.KeyDown}) // sugIdx 0 → 1 (/clear)
 	if len(m.sugs) < 2 || m.sugs[m.sugIdx].cmd != "/clear" {
 		t.Fatalf("selection walk: idx=%d %#v", m.sugIdx, m.sugs)
 	}
@@ -553,8 +594,8 @@ func TestTUISlashPopup(t *testing.T) {
 	m.ti.SetValue("/")
 	m.updateSuggestions()
 	m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if m.sugIdx != len(slashCommands)-1 {
-		t.Fatalf("after up: sugIdx = %d, want %d", m.sugIdx, len(slashCommands)-1)
+	if m.sugIdx != len(m.sugs)-1 {
+		t.Fatalf("after up: sugIdx = %d, want %d", m.sugIdx, len(m.sugs)-1)
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if m.sugIdx != 0 {
@@ -584,6 +625,66 @@ func TestTUISlashPopup(t *testing.T) {
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatalf(":q returned %T, want tea.QuitMsg", cmd())
+	}
+}
+
+// TestStatusToastAgesToLegend: the status line shows the mode toast for a
+// few seconds after a switch, then the resident legend reclaims the row
+// (#45); the toast itself carries the mode's color like the header badge
+// (#40).
+func TestStatusToastAgesToLegend(t *testing.T) {
+	m := newTestModel(t)
+	m.status = modeToast(agent.ModeBypass)
+	line := m.statusLine()
+	if !strings.Contains(stripColor(line), "bypass") {
+		t.Fatalf("status toast missing mode: %q", line)
+	}
+	if color && !strings.Contains(line, "\x1b[") {
+		t.Fatalf("toast not colored: %q", line)
+	}
+	// Past the TTL the legend takes the row back even though m.status
+	// still holds the toast value (tests read that field directly).
+	m.statusAt = time.Now().Add(-statusToastTTL - time.Second)
+	if got := stripColor(m.statusLine()); got != stripColor(paint(cDim, idleStatus)) {
+		t.Fatalf("toast did not age out into the legend: %q", got)
+	}
+}
+
+// TestPromptEndShowsDuration: done and budget cards report the prompt's
+// total wall-clock time next to the call count (#43), and the plain-CLI
+// path prints the same.
+func TestPromptEndShowsDuration(t *testing.T) {
+	m := newTestModel(t)
+	m.applyEvent(agent.Event{Type: agent.EventPromptEnd, Iterations: 3, DurationMS: 12500})
+	if out := stripANSI(m.renderTranscript()); !strings.Contains(out, "12.5s") {
+		t.Fatalf("done card missing total time:\n%s", out)
+	}
+	m2 := newTestModel(t)
+	m2.applyEvent(agent.Event{Type: agent.EventPromptEnd,
+		StopReason: "max_iterations", Iterations: 50, DurationMS: 90000})
+	if out := stripANSI(m2.renderTranscript()); !strings.Contains(out, "1m30s") {
+		t.Fatalf("budget card missing total time:\n%s", out)
+	}
+}
+
+// TestSanitizeStripsWideRiskGlyphs: the emoji-fallback glyphs ansi
+// measures 1-wide but Windows Terminal renders 2-wide wrap full rows and
+// scroll the altscreen (#46) — sanitizeText swaps them at the door, on
+// both the fast and the ANSI-carrying slow path.
+func TestSanitizeStripsWideRiskGlyphs(t *testing.T) {
+	for _, in := range []string{
+		"a ⏸ b ⏹ c ⏺ d ⚒ e ⚠ f ✎ g ⌘ h ★ i 🖼 j ⟳ k",
+		"x \x1b[31m⚠ paused ⏸\x1b[0m y",
+	} {
+		out := sanitizeText(in)
+		for _, r := range "⏸⏹⏺⚒⚠✎⌘★🖼⟳" {
+			if strings.ContainsRune(out, r) {
+				t.Errorf("risky glyph %q survived sanitize of %q: %q", r, in, out)
+			}
+		}
+		if !strings.Contains(stripANSI(out), "a ") && !strings.Contains(stripANSI(out), "x ") {
+			t.Errorf("sanitize mangled the content: %q", out)
+		}
 	}
 }
 

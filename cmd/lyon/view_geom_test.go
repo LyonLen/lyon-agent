@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,6 +151,72 @@ func TestRealSnapshotReplayGeometry(t *testing.T) {
 		checkEscapes(t, m.renderTranscript(), fmt.Sprintf("replay %dx%d after pgup", size.w, size.h))
 		m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
 		checkView(t, m, fmt.Sprintf("replay %dx%d after pgdown", size.w, size.h))
+	}
+}
+
+// TestPgupStormKeepsFrameSane: the frame-tear bug (#46) — glyphs that
+// ansi measures as 1 cell but Windows Terminal's Segoe emoji fallback
+// renders as 2 made full-width rows physically wrap, scrolling the
+// altscreen one row per flush until the UI shredded. Feed the renderer
+// content carrying every wide-risk glyph, hammer pgup/pgdown like the
+// user did, and require the geometry invariants (and a glyph-free
+// frame) throughout — including the steps panel's own rows.
+func TestPgupStormKeepsFrameSane(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	for i := 0; i < 60; i++ {
+		m.pushText(lineText, fmt.Sprintf("第%d行 %s ⏸⏹⏺⚒⚠✎⌘★🖼⟳", i, strings.Repeat("很长的中文内容ab ", 12)))
+	}
+	// A running step puts the panel's status glyph in the frame too.
+	m.applyEvent(agent.Event{
+		Type: agent.EventToolUseStart, ToolID: "t", ToolName: "run_shell",
+		Input: json.RawMessage(`{"command":"sleep 1"}`),
+	})
+	m.refresh()
+	for i := 0; i < 30; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+		checkView(t, m, fmt.Sprintf("pgup storm %d", i))
+	}
+	for i := 0; i < 40; i++ { // overshoot the bottom on purpose
+		m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+		checkView(t, m, fmt.Sprintf("pgdown storm %d", i))
+	}
+	frame := m.View()
+	for _, r := range "⏸⏹⏺⚒⚠✎⌘★🖼⟳" {
+		if strings.ContainsRune(frame, r) {
+			t.Errorf("wide-risk glyph %q rendered in the frame — it wraps a full row and scrolls the altscreen", r)
+		}
+	}
+}
+
+// TestIdleTypingKeepsViewportStable: idle typing must not touch the
+// transcript viewport — neither its height nor its scroll offset. The
+// popup shrinks/grows via View's frame math alone; a second height
+// owner inside updateSuggestions made the tail jump on every keystroke
+// (#39).
+func TestIdleTypingKeepsViewportStable(t *testing.T) {
+	m := newTestModel(t)
+	for i := 0; i < 50; i++ {
+		m.pushText(lineText, fmt.Sprintf("line %d", i))
+	}
+	m.refresh()
+	m.View() // settle: View pins to the bottom and sets the height
+	h0, y0 := m.vp.Height, m.vp.YOffset
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if m.vp.Height != h0 || m.vp.YOffset != y0 {
+		t.Fatalf("typing / moved the viewport: h %d→%d y %d→%d", h0, m.vp.Height, y0, m.vp.YOffset)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("st")}) // "/st"
+	if m.vp.Height != h0 || m.vp.YOffset != y0 {
+		t.Fatalf("typing /st moved the viewport: h %d→%d y %d→%d", h0, m.vp.Height, y0, m.vp.YOffset)
+	}
+	// Scrolled away from the tail, typing must not yank the view back.
+	m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	y1 := m.vp.YOffset
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}) // "/sta"
+	if m.vp.Height != h0 || m.vp.YOffset != y1 {
+		t.Fatalf("typing while scrolled jumped: h %d y %d→%d", m.vp.Height, y1, m.vp.YOffset)
 	}
 }
 

@@ -68,6 +68,19 @@ func modeBadge(m agent.Mode) string {
 	}
 }
 
+// modeToast is the status-line copy of the mode note — colored the same
+// way as the header badge; the plain-text version read as unstyled (#40).
+func modeToast(m agent.Mode) string {
+	color := cGreen
+	switch m {
+	case agent.ModePlan:
+		color = cYellow
+	case agent.ModeBypass:
+		color = cRed
+	}
+	return tr("mode: ", "模式: ") + paint(color, string(m))
+}
+
 // cycleMode walks default → plan → bypass → default (shift+tab).
 func cycleMode(m agent.Mode) agent.Mode {
 	switch m {

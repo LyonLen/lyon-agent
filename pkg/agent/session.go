@@ -355,6 +355,9 @@ func (s *Session) drive(prompt string) {
 	defer s.histMu.Unlock()
 	defer s.busy.Store(false)
 	s.iterOffset = 0
+	// Wall-clock start of the whole prompt (stream + tools); reported on
+	// prompt_end so every frontend can show the total execution time (#43).
+	promptStart := time.Now()
 
 	// The prompt runs on its own cancellable context so Interrupt can stop
 	// just this prompt (stream + tools) while the session survives.
@@ -560,6 +563,7 @@ func (s *Session) drive(prompt string) {
 		Err:        promptErr,
 		StopReason: budgetStop,
 		Iterations: s.iterOffset + s.runner.IterationCount(),
+		DurationMS: time.Since(promptStart).Milliseconds(),
 		TS:         time.Now(),
 	})
 }

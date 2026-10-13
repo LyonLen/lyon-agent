@@ -166,7 +166,7 @@ func (m *tuiModel) showRoute(args string) {
 		prof := info.CapProfile()
 		if open > int(prof.Openness) {
 			lines = append(lines, paint(cYellow, fmt.Sprintf(
-				"  ⚠ task openness %d > model openness %d — a more open-ended model may serve better",
+				"  ! task openness %d > model openness %d — a more open-ended model may serve better",
 				open, prof.Openness)))
 		}
 	}
