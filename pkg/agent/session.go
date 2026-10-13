@@ -42,13 +42,20 @@ type TurnStat struct {
 //
 // Lifecycle: Submit(prompt) once at a time; drain Events() until the matching
 // EventPromptEnd; repeat; Close() when done.
+// submitReq is one queued prompt. Model carries the per-prompt override
+// (#53 routing consumption): "" rides the session's config model.
+type submitReq struct {
+	prompt string
+	model  string
+}
+
 type Session struct {
 	eng       *Engine
 	ctx       context.Context
 	streamCtx context.Context // ctx + session value: tool handlers find their Session
 	cancel    context.CancelFunc
 	events    chan Event
-	reqs      chan string
+	reqs      chan submitReq
 	closeOne  sync.Once
 	extObs    tools.Observer
 
@@ -57,6 +64,7 @@ type Session struct {
 	serialMu  sync.Mutex
 	betaTools []anthropic.BetaTool // adapted once: deterministic across runner recreations
 	seq       atomic.Uint64        // shared ExecID counter across all tools
+	disSeq    atomic.Uint64        // run_subagents fan-out run ids (#53 SubID attribution)
 
 	// runner is owned exclusively by the drive goroutine.
 	runner *anthropic.BetaToolRunnerStreaming
@@ -168,7 +176,7 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		ctx:        ctx,
 		cancel:     cancel,
 		events:     make(chan Event, e.cfg.EventBuffer),
-		reqs:       make(chan string, 1),
+		reqs:       make(chan submitReq, 1),
 		extObs:     obs,
 		memoryText: tools.MemoryFacts(e.cfg.Workspace),
 	}
@@ -194,6 +202,14 @@ func (s *Session) Events() <-chan Event { return s.events }
 // Submit queues a prompt for execution. It returns nil once the prompt is
 // accepted; completion is signaled by EventPromptEnd on Events().
 func (s *Session) Submit(prompt string) error {
+	return s.SubmitOn(prompt, "")
+}
+
+// SubmitOn is Submit with a per-prompt model override: the routing table
+// steers this run to its evidenced model while an explicit pin (or no
+// evidence) stays on the session's config model (#53 — the TUI's
+// consumption side of design §5).
+func (s *Session) SubmitOn(prompt, model string) error {
 	if s.ctx.Err() != nil {
 		return ErrSessionClosed
 	}
@@ -201,7 +217,7 @@ func (s *Session) Submit(prompt string) error {
 		return ErrPromptInProgress
 	}
 	select {
-	case s.reqs <- prompt:
+	case s.reqs <- submitReq{prompt: prompt, model: model}:
 		// Recorded for title intent recognition (title.go): the latest
 		// prompt drives the check, the first anchors the session topic.
 		s.mu.Lock()
@@ -312,8 +328,8 @@ func (s *Session) loop() {
 		select {
 		case <-s.ctx.Done():
 			return
-		case prompt := <-s.reqs:
-			s.drive(prompt)
+		case r := <-s.reqs:
+			s.drive(r.prompt, r.model)
 		}
 	}
 }
@@ -347,7 +363,7 @@ func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMe
 // prompt, seeded with the previous runner's history — byte-identical prefix,
 // so the cache keeps hitting — because a runner permanently latches
 // completed=true after its final turn.
-func (s *Session) drive(prompt string) {
+func (s *Session) drive(prompt, runModel string) {
 	// histMu spans the whole prompt so Export/Restore (exit-time snapshot,
 	// chat -c) observe one stable history: the caller Interrupts first, then
 	// Export waits here until this prompt finishes bookkeeping.
@@ -384,8 +400,16 @@ func (s *Session) drive(prompt string) {
 		})
 	}
 
+	params := s.baseParams(hist)
+	// Per-prompt model override (#53 routing consumption): only fires for
+	// unpinned runs the routing table has evidence for. Swapping models
+	// mid-history costs this conversation's prefix cache — accepted,
+	// every swap is backed by ≥3 recorded samples.
+	if runModel != "" {
+		params.Model = runModel
+	}
 	s.runner = s.eng.client.Beta.Messages.NewToolRunnerStreaming(s.betaTools, anthropic.BetaToolRunnerParams{
-		BetaMessageNewParams: s.baseParams(hist),
+		BetaMessageNewParams: params,
 		MaxIterations:        s.eng.cfg.MaxIterations,
 	})
 	// A deferred compaction died with the old runner (a failed prompt may

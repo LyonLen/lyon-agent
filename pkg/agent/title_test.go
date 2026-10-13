@@ -95,7 +95,7 @@ func TestTitleRecorder(t *testing.T) {
 	s := &Session{
 		eng:  &Engine{cfg: Config{Workspace: ws}, hooks: hooks.New(ws)},
 		ctx:  context.Background(),
-		reqs: make(chan string, 1),
+		reqs: make(chan submitReq, 1),
 	}
 	t.Cleanup(s.eng.hooks.Flush)
 

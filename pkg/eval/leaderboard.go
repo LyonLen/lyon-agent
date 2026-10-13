@@ -170,14 +170,20 @@ func (lb *Leaderboard) SubmitExam(class string, sc Scorecard) (demoted bool) {
 	b := lb.boardLocked(class)
 	b.Agents[sc.Agent] = appendCapped(b.Agents[sc.Agent], sc)
 	b.Rounds = 0
-	if sc.Passed {
-		b.ExamFails = 0
-	} else {
-		b.ExamFails++
-		if b.ExamFails >= examFailsLimit && b.OnDuty == sc.Agent {
-			b.OnDuty = ""
+	// The failure streak is the SITTING agent's — a challenger's flunked
+	// exam must never advance someone else's demotion clock (#53: with a
+	// full field submitting, only the seat holder's own two failures hand
+	// the role back). Vacant seats have no clock to run.
+	if b.OnDuty == sc.Agent {
+		if sc.Passed {
 			b.ExamFails = 0
-			demoted = true
+		} else {
+			b.ExamFails++
+			if b.ExamFails >= examFailsLimit {
+				b.OnDuty = ""
+				b.ExamFails = 0
+				demoted = true
+			}
 		}
 	}
 	// Seat bookkeeping: a demotion leaves the seat OPEN — challengers earn
@@ -198,6 +204,20 @@ func (lb *Leaderboard) SubmitExam(class string, sc Scorecard) (demoted bool) {
 	}
 	_ = lb.saveLocked()
 	return demoted
+}
+
+// Elect re-runs the election on current evidence and persists the winner.
+// The contest's closing step (#53): every candidate's exam card is on
+// file, and pickLocked's recent-window mean — not submission order —
+// decides who takes (or keeps) the seat. Returns the new on-duty id
+// ("" = seat open).
+func (lb *Leaderboard) Elect(class string) string {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	b := lb.boardLocked(class)
+	b.OnDuty = pickLocked(b)
+	_ = lb.saveLocked()
+	return b.OnDuty
 }
 
 // CountRound books one production round for the class and reports whether
@@ -230,6 +250,21 @@ func (lb *Leaderboard) Status(class string) (onDuty string, rounds, examFails in
 func (lb *Leaderboard) OnDuty(class string) string {
 	onDuty, _, _ := lb.Status(class)
 	return onDuty
+}
+
+// Seats returns the classes where id currently holds the on-duty seat,
+// sorted — the /agents listing's "who won what" column (#53).
+func (lb *Leaderboard) Seats(id string) []string {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	var out []string
+	for class, b := range lb.Classes {
+		if b.OnDuty == id {
+			out = append(out, class)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // View is a locked, render-ready snapshot of one class ledger — everything

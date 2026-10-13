@@ -2,10 +2,12 @@ package main
 
 // Wiring for docs/design/agent-evolution.md — the eval/routing/flow
 // machinery reachable from the TUI: /route classifies and advises,
-// /exam runs the §1.4 closed-book test, /flow browses and freezes
-// workflows, and every successful prompt books a production round that
-// can trigger the exam clock. The CLI twins (-flow/-coverage/-exam)
-// live in main.go; this file is the interactive half.
+// /exam runs the §1.4 closed-book test, /contest seats the whole
+// candidate field against the same held-out bank (#53), /agents curates
+// the entrants, /flow browses and freezes workflows, and every
+// successful prompt books a production round that can trigger the exam
+// clock. The CLI twins (-flow/-coverage/-exam) live in main.go; this
+// file is the interactive half.
 
 import (
 	"context"
@@ -13,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -240,6 +243,179 @@ func (m *tuiModel) kickExam(class, why string) {
 	}()
 }
 
+// ── /contest — 同类竞争上岗 (#53) ─────────────────────────────
+
+// contestRow is one candidate's held-out result.
+type contestRow struct {
+	ID     string
+	Model  string
+	Pct    float64
+	Passed bool
+}
+
+// contestDone carries an async multi-candidate contest back into the loop.
+type contestDone struct {
+	class  string
+	rows   []contestRow
+	winner string // new on-duty id ("" = seat open after the election)
+	err    error
+	step   int
+}
+
+// examAnswererOn answers closed-book on a specific candidate's model —
+// the grading channel of the contest: each entrant must face the same
+// held-out bank on ITS OWN model, or the result grades the wrong agent.
+func examAnswererOn(sess *agent.Session, model string) eval.Answerer {
+	return func(ctx context.Context, q string) (string, error) {
+		return sess.AskModel(ctx, model, eval.ClosedBookSystem, q, examMaxTokens)
+	}
+}
+
+// contestCommand is the manual /contest [class]: bare classifies from
+// the last prompt. Async — the stepEval row opens here and contestDone
+// closes it.
+func (m *tuiModel) contestCommand(args string) {
+	class := strings.TrimSpace(args)
+	why := "manual"
+	if class == "" {
+		if len(m.hist) == 0 {
+			m.pushCmd(paint(cYellow, "usage: /contest [class] — class defaults from the last prompt"))
+			m.refresh()
+			return
+		}
+		class = string(routing.Classify(m.hist[len(m.hist)-1]))
+		why = "manual — class from last prompt"
+	}
+	m.kickContest(class, why)
+}
+
+// kickContest runs the whole field against the class's held-out exam
+// OFF the event stream: every candidate answers concurrently (one
+// goroutine per entrant — Go-style fan-out, the turn semaphore still
+// bounds in-flight calls), all cards file, then one Elect() decides the
+// seat on the combined evidence and the routing table starts steering
+// traffic to the winner.
+func (m *tuiModel) kickContest(class, why string) {
+	self := m.cfg.Model
+	cands := eval.Contestants(self)
+	step := m.pushAsyncStep(stepEval, "contest."+class,
+		fmt.Sprintf("%d candidates — held-out, closed-book…", len(cands)))
+	sess := m.sess
+	go func() {
+		// K candidates × Q questions, concurrent but queue-prone behind
+		// the gateway — 5 minutes bounds the step without starving real
+		// exams of a chance to finish.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		rows, winner, err := runContest(ctx, sess, self, class)
+		if p := tuiProg.Load(); p != nil {
+			p.Send(contestDone{class: class, rows: rows, winner: winner, err: err, step: step})
+		}
+	}()
+}
+
+// runContest is the contest's whole computation — candidates against the
+// class's held-out bank CONCURRENTLY, every card filed, one election on
+// the combined evidence, routing steered to the winner. Split from the
+// TUI wiring so tests can run it synchronously against a mock gateway.
+func runContest(ctx context.Context, sess *agent.Session, selfModel, class string) ([]contestRow, string, error) {
+	ex, err := eval.LoadOrSeedExam(class)
+	if err != nil {
+		return nil, "", err
+	}
+	cands := eval.Contestants(selfModel)
+	rows := make([]contestRow, len(cands))
+	var wg sync.WaitGroup
+	for i, c := range cands {
+		wg.Add(1)
+		go func(i int, c eval.Candidate) {
+			defer wg.Done()
+			res := eval.RunExam(ctx, ex, examAnswererOn(sess, c.Model))
+			rows[i] = contestRow{ID: c.ID, Model: c.Model, Pct: res.Pct, Passed: res.Passed}
+		}(i, c)
+	}
+	wg.Wait()
+	// File every card (the sitting agent's streak only moves on their
+	// own exams — leaderboard rule), then hold ONE election on the
+	// combined evidence instead of letting submission order pick.
+	lb := eval.OpenLeaderboard()
+	for _, r := range rows {
+		lb.SubmitExam(class, eval.Scorecard{
+			Agent: r.ID, Total: r.Pct, Passed: r.Passed, Source: "exam",
+		})
+	}
+	winner := lb.Elect(class)
+	// Route production traffic to the winner: agent id + its model,
+	// evidence = this exam total. No winner = leave the table alone.
+	for _, r := range rows {
+		if r.ID == winner {
+			routing.Open().Record(class, r.ID, r.Model, r.Pct)
+			break
+		}
+	}
+	return rows, winner, nil
+}
+
+// agentsCommand manages the candidate field: bare lists every entrant
+// with its seats; add/rm curate file-backed profiles ("self" — the
+// running model — is built in and untouchable).
+func (m *tuiModel) agentsCommand(args string) {
+	args = strings.TrimSpace(args)
+	usage := paint(cYellow,
+		"usage: /agents · /agents add <id> <model> [effort] · /agents rm <id>")
+	switch {
+	case args == "":
+		cands := eval.Contestants(m.cfg.Model)
+		lb := eval.OpenLeaderboard()
+		lines := []string{paint(cBold, fmt.Sprintf("candidates (%d)", len(cands)))}
+		for _, c := range cands {
+			src := "file"
+			if c.ID == "self" {
+				src = "running"
+			}
+			line := fmt.Sprintf("  %-14s %-24s %s", c.ID, c.Model, paint(cDim, src))
+			if v := lb.Seats(c.ID); len(v) > 0 {
+				line += paint(cCyan, "  on-duty: "+strings.Join(v, ","))
+			}
+			if c.Effort != "" {
+				line += paint(cDim, "  effort "+c.Effort)
+			}
+			lines = append(lines, line)
+		}
+		lines = append(lines, paint(cDim,
+			"  /contest <class> runs the whole field against held-out tasks"))
+		m.pushCmd(lines...)
+
+	case strings.HasPrefix(args, "add "):
+		fields := strings.Fields(strings.TrimPrefix(args, "add "))
+		if len(fields) < 2 {
+			m.pushCmd(usage)
+			return
+		}
+		c := eval.Candidate{ID: fields[0], Model: fields[1]}
+		if len(fields) >= 3 {
+			c.Effort = fields[2]
+		}
+		if err := eval.SaveCandidate(c); err != nil {
+			m.pushCmd(paint(cRed, "agents: "+sanitizeText(err.Error())))
+			return
+		}
+		m.pushCmd(paint(cCyan, fmt.Sprintf("candidate %s → %s added — /contest to put it in the ring",
+			c.ID, c.Model)))
+
+	case strings.HasPrefix(args, "rm "):
+		id := strings.TrimSpace(strings.TrimPrefix(args, "rm "))
+		if err := eval.DeleteCandidate(id); err != nil {
+			m.pushCmd(paint(cRed, "agents: "+sanitizeText(err.Error())))
+			return
+		}
+		m.pushCmd(paint(cCyan, "candidate "+id+" removed"))
+
+	default:
+		m.pushCmd(usage)
+	}
+}
+
 // countRound books one production round for the class of the prompt
 // that just finished and fires the exam when the clock strikes ten.
 // LYON_EXAM=off opts out of the automatic trigger (the round still
@@ -331,7 +507,13 @@ func (m *tuiModel) kickScore(iterations int) {
 		return
 	}
 	prompt := m.hist[len(m.hist)-1]
-	model := m.cfg.Model
+	// Credit the model that actually ran the prompt: routing may have
+	// swapped it at submit (#53), and a score filed under the wrong model
+	// steers traffic the wrong way.
+	model := m.runModel
+	if model == "" {
+		model = m.cfg.Model
+	}
 	step := m.pushAsyncStep(stepEval, "score", "blind judge grading this run…")
 	sess := m.sess
 	go func() {

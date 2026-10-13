@@ -72,6 +72,13 @@ type Config struct {
 	// SubagentMaxTokens caps one subagent response (default 8192).
 	SubagentMaxTokens int64
 
+	// RouteFor maps one dispatched subtask's text to the model that runs
+	// it — the leader-dispatch hook (#53): cmd wires it to the routing
+	// table's per-class recommendation, so a fan-out sends each subtask
+	// to its evidenced model. nil or "" = the subagent tier. Not part of
+	// the serialized config surface (a func field never is).
+	RouteFor func(task string) string
+
 	// OpenAIBase, when non-empty, routes every Messages API call through
 	// an Anthropic→OpenAI protocol translation layer to
 	// {OpenAIBase}/chat/completions, reusing the same API key as

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -182,6 +183,12 @@ type tuiModel struct {
 	// status line so the working agent is visible before any score
 	// lands — no more waiting for the ✎ score card.
 	curAgent string
+	// runModel is the model the current prompt actually runs on (#53):
+	// routing may have swapped it at submit (the ⇄ line in the transcript
+	// says so); "" = the session's config model. Scoring and the live
+	// badge both read this so the credit lands on the model that did the
+	// work, not the one configured.
+	runModel string
 	status   string
 	appr     *approveReq
 	// apprSel is the highlighted option card on the approval popup
@@ -632,6 +639,14 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 
 	case agent.EventSubagentEnd:
 		m.flushPend()
+		if ev.IsError {
+			// A dispatched subtask failed while its siblings finished —
+			// the transcript names the loss, the panel node went red.
+			m.pushStyled(indTool + fmt.Sprintf("%s %s %s",
+				paint(cCyan, "🧠 subagent"), ev.ToolName,
+				paint(cRed, sanitizeText(ev.Err))))
+			break
+		}
 		u := ev.Usage
 		if u == nil {
 			u = &agent.Usage{}
@@ -994,6 +1009,8 @@ func buildSlashCommands() []sugItem {
 		{"/evolve", tr("evolution panel: leaderboard, exam clock (alt+e)", "进化面板：分类榜单、考试时钟（alt+e）"), "panel"},
 		{"/route", tr("task classifier + model profile — /route <text> routes a task", "任务分类器 + 模型画像 — /route <text> 给任务路由"), "evolve"},
 		{"/exam", tr("closed-book exam — /exam [class], auto every 10 rounds", "闭卷考试 — /exam [class]，每 10 轮自动考"), "evolve"},
+		{"/contest", tr("seat competition — the whole candidate field vs held-out tasks", "竞争上岗 — 全部候选同考 held-out 任务"), "evolve"},
+		{"/agents", tr("candidate field: list · add <id> <model> · rm <id>", "候选名单：list · add <id> <model> · rm <id>"), "evolve"},
 		{"/flow", tr("workflows: list · show · match · export · save <slug>", "工作流：list · show · match · export · save <slug>"), "evolve"},
 		{"/stats", tr("usage table — tokens, cache hits, tool latencies", "用量表 — token、缓存命中、工具耗时"), "misc"},
 		{"/memory", tr("layered memory store — view, toggle hot, cloud sync", "分层记忆库 — 查看、热词开关、云端同步"), "misc"},
@@ -1677,9 +1694,15 @@ func (m *tuiModel) statusLine() string {
 		s := m.spin.View() + " working…"
 		if m.curAgent != "" {
 			// Live agent badge (#50): which class/model is on the job —
-			// visible mid-run, not only when the score card lands.
+			// visible mid-run, not only when the score card lands. The
+			// model shown is the one actually running: routing may have
+			// swapped it at submit (#53).
+			model := m.runModel
+			if model == "" {
+				model = m.cfg.Model
+			}
 			s += paint(cCyan, "  agent "+m.curAgent) +
-				paint(cDim, " · "+shortModel(m.cfg.Model))
+				paint(cDim, " · "+shortModel(model))
 		}
 		if m.status != "" && m.status != idleStatus {
 			s += paint(cDim, "  "+m.status)
@@ -1908,6 +1931,45 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if demoted {
 				card += "\n" + paint(cRed, "  demoted after two failures — the seat is open")
 			}
+			m.evoOutput(card)
+		}
+		m.refresh()
+
+	case contestDone:
+		m.status = ""
+		switch {
+		case msg.err != nil:
+			m.finishStep(msg.step, stepError, "", sanitizeText(msg.err.Error()))
+			m.evoOutput(paint(cYellow, "· contest") + "  " + sanitizeText(msg.err.Error()))
+		default:
+			// Rank the field by held-out score — the election already
+			// happened inside kickContest (lb.Elect + routing.Record);
+			// this is the report (#53).
+			rows := make([]contestRow, len(msg.rows))
+			copy(rows, msg.rows)
+			sort.SliceStable(rows, func(i, j int) bool { return rows[i].Pct > rows[j].Pct })
+			seat := "(open)"
+			if msg.winner != "" {
+				seat = msg.winner
+			}
+			m.finishStep(msg.step, stepDone,
+				fmt.Sprintf("%d candidates — %s seated", len(rows), seat), "")
+			card := paint(cCyan, "· contest — "+msg.class) +
+				paint(cDim, fmt.Sprintf("  held-out, closed-book · seat: %s", seat))
+			for _, r := range rows {
+				mark := "  "
+				line := fmt.Sprintf("    %s%-14s %-24s %3.0f%%  ", mark, r.ID, r.Model, r.Pct*100)
+				if r.ID == msg.winner {
+					line = paint(cCyan, fmt.Sprintf("    → %-14s %-24s %3.0f%%  ", r.ID, r.Model, r.Pct*100))
+				}
+				if r.Passed {
+					line += paint(cGreen, "PASS")
+				} else {
+					line += paint(cRed, "FAIL")
+				}
+				card += "\n" + line
+			}
+			card += "\n" + paint(cDim, "  routing now steers this class to the winner · /route to inspect")
 			m.evoOutput(card)
 		}
 		m.refresh()
@@ -2286,7 +2348,24 @@ func (m *tuiModel) sendPrompt(line string) tea.Cmd {
 	m.histIdx = len(m.hist)
 	m.curBlk = 0 // a fresh prompt line closes any dangling thinking block
 	m.lines = append(m.lines, tline{kind: linePrompt, raw: line}, tline{kind: lineStyled, raw: ""})
-	if err := m.sess.Submit(line); err != nil {
+	// Design §5 consumption (#53): an unpinned prompt consults the routing
+	// table — when its class has earned a confident recommendation for
+	// another model, THIS run rides it (SubmitOn) and the transcript says
+	// so, exactly like the CLI's ⇄ line. No evidence or same model →
+	// config model via plain Submit.
+	model, entry, swapped := routingSwap(m.cfg.Model, line)
+	m.runModel = model
+	var err error
+	if swapped {
+		err = m.sess.SubmitOn(line, model)
+		if err == nil {
+			m.pushStyled(paint(cCyan, fmt.Sprintf("⇄ routing [%s] → %s (conf %.2f, n=%d)",
+				entry.Class, model, entry.Confidence, entry.Samples)))
+		}
+	} else {
+		err = m.sess.Submit(line)
+	}
+	if err != nil {
 		m.pushStyled(paint(cRed, tr("error: ", "错误: ")+err.Error()))
 		m.status = idleStatus
 		m.refresh()
@@ -2429,6 +2508,10 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.showRoute(args)
 	case "/exam":
 		m.examCommand(args)
+	case "/contest":
+		m.contestCommand(args)
+	case "/agents":
+		m.agentsCommand(args)
 	case "/flow":
 		return m.flowCommand(args)
 	case "/steps":
@@ -2539,6 +2622,8 @@ func helpLines() []string {
 			"  /evolve  进化面板：分类榜单、考试时钟、空缺席位（等同 alt+e）",
 			"  /route   任务分类器：裸命令显示证据表 + 模型画像，/route <text> 给任务路由",
 			"  /exam    闭卷考试：裸命令按上一条提问分类，/exam <class> — 每 10 轮自动考（LYON_EXAM=off）",
+			"  /contest 竞争上岗：全部候选同考 held-out 任务，赢家上岗并接管路由（/contest <class>）",
+			"  /agents  候选名单：裸命令列出 + 占位，add <id> <model> [effort] 新增，rm <id> 删除",
 			"  /flow    工作流：list · show <slug> · match <text> · export <slug> · save <slug>（会冻结本会话）",
 			"  /lang    界面语言：zh | en",
 			"  /help    本帮助",
@@ -2569,6 +2654,8 @@ func helpLines() []string {
 		"  /evolve  evolution panel: per-class leaderboard, exam clock, open seats (same as alt+e)",
 		"  /route   task classifier: bare shows the evidence table + model profile, /route <text> routes a task",
 		"  /exam    closed-book exam: bare classifies from last prompt, /exam <class> — auto every 10 rounds (LYON_EXAM=off)",
+		"  /contest seat competition: the whole candidate field vs held-out tasks — winner takes the seat and the routing (/contest <class>)",
+		"  /agents  candidate field: bare lists entrants + seats, add <id> <model> [effort], rm <id>",
 		"  /flow    workflows: list · show <slug> · match <text> · export <slug> · save <slug> (freezes this session)",
 		"  /lang    interface language: zh | en",
 		"  /help    this help",

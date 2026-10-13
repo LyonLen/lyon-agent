@@ -14,8 +14,19 @@ import (
 // beside a live drive. The reply is the model's text (joined blocks),
 // verbatim; callers do their own parsing.
 func (s *Session) Ask(ctx context.Context, system, user string, maxTokens int64) (string, error) {
+	return s.AskModel(ctx, "", system, user, maxTokens)
+}
+
+// AskModel is Ask with a model override — the competition's grading
+// channel (#53): each candidate must answer the held-out exam on ITS OWN
+// model, or the result grades the wrong entrant. "" = the subagent tier.
+// Same statelessness as Ask: concurrent per-candidate calls are safe.
+func (s *Session) AskModel(ctx context.Context, model, system, user string, maxTokens int64) (string, error) {
+	if model == "" {
+		model = s.eng.cfg.SubagentModel
+	}
 	resp, err := s.eng.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
-		Model:     s.eng.cfg.SubagentModel,
+		Model:     model,
 		MaxTokens: maxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: system}},
 		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(user))},

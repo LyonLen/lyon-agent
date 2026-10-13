@@ -98,18 +98,26 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 		task += "\n\nContext:\n" + c
 	}
 
-	// Mark the whole nested run so OnToolStart/End stamp Event.Sub —
-	// renderers nest these executions under this task instead of mixing
-	// them into the main flow. The run_subagent exec itself brackets this
-	// window (its own start/end fire outside), so it stays at depth 0.
-	atomic.AddInt32(&s.subNest, 1)
-	defer atomic.AddInt32(&s.subNest, -1)
+	cfg := s.eng.cfg
+	answer, usage, _, err := s.runNested(ctx, cfg.SubagentModel, task, "", "")
+	if err != nil {
+		return nil, err
+	}
+	return tools.TextResult(fmt.Sprintf(
+		"[subagent model=%s in=%d out=%d cache_read=%d]\n%s",
+		cfg.SubagentModel, usage.Input, usage.Output, usage.CacheRead, answer,
+	)), nil
+}
 
-	// The subagent gets every parallel-safe (read-only) tool of this engine
-	// except run_subagent itself — no recursion, no workspace mutation.
+// nestedTools adapts this engine's parallel-safe (read-only) tools for one
+// nested run: everything except the subagent tools themselves — no
+// recursion, no workspace mutation. obs is the run's attribution channel:
+// the session itself for the legacy single call, a per-task subObs stamp
+// inside a run_subagents fan-out (#53).
+func (s *Session) nestedTools(obs tools.Observer) []anthropic.BetaTool {
 	var subTools []anthropic.BetaTool
 	for _, name := range s.eng.reg.Names() {
-		if name == "run_subagent" {
+		if name == "run_subagent" || name == "run_subagents" {
 			continue
 		}
 		tool, ok := s.eng.reg.Get(name)
@@ -119,23 +127,91 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 		subTools = append(subTools, tools.Adapt(tool, tools.AdapterConfig{
 			Timeout:   s.eng.cfg.ToolTimeout,
 			ResultCap: s.eng.cfg.ToolResultCap,
-			Observer:  s,
+			Observer:  obs,
 			PreTool:   s.preTool, // subagent tools pass the same security gate
 			Seq:       &s.seq,
 		}))
 	}
+	return subTools
+}
 
-	cfg := s.eng.cfg
-	runner := s.eng.client.Beta.Messages.NewToolRunnerStreaming(subTools, anthropic.BetaToolRunnerParams{
+// subObs attributes one dispatched subtask's inner executions to ITS task
+// node (#53): concurrent fan-out runs all stamp Event.Sub, and the SubID
+// token is what keeps their step rows from collapsing into a single
+// "active subagent". It bypasses takeToolUse — inner executions never
+// claim main-flow tool_use ids.
+type subObs struct {
+	s  *Session
+	id string
+}
+
+func (o subObs) OnToolStart(e tools.ExecEvent) {
+	o.s.emit(Event{
+		Type:     EventToolExecStart,
+		ExecID:   e.ExecID,
+		ToolName: e.Name,
+		Input:    e.Input,
+		Sub:      true,
+		SubID:    o.id,
+		TS:       e.Start,
+	})
+	if o.s.extObs != nil {
+		o.s.extObs.OnToolStart(e)
+	}
+}
+
+func (o subObs) OnToolEnd(e tools.ExecEvent) {
+	o.s.emit(Event{
+		Type:       EventToolExecEnd,
+		ExecID:     e.ExecID,
+		ToolName:   e.Name,
+		DurationMS: e.Duration.Milliseconds(),
+		IsError:    e.Err != "",
+		Err:        e.Err,
+		Sub:        true,
+		SubID:      o.id,
+		TS:         time.Now(),
+	})
+	if o.s.extObs != nil {
+		o.s.extObs.OnToolEnd(e)
+	}
+}
+
+// runNested runs one nested tool-loop to completion on model. subID == ""
+// is the legacy single-call attribution (subNest counter + session
+// observer); a non-empty subID opens an EventSubagentStart, stamps every
+// inner execution with the token and closes with a matched
+// EventSubagentEnd — the run_subagents fan-out runs several of these
+// concurrently (#53). preview seeds the task node's row. The answer,
+// usage and iteration count come back unformatted for the caller to merge.
+func (s *Session) runNested(ctx context.Context, model, task, subID, preview string) (string, Usage, int, error) {
+	// Mark the nested run so OnToolStart/End stamp Event.Sub — renderers
+	// nest these executions under this task instead of mixing them into
+	// the main flow. The outer exec brackets this window (its own start/end
+	// fire outside), so it stays at depth 0. The counter is shared across
+	// concurrent fan-out runs: attribution inside them is by SubID.
+	atomic.AddInt32(&s.subNest, 1)
+	defer atomic.AddInt32(&s.subNest, -1)
+
+	obs := tools.Observer(s)
+	if subID != "" {
+		obs = subObs{s: s, id: subID}
+		s.emit(Event{
+			Type: EventSubagentStart, Sub: true, SubID: subID,
+			ToolName: model, Detail: preview, TS: time.Now(),
+		})
+	}
+
+	runner := s.eng.client.Beta.Messages.NewToolRunnerStreaming(s.nestedTools(obs), anthropic.BetaToolRunnerParams{
 		BetaMessageNewParams: anthropic.BetaMessageNewParams{
-			Model:     cfg.SubagentModel,
-			MaxTokens: cfg.SubagentMaxTokens,
+			Model:     model,
+			MaxTokens: s.eng.cfg.SubagentMaxTokens,
 			System: []anthropic.BetaTextBlockParam{{
 				Text:         SubagentSystemPrompt,
 				CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 			}},
 			Messages:     []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(task))},
-			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffort(cfg.SubagentEffort)},
+			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffort(s.eng.cfg.SubagentEffort)},
 			CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 			Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 			Fallbacks:    anthropic.BetaFallbacksParamOfDefault(),
@@ -147,12 +223,24 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 
 	start := time.Now()
 	iters := 0
+	fail := func(err error) (string, Usage, int, error) {
+		if subID != "" {
+			// Close this task's node — a fan-out has no parent exec row to
+			// fall back on, a dangling spinner would lie about the state.
+			s.emit(Event{
+				Type: EventSubagentEnd, Sub: true, SubID: subID,
+				ToolName: model, IsError: true, Err: err.Error(),
+				DurationMS: time.Since(start).Milliseconds(), TS: time.Now(),
+			})
+		}
+		return "", Usage{}, iters, err
+	}
 	for !runner.IsCompleted() {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return fail(ctx.Err())
 		}
 		if !s.eng.acquireTurn(ctx) {
-			return nil, ctx.Err()
+			return fail(ctx.Err())
 		}
 		var iterErr error
 		got := false
@@ -168,7 +256,7 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 			iterErr = runner.Err()
 		}
 		if iterErr != nil {
-			return nil, fmt.Errorf("subagent: %w", iterErr)
+			return fail(fmt.Errorf("subagent: %w", iterErr))
 		}
 		if !got {
 			break
@@ -195,18 +283,16 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 		answer.WriteString("(subagent finished without a final answer)")
 	}
 
-	s.recordSub(cfg.SubagentModel, usage) // cost gauge: billed separately
+	s.recordSub(model, usage) // cost gauge: billed separately
 	s.emit(Event{
 		Type:       EventSubagentEnd,
-		ToolName:   cfg.SubagentModel,
+		Sub:        subID != "",
+		SubID:      subID,
+		ToolName:   model,
 		Usage:      &usage,
 		DurationMS: time.Since(start).Milliseconds(),
 		Detail:     fmt.Sprintf("%d API calls", iters),
 		TS:         time.Now(),
 	})
-
-	return tools.TextResult(fmt.Sprintf(
-		"[subagent model=%s in=%d out=%d cache_read=%d]\n%s",
-		cfg.SubagentModel, usage.Input, usage.Output, usage.CacheRead, answer.String(),
-	)), nil
+	return answer.String(), usage, iters, nil
 }

@@ -104,10 +104,14 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	if _, exists := reg.Get("save_memory"); !exists {
 		_ = tools.RegisterMemory(reg, cfg.Workspace)
 	}
-	// run_subagent delegates to the cost-tier model. Registered last so it
-	// can see the final tool set when building its read-only subset.
+	// run_subagent delegates to the cost-tier model; run_subagents is the
+	// leader's concurrent fan-out (#53). Registered last so nestedTools
+	// (built at run time) sees the final tool set for its read-only subset.
 	if _, exists := reg.Get("run_subagent"); !exists {
 		_ = reg.Register(newSubagentTool())
+	}
+	if _, exists := reg.Get("run_subagents"); !exists {
+		_ = reg.Register(newDispatchTool())
 	}
 
 	// LYON_DEBUG=1 logs every API request/response to stderr — request-body

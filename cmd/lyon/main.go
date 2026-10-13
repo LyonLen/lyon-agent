@@ -219,6 +219,17 @@ func (f commonFlags) buildConfig() (agent.Config, error) {
 // The caller must close the manager (defer mgr.Close()) to stop server
 // subprocesses.
 func (f commonFlags) buildEngine(cfg agent.Config) (*agent.Engine, *mcp.Manager, error) {
+	// Leader dispatch routes each subtask by class evidence (#53): the
+	// routing table's confident recommendation when one exists, else ""
+	// and the subagent tier runs it. routingSwap with current "" can only
+	// return a model when samples/confidence gates are truly met. Wired
+	// here so CLI and TUI engines share the same dispatch policy.
+	cfg.RouteFor = func(task string) string {
+		if m, _, ok := routingSwap("", task); ok {
+			return m
+		}
+		return ""
+	}
 	reg := tools.NewRegistry()
 	mgr := mcp.NewManager()
 	if len(*f.mcpCmds) == 0 && len(*f.mcpURLs) == 0 {

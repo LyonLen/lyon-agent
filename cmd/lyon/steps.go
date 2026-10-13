@@ -65,6 +65,10 @@ type execStep struct {
 	err    string
 	ts     time.Time
 	under  int
+	// sub is the Event.SubID token of a dispatched subtask (#53): inner
+	// executions carrying the same token nest under this node, so a
+	// run_subagents fan-out never conflates its concurrent runs.
+	sub string
 }
 
 const (
@@ -101,13 +105,14 @@ type stepDTO struct {
 	Err    string     `json:"err,omitempty"`
 	TS     time.Time  `json:"ts,omitempty"`
 	Under  int        `json:"under,omitempty"`
+	Sub    string     `json:"sub,omitempty"`
 }
 
 func (s execStep) MarshalJSON() ([]byte, error) {
 	return json.Marshal(stepDTO{
 		N: s.n, Kind: s.kind, ToolID: s.toolID, ExecID: s.execID,
 		Name: s.name, Detail: s.detail, Agent: s.agent, Status: s.status,
-		DurMS: s.durMS, Err: s.err, TS: s.ts, Under: s.under,
+		DurMS: s.durMS, Err: s.err, TS: s.ts, Under: s.under, Sub: s.sub,
 	})
 }
 
@@ -119,7 +124,7 @@ func (s *execStep) UnmarshalJSON(b []byte) error {
 	*s = execStep{
 		n: d.N, kind: d.Kind, toolID: d.ToolID, execID: d.ExecID,
 		name: d.Name, detail: d.Detail, agent: d.Agent, status: d.Status,
-		durMS: d.DurMS, err: d.Err, ts: d.TS, under: d.Under,
+		durMS: d.DurMS, err: d.Err, ts: d.TS, under: d.Under, sub: d.Sub,
 	}
 	return nil
 }
@@ -227,11 +232,28 @@ func (m *tuiModel) findToolStep(name string) *execStep {
 
 // activeSubagent returns the running run_subagent step (the task node its
 // inner executions nest under), searching from the newest backwards.
+// Dispatched fan-out nodes (sub != "") are skipped — they attribute by
+// their own token via subTask, never by "whichever is active" (#53).
 func (m *tuiModel) activeSubagent() *execStep {
 	for i := len(m.steps) - 1; i >= 0; i-- {
 		s := &m.steps[i]
-		if s.name == "run_subagent" && s.status == stepRunning &&
+		if s.name == "run_subagent" && s.sub == "" && s.status == stepRunning &&
 			(s.kind == stepTool || s.kind == stepSubagent) {
+			return s
+		}
+	}
+	return nil
+}
+
+// subTask resolves a dispatched subtask's node by its SubID token (#53);
+// nil until its EventSubagentStart arrived (or once trimmed out).
+func (m *tuiModel) subTask(subID string) *execStep {
+	if subID == "" {
+		return nil
+	}
+	for i := len(m.steps) - 1; i >= 0; i-- {
+		s := &m.steps[i]
+		if s.sub == subID && s.status == stepRunning {
 			return s
 		}
 	}
@@ -318,13 +340,30 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 			s.agent = m.cfg.SubagentModel
 		}
 
+	case agent.EventSubagentStart:
+		// One dispatched subtask begins (#53 fan-out): its own task node,
+		// born with the SubID token inner executions will pair on and the
+		// routed model as its badge. Legacy single run_subagent never
+		// emits this — its tool_use row is the task node.
+		s := m.addStep(stepTool, "", "run_subagent", sanitizeText(ev.Detail))
+		s.sub = ev.SubID
+		if ev.ToolName != "" {
+			s.agent = ev.ToolName
+		}
+
 	case agent.EventToolExecStart:
 		var s *execStep
 		if ev.Sub {
-			// Inside a run_subagent: never pair with a main-flow step of
-			// the same name — hang this execution off the active task.
+			// Inside a subagent run: never pair with a main-flow step of
+			// the same name — hang this execution off its task. A SubID
+			// (#53) pins it to THAT subtask's node; no token falls back
+			// to the single active task.
 			s = m.addStep(stepTool, "", ev.ToolName, stepArgPreview(ev.ToolName, ev.Input))
-			if p := m.activeSubagent(); p != nil {
+			p := m.subTask(ev.SubID)
+			if p == nil {
+				p = m.activeSubagent()
+			}
+			if p != nil {
 				s.under = p.n
 			}
 		} else {
@@ -378,9 +417,13 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 		}
 
 	case agent.EventSubagentEnd:
-		// The run_subagent step (created at tool_use) becomes the parent
-		// task node; its inner execs already hang under it via `under`.
-		p := m.activeSubagent()
+		// A dispatched subtask (#53) closes by its SubID token; the legacy
+		// single run_subagent (no token) closes the task node its tool_use
+		// created. Inner execs already hang under either via `under`.
+		p := m.subTask(ev.SubID)
+		if p == nil && ev.SubID == "" {
+			p = m.activeSubagent()
+		}
 		if p == nil {
 			// Defensive: use_start never arrived. Record a standalone node.
 			m.stepSeq++
@@ -397,6 +440,10 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 		p.kind = stepSubagent
 		p.status = stepDone
 		p.durMS = ev.DurationMS
+		if ev.IsError {
+			p.status = stepError
+			p.err = sanitizeText(ev.Err)
+		}
 		if ev.ToolName != "" {
 			p.agent = ev.ToolName // the end event names the model that ran it
 		}

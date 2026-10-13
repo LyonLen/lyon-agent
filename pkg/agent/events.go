@@ -21,7 +21,8 @@ const (
 	EventToolExecEnd      EventType = "tool_exec_end"      // execution finished
 	EventServerToolResult EventType = "server_tool_result" // server-side tool (web_search/fetch) returned results
 	EventCompaction       EventType = "compaction"         // context compaction triggered / completed
-	EventSubagentEnd      EventType = "subagent_end"       // run_subagent finished (independent usage line)
+	EventSubagentStart    EventType = "subagent_start"     // one dispatched subtask begins (#53 fan-out; carries SubID)
+	EventSubagentEnd      EventType = "subagent_end"       // run_subagent / dispatched subtask finished (independent usage line)
 	EventMemoryInjected   EventType = "memory_injected"    // hot memory block rode into the first message
 	EventTurnEnd          EventType = "turn_end"           // one API turn finished (usage here)
 	EventPromptEnd        EventType = "prompt_end"         // whole tool loop for one prompt finished
@@ -59,6 +60,11 @@ type Event struct {
 	// mixing them into the main flow (exec events only; the subagent's
 	// own loop has no tool_use_start on this stream).
 	Sub bool `json:"sub,omitempty"`
+	// SubID disambiguates concurrent subtask runs of run_subagents (#53):
+	// events carrying the same token belong to the same task node, so a
+	// fan-out never conflates attribution ("" = the legacy single call,
+	// attributed to the one active task).
+	SubID string `json:"sub_id,omitempty"`
 
 	// DurationMS / IsError / Err describe tool executions and failures.
 	DurationMS int64  `json:"duration_ms,omitempty"`
