@@ -20,6 +20,7 @@ import (
 
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/hooks"
+	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/mcp"
 	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/routing"
@@ -410,7 +411,9 @@ func cmdRun(args []string) int {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	if code := drain(sess, true); code != 0 {
+	ev, code := drain(sess, true)
+	fileMarket(prompt, cfg.Model, ev)
+	if code != 0 {
 		if *stats {
 			printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks(),
 				newGauge(cfg, sess.Stats(), sess.SubUsage()))
@@ -617,12 +620,12 @@ func cmdChat(args []string) int {
 				// drain is synchronous — but Interrupt + drain makes
 				// Restore's wait on histMu bounded either way).
 				if sess.Interrupt() {
-					drain(sess, false)
+					_, _ = drain(sess, false)
 				}
 				resumeInto(sess, cfg.Workspace, idx)
 			case "/new":
 				if sess.Interrupt() {
-					drain(sess, false)
+					_, _ = drain(sess, false)
 				}
 				archived, err := sess.ArchiveIfNew()
 				sess.Reset()
@@ -646,7 +649,8 @@ func cmdChat(args []string) int {
 			fmt.Fprintln(os.Stderr, paint(cRed, tr("error: ", "错误: ")+err.Error()))
 			continue
 		}
-		drain(sess, false)
+		ev, _ := drain(sess, false)
+		fileMarket(line, cfg.Model, ev)
 		// Resident readout after every prompt — the REPL twin of the
 		// TUI header gauge.
 		if line := newGauge(cfg, sess.Stats(), sess.SubUsage()).detailLine(); line != "" {
@@ -805,9 +809,10 @@ func resumeInto(sess *agent.Session, workspace string, idx int) {
 	}
 }
 
-// drain renders events until the current prompt ends. Returns the process
-// exit code (non-zero when the prompt failed).
-func drain(sess *agent.Session, stopOnError bool) int {
+// drain renders events until the current prompt ends. Returns the final
+// prompt_end event (nil when the stream died first) and the process exit
+// code (non-zero when the prompt failed).
+func drain(sess *agent.Session, stopOnError bool) (*agent.Event, int) {
 	for ev := range sess.Events() {
 		render(ev)
 		if ev.Type == agent.EventPromptEnd {
@@ -822,17 +827,39 @@ func drain(sess *agent.Session, stopOnError bool) int {
 					fmt.Printf("\n%s %s\n", paint(cCyan, "🏷 title"), paint(cDim, title))
 				}
 			}()
+			out := ev // copy: range variable address must be stable
 			if ev.Err != "" {
-				if stopOnError {
-					return 1
-				}
-				return 0
+				return &out, bool2int(stopOnError)
 			}
-			return 0
+			return &out, 0
 		}
 	}
 	// Channel closed without prompt_end: session was closed underneath us.
-	return 1
+	return nil, 1
+}
+
+func bool2int(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// fileMarket files one CLI run's wall time into the task hour ledger —
+// the REPL/one-shot twin of the TUI's prompt_end booking (#54).
+func fileMarket(prompt, model string, ev *agent.Event) {
+	if ev == nil || ev.DurationMS <= 0 || prompt == "" {
+		return
+	}
+	market.Open().Record(market.Record{
+		Class:  string(routing.Classify(prompt)),
+		Model:  model,
+		Prompt: prompt,
+		DurMS:  ev.DurationMS,
+		Iters:  ev.Iterations,
+		Err:    ev.Err,
+		TS:     time.Now(),
+	})
 }
 
 func render(ev agent.Event) {

@@ -25,6 +25,7 @@ import (
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/eval"
 	"lyon-agent/pkg/flow"
+	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/models"
 	"lyon-agent/pkg/routing"
 )
@@ -414,6 +415,49 @@ func (m *tuiModel) agentsCommand(args string) {
 	default:
 		m.pushCmd(usage)
 	}
+}
+
+// marketCommand answers /market — the task hour ledger (#54): the
+// per-class rollup first (what things cost here lately), then the
+// newest finished tasks. Estimates ride the last 10 successful runs
+// per class; /market itself is read-only.
+func (m *tuiModel) marketCommand(args string) {
+	if strings.TrimSpace(args) != "" {
+		m.pushCmd(paint(cYellow, "usage: /market — the task hour ledger"))
+		return
+	}
+	tab := market.Open()
+	lines := []string{paint(cBold, "task hour market")}
+	stats := tab.Stats()
+	if len(stats) == 0 {
+		lines = append(lines, paint(cDim,
+			"  no finished tasks yet — every done prompt files its wall time here"))
+		m.pushCmd(lines...)
+		return
+	}
+	lines = append(lines, paint(cBold, "  class        n      avg      last"))
+	for _, s := range stats {
+		lines = append(lines, fmt.Sprintf("  %-12s %-6d %-8s %s",
+			s.Class, s.Samples, fmtDur(s.AvgMS), fmtDur(s.LastMS)))
+	}
+	lines = append(lines, "", paint(cBold, "recent tasks"))
+	recent := tab.Recent(8)
+	for i := len(recent) - 1; i >= 0; i-- { // newest first
+		r := recent[i]
+		mark, col := "✓", cGreen
+		if r.Err != "" {
+			mark, col = "✗", cRed
+		}
+		line := fmt.Sprintf("  %s %-8s %-10s %s",
+			paint(col, mark), fmtDur(r.DurMS), r.Class, r.Prompt)
+		if r.Model != "" {
+			line += paint(cDim, " · "+r.Model)
+		}
+		lines = append(lines, line)
+	}
+	lines = append(lines, paint(cDim,
+		"  estimates price from each class's last 10 successful runs"))
+	m.pushCmd(lines...)
 }
 
 // countRound books one production round for the class of the prompt

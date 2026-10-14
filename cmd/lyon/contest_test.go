@@ -40,7 +40,7 @@ func TestSlashPopupCarriesContestAndAgents(t *testing.T) {
 		}
 		return "", ""
 	}
-	for _, cmd := range []string{"/contest", "/agents"} {
+	for _, cmd := range []string{"/contest", "/agents", "/market"} {
 		desc, cat := lookup(cmd)
 		if desc == "" {
 			t.Fatalf("%s missing from the slash popup", cmd)

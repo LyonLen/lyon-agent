@@ -24,6 +24,7 @@ import (
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/eval"
 	"lyon-agent/pkg/hooks"
+	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/memory"
 	"lyon-agent/pkg/routing"
 	"lyon-agent/pkg/tools"
@@ -724,6 +725,22 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			// card (LYON_SCORE=off opts out) — scoring is automatic.
 			m.kickScore(ev.Iterations)
 		}
+		// Task hour market (#54): file this run's real wall time. hist's
+		// last entry IS this run — queued inputs don't join hist until
+		// kicked after this event. Failed runs stay on the ledger (with
+		// Err) but never price the estimate.
+		if ev.DurationMS > 0 && len(m.hist) > 0 {
+			p := m.hist[len(m.hist)-1]
+			market.Open().Record(market.Record{
+				Class:  string(routing.Classify(p)),
+				Model:  m.runModel,
+				Prompt: p,
+				DurMS:  ev.DurationMS,
+				Iters:  ev.Iterations,
+				Err:    ev.Err,
+				TS:     time.Now(),
+			})
+		}
 		if m.pending != "" { // deferred /resume, /new or /rollback: prompt ended
 			act, idx := m.pending, m.pendingIdx
 			m.pending, m.pendingIdx = "", 0
@@ -840,8 +857,7 @@ func (m *tuiModel) updatePick(msg tea.KeyMsg) {
 	case "esc", "ctrl+c":
 		m.closePick() // cancel, don't quit — /quit or esc-then-ctrl+c exits
 	case "pgup", "pgdown":
-		m.vp, _ = m.vp.Update(msg)
-		m.follow = m.vp.AtBottom()
+		m.pageScroll(msg.String() == "pgup")
 	}
 }
 
@@ -1011,6 +1027,7 @@ func buildSlashCommands() []sugItem {
 		{"/exam", tr("closed-book exam — /exam [class], auto every 10 rounds", "闭卷考试 — /exam [class]，每 10 轮自动考"), "evolve"},
 		{"/contest", tr("seat competition — the whole candidate field vs held-out tasks", "竞争上岗 — 全部候选同考 held-out 任务"), "evolve"},
 		{"/agents", tr("candidate field: list · add <id> <model> · rm <id>", "候选名单：list · add <id> <model> · rm <id>"), "evolve"},
+		{"/market", tr("task hour market: history ledger + per-class estimates", "任务工时市场：历史台账 + 分类预估"), "evolve"},
 		{"/flow", tr("workflows: list · show · match · export · save <slug>", "工作流：list · show · match · export · save <slug>"), "evolve"},
 		{"/stats", tr("usage table — tokens, cache hits, tool latencies", "用量表 — token、缓存命中、工具耗时"), "misc"},
 		{"/memory", tr("layered memory store — view, toggle hot, cloud sync", "分层记忆库 — 查看、热词开关、云端同步"), "misc"},
@@ -1038,6 +1055,11 @@ func (m *tuiModel) suggestions() []sugItem {
 		return nil
 	}
 	v := m.ti.Value()
+	// The @ file popup (#64) shares this surface: a trailing bare
+	// @token browses the workspace instead of the command list.
+	if _, start, ok := atToken(v); ok {
+		return atEntries(m.workspace, v[start+1:]) // strip the "@"
+	}
 	if !strings.HasPrefix(v, "/") || strings.ContainsAny(v, " \t") {
 		return nil
 	}
@@ -1062,6 +1084,26 @@ func (m *tuiModel) suggestions() []sugItem {
 // typed prefix the arrows stay with the text cursor.
 func (m *tuiModel) sugBrowse() bool {
 	return len(m.sugs) > 0 && m.ti.Value() == "/"
+}
+
+// pageOverlap is how many lines a pgup/pgdn hop keeps on screen as
+// reading context — a full-viewport jump loses the reader's place (#65).
+const pageOverlap = 3
+
+// pageScroll moves the transcript viewport by one page minus the
+// overlap: less is a scroll, more is a jump, and the reader never has to
+// guess what vanished off the top. SetYOffset clamps at both ends.
+func (m *tuiModel) pageScroll(up bool) {
+	step := m.vp.Height - pageOverlap
+	if step < 1 {
+		step = 1
+	}
+	if up {
+		m.vp.SetYOffset(m.vp.YOffset - step)
+	} else {
+		m.vp.SetYOffset(m.vp.YOffset + step)
+	}
+	m.follow = m.vp.AtBottom()
 }
 
 // updateSuggestions refreshes the popup cache. It no longer touches the
@@ -1108,8 +1150,13 @@ func (m *tuiModel) suggestionRows() []string {
 		}
 	}
 	if browse || len(m.sugs) > 1 {
-		rows = append(rows, paint(cDim, "  "+tr("↑↓ choose · ←/→ category · tab complete · esc close",
-			"↑↓ 选择 · ←/→ 切换类别 · tab 补全 · esc 关闭")))
+		if m.atPopup() {
+			rows = append(rows, paint(cDim, "  "+tr("↑↓ choose · enter/tab insert · esc close",
+				"↑↓ 选择 · enter/tab 插入 · esc 关闭")))
+		} else {
+			rows = append(rows, paint(cDim, "  "+tr("↑↓ choose · ←/→ category · tab complete · esc close",
+				"↑↓ 选择 · ←/→ 切换类别 · tab 补全 · esc 关闭")))
+		}
 	}
 	return rows
 }
@@ -2053,6 +2100,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "tab":
 			m.armedQuit = false
+			if m.atPopup() && len(m.sugs) > 0 {
+				m.insertAtSelection() // @token → path, not whole input
+				return m, nil
+			}
 			if len(m.sugs) > 0 && m.sugIdx < len(m.sugs) {
 				m.ti.SetValue(m.sugs[m.sugIdx].cmd)
 				m.ti.CursorEnd()
@@ -2162,6 +2213,12 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "up":
 			m.armedQuit = false
+			// The @ file popup owns the arrows even with one entry —
+			// mid-token, history recall would clobber the path (#64).
+			if m.atPopup() && len(m.sugs) > 0 {
+				m.sugIdx = (m.sugIdx - 1 + len(m.sugs)) % len(m.sugs)
+				return m, nil
+			}
 			if n := len(m.sugs); n > 1 { // popup open → it owns ↑/↓
 				m.sugIdx = (m.sugIdx - 1 + n) % n
 				return m, nil
@@ -2176,6 +2233,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "down":
 			m.armedQuit = false
+			if m.atPopup() && len(m.sugs) > 0 {
+				m.sugIdx = (m.sugIdx + 1) % len(m.sugs)
+				return m, nil
+			}
 			if n := len(m.sugs); n > 1 {
 				m.sugIdx = (m.sugIdx + 1) % n
 				return m, nil
@@ -2218,8 +2279,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "pgup", "pgdown":
 			m.armedQuit = false
-			m.vp, _ = m.vp.Update(msg)
-			m.follow = m.vp.AtBottom()
+			m.pageScroll(msg.String() == "pgup")
 			return m, nil
 
 		default:
@@ -2291,6 +2351,13 @@ func (m *tuiModel) updateApproval(msg tea.KeyMsg, cmds *[]tea.Cmd) {
 // the session. While a prompt is running the line is parked in the queue
 // instead of dropped — each prompt_end drains one (FIFO).
 func (m *tuiModel) submit() tea.Cmd {
+	// The @ file popup owns enter (#64): a pick inserts the path instead
+	// of sending the half-typed line. No match → fall through and send
+	// whatever the user typed (PromptBlocks resolves or ignores it).
+	if m.atPopup() && len(m.sugs) > 0 {
+		m.insertAtSelection()
+		return nil
+	}
 	line := sanitizeText(strings.TrimSpace(m.ti.Value()))
 	if line == "" {
 		return nil
@@ -2370,6 +2437,18 @@ func (m *tuiModel) sendPrompt(line string) tea.Cmd {
 		m.status = idleStatus
 		m.refresh()
 		return nil
+	}
+	// Task hour market (#54): a fresh task's price — the mean wall time
+	// of recent successful peers in its class, from this machine's own
+	// ledger. No history, no line.
+	if est, ok := market.Open().Estimate(line); ok {
+		src := tr(fmt.Sprintf("last %d", est.Samples), fmt.Sprintf("近 %d 单", est.Samples))
+		if est.Fallback {
+			src = tr(fmt.Sprintf("all classes, last %d", est.Samples),
+				fmt.Sprintf("全部类别均值，近 %d 单", est.Samples))
+		}
+		m.pushStyled(paint(cDim, fmt.Sprintf(tr("⏱ est ~%s · %s (%s)",
+			"⏱ 工时预估 ~%s · %s（%s）"), fmtDur(est.DurMS), est.Class, src)))
 	}
 	m.busy = true
 	// Live agent badge (#50): classify now so the status line names the
@@ -2512,6 +2591,8 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.contestCommand(args)
 	case "/agents":
 		m.agentsCommand(args)
+	case "/market":
+		m.marketCommand(args)
 	case "/flow":
 		return m.flowCommand(args)
 	case "/steps":
@@ -2624,6 +2705,7 @@ func helpLines() []string {
 			"  /exam    闭卷考试：裸命令按上一条提问分类，/exam <class> — 每 10 轮自动考（LYON_EXAM=off）",
 			"  /contest 竞争上岗：全部候选同考 held-out 任务，赢家上岗并接管路由（/contest <class>）",
 			"  /agents  候选名单：裸命令列出 + 占位，add <id> <model> [effort] 新增，rm <id> 删除",
+			"  /market  任务工时市场：每单完成自动记账，新任务到达时按同类近期均值预估",
 			"  /flow    工作流：list · show <slug> · match <text> · export <slug> · save <slug>（会冻结本会话）",
 			"  /lang    界面语言：zh | en",
 			"  /help    本帮助",
@@ -2633,7 +2715,7 @@ func helpLines() []string {
 			paint(cDim, "steps 面板：alt+↑/↓ 选步骤 · alt+enter 展开 · alt+←（或 ctrl+shift+←）打开/加宽 · alt+→ 收窄"),
 			paint(cDim, "进化面板：alt+e（或 /evolve）— 榜单、考试时钟 · 面板开着时评分/考试卡直接进面板"),
 			paint(cDim, "批准卡片（shell/write/edit，默认开启）：y 一次 · a 本会话内放行该工具 · n 拒绝 · ↑↓/tab 选卡片 · enter 确认"),
-			paint(cDim, "附件：@img.png 随提问发送图片（路径有空格要加引号：@\"my shot.png\"）"),
+			paint(cDim, "附件：输入 @ 弹出工作区文件列表选择插入；@img.png 随提问发送图片（空格路径加引号）"),
 		}
 	}
 	return []string{
@@ -2656,6 +2738,7 @@ func helpLines() []string {
 		"  /exam    closed-book exam: bare classifies from last prompt, /exam <class> — auto every 10 rounds (LYON_EXAM=off)",
 		"  /contest seat competition: the whole candidate field vs held-out tasks — winner takes the seat and the routing (/contest <class>)",
 		"  /agents  candidate field: bare lists entrants + seats, add <id> <model> [effort], rm <id>",
+		"  /market  task hour market: every done prompt files its wall time; new tasks get a class-priced estimate",
 		"  /flow    workflows: list · show <slug> · match <text> · export <slug> · save <slug> (freezes this session)",
 		"  /lang    interface language: zh | en",
 		"  /help    this help",
@@ -2665,7 +2748,7 @@ func helpLines() []string {
 		paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+← (or ctrl+shift+←) opens/widens · alt+→ narrows"),
 		paint(cDim, "evolution panel: alt+e (or /evolve) — leaderboard, exam clock · score/exam cards feed the panel while it is open"),
 		paint(cDim, "approve card (shell/write/edit, on by default): y once · a allow this tool all session · n deny · ↑↓/tab choose · enter"),
-		paint(cDim, "attach: @img.png sends an image with the prompt (quote spaces: @\"my shot.png\")"),
+		paint(cDim, "attach: typing @ pops the workspace file list to pick from; @img.png sends an image (quote spaces)"),
 	}
 }
 
