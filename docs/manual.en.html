@@ -703,7 +703,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
         <tr><td><code>cmd/lyon</code></td><td>CLI: <code>run</code> one-shot / <code>chat</code> fullscreen TUI / <code>tools</code>; tui.go is the bubbletea main loop, steps.go the side panel</td></tr>
         <tr><td><code>cmd/lyond</code></td><td>HTTP service: SSE streaming sessions, /metrics, admission control; also the OpenAI-compatible gateway</td></tr>
         <tr><td><code>pkg/agent</code></td><td>engine core: Engine (connection pool / concurrency semaphore / warmup), Session (single driving goroutine + event stream), compact.go client-side compaction, snapshot.go multi-session archives</td></tr>
-        <tr><td><code>pkg/tools</code></td><td>tool system: run_shell / file read-write (workspace confinement) / view_image / web_* / memory / prompt-cache byte stabilization</td></tr>
+        <tr><td><code>pkg/tools</code></td><td>tool system: run_shell / file read-write (workspace confinement) / view_image / web_* / memory / todo_write (readable step plan) / prompt-cache byte stabilization</td></tr>
         <tr><td><code>pkg/eval</code></td><td>four-dimension scoring, leaderboard, closed-book exam banks, knowledge coverage, failure-cause summarization</td></tr>
         <tr><td><code>pkg/routing</code></td><td>task classification, openness, recommendation table (confidence = mean×samples/(samples+3))</td></tr>
         <tr><td><code>pkg/models</code></td><td>five-dimension capability profiles for 32 models</td></tr>

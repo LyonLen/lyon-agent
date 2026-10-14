@@ -511,6 +511,9 @@ func stepArgPreview(name string, input json.RawMessage) string {
 	if len(input) == 0 {
 		return ""
 	}
+	if name == "todo_write" {
+		return todoPreview(input) // "2/5 · ▸ current" beats raw JSON (#66)
+	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(input, &obj); err != nil {
 		return oneLine(string(input))
@@ -618,7 +621,7 @@ func stepColor(s execStep) string {
 		return cGreen
 	case "run_subagent":
 		return cBlue
-	case "write_file", "edit_file", "save_memory", "forget_memory":
+	case "write_file", "edit_file", "save_memory", "forget_memory", "todo_write":
 		return cYellow
 	case "web_search", "web_fetch":
 		return cMagenta

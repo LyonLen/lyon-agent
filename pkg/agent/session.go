@@ -163,6 +163,10 @@ type Session struct {
 	// Guarded by mu; cleared by Reset, carried by Restore.
 	uiState json.RawMessage
 
+	// uiTodos is the TUI's readable step plan (#66) — same lifecycle as
+	// uiState, separate field so the Steps format stays untouched.
+	uiTodos json.RawMessage
+
 	// distillHash fingerprints the last rendering the extractor handled
 	// successfully (distill.go): exit right after /remember skips the
 	// duplicate LLM pass. Guarded by mu.

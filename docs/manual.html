@@ -625,7 +625,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>cmd/lyon</code></td><td>CLI：<code>run</code> 一次性 / <code>chat</code> 全屏 TUI / <code>tools</code>；tui.go 是 bubbletea 主循环，steps.go 是右侧面板</td></tr>
         <tr><td><code>cmd/lyond</code></td><td>HTTP 服务：SSE 流式会话、/metrics、准入控制；也是 OpenAI 兼容网关</td></tr>
         <tr><td><code>pkg/agent</code></td><td>引擎核心：Engine（连接池/并发信号量/预热）、Session（单驱动 goroutine + 事件流）、compact.go 客户端压缩、snapshot.go 多会话存档</td></tr>
-        <tr><td><code>pkg/tools</code></td><td>工具系统：run_shell / 文件读写（工作区禁闭）/ view_image / web_* / 记忆 / prompt-cache 字节稳定化</td></tr>
+        <tr><td><code>pkg/tools</code></td><td>工具系统：run_shell / 文件读写（工作区禁闭）/ view_image / web_* / 记忆 / todo_write（可读步骤计划）/ prompt-cache 字节稳定化</td></tr>
         <tr><td><code>pkg/eval</code></td><td>四维评分、leaderboard、闭卷考核题库、知识覆盖率、错因归纳</td></tr>
         <tr><td><code>pkg/routing</code></td><td>任务分类、开放度、推荐表（置信度 = mean×samples/(samples+3)）</td></tr>
         <tr><td><code>pkg/models</code></td><td>32 个模型的五维能力画像注册表</td></tr>

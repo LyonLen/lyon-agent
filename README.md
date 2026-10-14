@@ -39,6 +39,8 @@ pkg/tools           工具系统
   paste.go            ★ PasteImage/PasteFile：alt+v 落盘 .lyon/paste + 超限重编码 + 轮转
   web.go              web_search / web_fetch（客户端实现，共享连接池）
   memory.go           ★ save/read/forget_memory：跨会话记忆（<工作区>/.lyon/memory.json）
+  todos.go            ★ todo_write：可读步骤反馈——模型写子任务计划，转录块就地更新
+                      ☑/◐/☐、忙时状态条显示 📋 x/y 刻度与当前步骤（随快照恢复）
   stable.go           ★ prompt-cache 字节稳定化（见下文）
   metrics.go          每工具 p50/p95 + last_error
 pkg/mcp             MCP 客户端：stdio 与 streamable HTTP，工具映射为 mcp_<srv>_<tool>

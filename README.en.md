@@ -46,6 +46,9 @@ pkg/tools           tool system
   paste.go            ★ PasteImage/PasteFile: alt+v writes .lyon/paste + over-limit re-encode + rotation
   web.go              web_search / web_fetch (client-side implementation, shared pool)
   memory.go           ★ save/read/forget_memory: cross-session memory (<workspace>/.lyon/memory.json)
+  todos.go            ★ todo_write: readable step feedback — the model writes a subtask
+                      plan, the transcript block rewrites in place (☑/◐/☐), the busy
+                      status strip shows a 📋 x/y scale with the current step (snapshot-restored)
   stable.go           ★ prompt-cache byte stabilization (see below)
   metrics.go          per-tool p50/p95 + last_error
 pkg/mcp             MCP client: stdio and streamable HTTP, tools mapped to mcp_<srv>_<tool>

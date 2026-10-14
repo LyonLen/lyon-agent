@@ -888,6 +888,16 @@ func render(ev agent.Event) {
 		fmt.Printf("%s%s %s %s\n", indExec, marker, ev.ToolName, paint(cDim, shortJSON(ev.Input, 240)))
 
 	case agent.EventToolExecStart:
+		// todo_write prints the plan itself (#66) — the readable block
+		// replaces the exec row, same as the TUI.
+		if ev.ToolName == "todo_write" && !ev.Sub {
+			if items := parseTodos(ev.Input); items != nil {
+				for _, r := range todoRows(items) {
+					fmt.Printf("%s%s\n", indTool, r)
+				}
+			}
+			break
+		}
 		ind := indExec
 		if ev.Sub {
 			ind = indSub
@@ -897,6 +907,13 @@ func render(ev agent.Event) {
 			paint(cDim, truncateRunes(stepArgPreview(ev.ToolName, ev.Input), 160)))
 
 	case agent.EventToolExecEnd:
+		if ev.ToolName == "todo_write" && !ev.Sub {
+			if ev.IsError {
+				fmt.Printf("%s%s %s\n", indExec,
+					paint(cRed, "todo_write failed"), paint(cRed, ev.Err))
+			}
+			break
+		}
 		ind := indExec
 		if ev.Sub {
 			ind = indSub

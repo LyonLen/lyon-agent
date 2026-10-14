@@ -87,6 +87,7 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 		&tools.WriteFile{Root: cfg.Workspace},
 		&tools.EditFile{Root: cfg.Workspace},
 		&tools.ViewImage{Root: cfg.Workspace},
+		&tools.TodoWrite{},
 	}
 	if cfg.WebToolMode == "client" {
 		builtins = append(builtins,

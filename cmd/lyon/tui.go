@@ -98,6 +98,9 @@ type tline struct {
 	// under their own tool_use instead of piling at the tail (#45).
 	tool string
 	exec uint64
+	// todo marks rows of the live plan block (#66): one contiguous
+	// tagged run, rewritten in place by the next todo_write.
+	todo bool
 }
 
 // tuiModel is the full-screen chat: scrollable transcript viewport on top,
@@ -190,8 +193,12 @@ type tuiModel struct {
 	// badge both read this so the credit lands on the model that did the
 	// work, not the one configured.
 	runModel string
-	status   string
-	appr     *approveReq
+	// todos is the live step plan (#66): the latest todo_write list,
+	// drawn as one in-transcript block (pushTodos) and as a scale strip
+	// in the busy status line. Snapshot rides via SetTodos/applyTodos.
+	todos  []todoItem
+	status string
+	appr   *approveReq
 	// apprSel is the highlighted option card on the approval popup
 	// (0=y approve, 1=n deny, 2=a always).
 	apprSel int
@@ -331,6 +338,7 @@ func (m *tuiModel) resetTranscript() {
 	m.stepSel = 0
 	m.stepOpen = false
 	m.cmdOut = nil
+	m.todos = nil // the plan block dies with the lines; restore re-adds it
 }
 
 func (m *tuiModel) Init() tea.Cmd { return m.ti.Focus() }
@@ -600,6 +608,15 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 
 	case agent.EventToolExecStart:
 		m.flushPend()
+		// todo_write is the plan itself (#66): the block it rewrites IS
+		// the readable row — no exec noise above it. Subagent plans stay
+		// out of the main flow (their fan-out is visible on their own).
+		if ev.ToolName == "todo_write" && !ev.Sub {
+			if items := parseTodos(ev.Input); items != nil {
+				m.setTodos(items)
+			}
+			break
+		}
 		// Executions nest under their own tool_use row (#45 — parallel
 		// tool calls each stay with their parent via the ToolID FIFO);
 		// subagent-inner ones go one level deeper at the tail.
@@ -613,6 +630,16 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 
 	case agent.EventToolExecEnd:
 		m.flushPend()
+		if ev.ToolName == "todo_write" && !ev.Sub {
+			// A rejected plan (validation error) keeps the old block —
+			// the failure row is the only new line.
+			if ev.IsError {
+				m.pushStyled(indExec + fmt.Sprintf("%s %s",
+					paint(cRed, "todo_write "+tr("failed", "失败")),
+					paint(cRed, sanitizeText(ev.Err))))
+			}
+			break
+		}
 		ind := indExec
 		if ev.Sub {
 			ind = indSub
@@ -799,6 +826,7 @@ func (m *tuiModel) restoreFrom(refs []agent.SnapshotRef, idx int) {
 			m.resetTranscript()
 			m.replay(loaded)
 			m.applySteps(loaded.Steps) // audit panel rides into the snapshot
+			m.applyTodos(loaded.Todos) // step plan rides too (#66)
 			m.status = idleStatus
 		}
 	}
@@ -1750,6 +1778,14 @@ func (m *tuiModel) statusLine() string {
 			}
 			s += paint(cCyan, "  agent "+m.curAgent) +
 				paint(cDim, " · "+shortModel(model))
+		}
+		// Readable step feedback (#66): the plan scale rides the busy
+		// line — progress is glanceable without scrolling the block.
+		if done, total, cur := m.todoProgress(); total > 0 {
+			s += paint(cYellow, fmt.Sprintf("  📋 %d/%d", done, total))
+			if cur != "" {
+				s += paint(cDim, " ▸ "+truncateRunes(cur, 48))
+			}
 		}
 		if m.status != "" && m.status != idleStatus {
 			s += paint(cDim, "  "+m.status)
@@ -2961,9 +2997,11 @@ func runTUI(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics, snap 
 		return 1
 	}
 	// The exit path saves the conversation (saveChatSession → Export);
-	// hand it the panel too so the next run resumes the audit trail.
+	// hand it the panel too so the next run resumes the audit trail, and
+	// the step plan with it (#66).
 	if tm, ok := final.(*tuiModel); ok {
 		sess.SetUIState(stepsState(tm.steps))
+		sess.SetTodos(todosState(tm.todos))
 	}
 	return 0
 }

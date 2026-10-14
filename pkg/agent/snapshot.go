@@ -40,6 +40,11 @@ type Snapshot struct {
 	// restores the audit trail alongside the conversation. Additive like
 	// Title: empty on old files, ignored by readers that don't need it.
 	Steps json.RawMessage
+
+	// Todos is the renderer's readable step plan (#66) — the subtask
+	// list the model last wrote with todo_write, so /resume rebuilds the
+	// progress block. Additive: empty on old files.
+	Todos json.RawMessage
 }
 
 // SetUIState attaches renderer-side state (the TUI's steps panel) so the
@@ -49,6 +54,14 @@ func (s *Session) SetUIState(raw []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.uiState = append(json.RawMessage(nil), raw...)
+}
+
+// SetTodos attaches the renderer's step plan (#66) for the next Export —
+// same contract as SetUIState.
+func (s *Session) SetTodos(raw []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.uiTodos = append(json.RawMessage(nil), raw...)
 }
 
 // Export captures the conversation history. histMu makes it wait for an
@@ -67,6 +80,7 @@ func (s *Session) Export() Snapshot {
 	s.mu.Lock()
 	title, first := s.title, s.firstPrompt
 	uiState := append(json.RawMessage(nil), s.uiState...)
+	uiTodos := append(json.RawMessage(nil), s.uiTodos...)
 	s.mu.Unlock()
 	return Snapshot{
 		Version:            snapshotVersion,
@@ -79,6 +93,7 @@ func (s *Session) Export() Snapshot {
 		PendingToolResults: append([]anthropic.BetaContentBlockParamUnion(nil), s.pendingToolResults...),
 		Turns:              s.Stats(),
 		Steps:              uiState,
+		Todos:              uiTodos,
 	}
 }
 
@@ -105,6 +120,7 @@ func (s *Session) Restore(snap Snapshot) {
 	s.title = snap.Title
 	s.firstPrompt = snap.FirstPrompt
 	s.uiState = append(json.RawMessage(nil), snap.Steps...) // nil on Reset
+	s.uiTodos = append(json.RawMessage(nil), snap.Todos...) // nil on Reset
 	s.mu.Unlock()
 }
 
