@@ -45,18 +45,39 @@ const historyCap = 500
 // that one slow run doesn't set the price.
 const estWindow = 10
 
-// Open loads the ledger; missing or corrupt state starts empty (never
-// fatal — a market with no memory simply has no prices yet).
+// tables is the process-wide cache behind Open: one shared *Table per
+// ledger path. Production calls Open() per finished prompt (TUI
+// prompt_end, CLI fileMarket) without retaining the handle — a fresh
+// Table per call would let two concurrent finishers load the whole file,
+// each append their own row, and last-writer-wins silently drop one.
+var (
+	tablesMu sync.Mutex
+	tables   = map[string]*Table{}
+)
+
+// Open returns the shared ledger table for this LYON_HOME; missing or
+// corrupt state starts empty (never fatal — a market with no memory
+// simply has no prices yet). The file is read once per path per process;
+// later Open calls hand back the same in-memory table.
 func Open() *Table {
 	path := filepath.Join(homeDir(), "market.json")
+	tablesMu.Lock()
+	defer tablesMu.Unlock()
+	if t, ok := tables[path]; ok {
+		return t
+	}
 	t := &Table{path: path}
 	if data, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(data, t)
 	}
+	tables[path] = t
 	return t
 }
 
-// Record files one finished task (best-effort persist, like routing).
+// Record files one finished task (best-effort persist). The write stages
+// a temp file and renames — same contract as memory.Store and
+// agent.SaveSnapshot: a crash mid-write must never truncate months of
+// history, and Open reports a torn file as "no memory" (silent loss).
 func (t *Table) Record(r Record) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -70,7 +91,18 @@ func (t *Table) Record(r Record) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(t.path, data, 0o644)
+	// 0600: the ledger holds prompt previews — snapshot.go keeps the
+	// same class of payload private for the same reason.
+	tmp := t.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return
+	}
+	if err := os.Rename(tmp, t.path); err != nil {
+		// Windows refuses rename-over-open (sharing violation). Never
+		// fall back to an in-place write — the whole-table marshal
+		// means the next successful Record flushes this row too.
+		os.Remove(tmp)
+	}
 }
 
 // Recent returns the last n records, oldest first.
