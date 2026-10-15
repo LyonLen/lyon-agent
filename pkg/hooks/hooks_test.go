@@ -12,6 +12,27 @@ import (
 	"time"
 )
 
+// tempDir is t.TempDir with a retrying cleanup: Windows file scanners hold
+// just-written files long enough for the framework's immediate RemoveAll to
+// hit a delete-pending entry ("directory not empty"), and have been seen
+// dropping their own marker dirs into %TEMP% trees mid-test — the same
+// flake pkg/eval fixed in 0e3c73c.
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		var err error
+		for i := 0; i < 40; i++ {
+			if err = os.RemoveAll(dir); err == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Logf("settle cleanup failed: %v", err)
+	})
+	return dir
+}
+
 // TestHookHelperProcess is not a real test: it is the child process that
 // blocking/async hooks exec (see the argv pattern in hook tests). It does
 // nothing unless LYON_HOOK_HELPER selects a behavior.
@@ -68,7 +89,7 @@ func helperArgv() []string {
 // TestPolicyCheck: allowlist mode, named denials, case-insensitive input
 // patterns, and malformed policy degrading to allow-all.
 func TestPolicyCheck(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	p := loadPolicy(dir) // missing file: allow-all
 	if _, denied := p.Check("bash", []byte(`{"command":"rm -rf /"}`)); denied {
 		t.Error("missing policy must allow all")
@@ -110,7 +131,7 @@ func TestPolicyCheck(t *testing.T) {
 // TestFireAuditsAndStats: Fire writes one parseable JSONL line per event,
 // updates the aggregates, and persists stats.json on prompt_end.
 func TestFireAuditsAndStats(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir)
 	m := New(`D:\some\workspace`)
 	t.Cleanup(m.Close) // the writer goroutine must not outlive this TempDir
@@ -181,7 +202,7 @@ func TestFireAuditsAndStats(t *testing.T) {
 func TestBlockingHookDenies(t *testing.T) {
 	for _, mode := range []string{"exit2", "deny"} {
 		t.Run(mode, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := tempDir(t)
 			t.Setenv("LYON_HOME", dir)
 			t.Setenv("LYON_HOOK_HELPER", mode)
 			cfg, _ := json.Marshal([]HookCfg{{
@@ -212,7 +233,7 @@ func TestBlockingHookDenies(t *testing.T) {
 // TestPolicyDenyBeatsHooks: policy denies before any subprocess runs, and
 // a clean tool passes CheckTool when nothing objects.
 func TestPolicyDenyBeatsHooks(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir)
 	if err := os.WriteFile(filepath.Join(dir, "policy.json"),
 		[]byte(`{"deny_tools":["shell"]}`), 0o644); err != nil {
@@ -231,7 +252,7 @@ func TestPolicyDenyBeatsHooks(t *testing.T) {
 // TestAsyncHookRuns: a non-blocking hook fires in the background and its
 // Record arrives on stdin (the helper proves both by touching a file).
 func TestAsyncHookRuns(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir)
 	t.Setenv("LYON_HOOK_HELPER", "touch")
 	marker := filepath.Join(dir, "touched")

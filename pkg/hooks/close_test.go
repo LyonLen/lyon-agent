@@ -12,7 +12,7 @@ import (
 // usual audit/stats assertions against it.
 func newScratchManager(t *testing.T) (*Manager, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir)
 	return New("ws"), dir
 }

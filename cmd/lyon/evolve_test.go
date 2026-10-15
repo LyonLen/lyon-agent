@@ -306,12 +306,17 @@ func TestKickScoreFilesCard(t *testing.T) {
 	class := string(routing.Classify("implement a login form"))
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if b, ok := eval.OpenLeaderboard().Classes[class]; ok &&
-			len(b.Agents[m.cfg.Model]) > 0 {
+		// The goroutine persists leaderboard first, routing right after —
+		// a one-shot check of the second file races the gap between the
+		// two writes, so wait for both.
+		b, seen := eval.OpenLeaderboard().Classes[class]
+		_, evidence := routing.Open().Lookup(class)
+		if seen && len(b.Agents[m.cfg.Model]) > 0 && evidence {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("judge goroutine never filed a card for %q", class)
+			t.Fatalf("judge goroutine never filed card+evidence for %q (card=%v evidence=%v)",
+				class, seen, evidence)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
