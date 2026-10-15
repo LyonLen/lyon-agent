@@ -3,6 +3,7 @@ package routing
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -146,5 +147,41 @@ func TestTablePersistsAndSnapshotsSorted(t *testing.T) {
 	}
 	if len(Open().All()) != 0 {
 		t.Fatal("corrupt file must yield an empty table")
+	}
+}
+
+// TestConcurrentSaveLeavesNoTempResidue pins the shared semantics of the
+// atomic-write path: parallel savers stage under unique CreateTemp names,
+// the last complete rename wins, the final file is whole JSON, and no
+// *.tmp droppings survive.
+func TestConcurrentSaveLeavesNoTempResidue(t *testing.T) {
+	dir := t.TempDir()
+	settle(t, dir)
+	t.Setenv("LYON_HOME", dir)
+	tbl := Open()
+
+	classes := []string{"coding", "fix", "design", "research"}
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				c := classes[(g+j)%len(classes)]
+				tbl.Record(c, "agent", "model", 0.5)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	if got := len(Open().All()); got != len(classes) {
+		t.Fatalf("reloaded entries after parallel saves = %d, want %d", got, len(classes))
+	}
+	residue, err := filepath.Glob(filepath.Join(dir, "*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(residue) != 0 {
+		t.Errorf("temp residue after parallel saves: %v", residue)
 	}
 }

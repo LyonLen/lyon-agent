@@ -103,11 +103,26 @@ func (t *Table) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
 		return err
 	}
-	tmp := t.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(t.path), filepath.Base(t.path)+"-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, t.path)
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	_ = tmp.Chmod(0o644) // CreateTemp makes 0600; keep the file's original mode
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, t.path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 // All returns a snapshot of the network (class → entry), classes sorted.

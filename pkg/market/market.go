@@ -93,15 +93,25 @@ func (t *Table) Record(r Record) {
 	}
 	// 0600: the ledger holds prompt previews — snapshot.go keeps the
 	// same class of payload private for the same reason.
-	tmp := t.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(t.path), filepath.Base(t.path)+"-*.tmp")
+	if err != nil {
 		return
 	}
-	if err := os.Rename(tmp, t.path); err != nil {
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return
+	}
+	if err := os.Rename(name, t.path); err != nil {
 		// Windows refuses rename-over-open (sharing violation). Never
 		// fall back to an in-place write — the whole-table marshal
 		// means the next successful Record flushes this row too.
-		os.Remove(tmp)
+		os.Remove(name)
 	}
 }
 

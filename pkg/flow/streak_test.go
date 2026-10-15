@@ -34,4 +34,13 @@ func TestBumpStreak(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "flow-streak.json")); err != nil {
 		t.Fatalf("streak file missing: %v", err)
 	}
+	// Every bump stages through a unique CreateTemp name that is renamed
+	// away — consecutive bumps must leave no *.tmp droppings behind.
+	residue, err := filepath.Glob(filepath.Join(home, "*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(residue) != 0 {
+		t.Errorf("temp residue after bumps: %v", residue)
+	}
 }

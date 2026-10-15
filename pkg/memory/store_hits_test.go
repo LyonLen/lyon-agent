@@ -201,23 +201,28 @@ func TestFailedFlushKeepsCounts(t *testing.T) {
 			Body: "alpha records zebra migration paths"})
 	})
 	must(t, func() (Fact, error) {
-		return s.Save(Fact{Name: "beta-fact", Scope: ScopeProject, Body: "beta notes"})
+		return s.Save(Fact{Name: "beta-fact", Scope: ScopePersonal, Body: "beta notes"})
 	})
 	s.Search("zebra migration", 5)
 	s.Search("zebra migration", 5)
 	before := factBytes(t, s, ScopeProject, "alpha-fact")
 
-	// Occupy alpha's tmp path with a directory: atomicWrite's staging
-	// file can't be created, so alpha's queued flush fails for real.
-	block := filepath.Join(s.dirs[ScopeProject], "alpha-fact.md.tmp")
-	if err := os.Mkdir(block, 0o755); err != nil {
+	// Move alpha's directory away: atomicWrite stages beside the target,
+	// so its temp file cannot be created there and alpha's queued flush
+	// fails for real. Beta lives in another scope — its own write is
+	// untouched by the failure.
+	blocked := s.dirs[ScopeProject] + ".away"
+	if err := os.Rename(s.dirs[ScopeProject], blocked); err != nil {
 		t.Fatal(err)
 	}
-	// beta's save still succeeds — its own write is untouched by the
-	// failure, and alpha's count must stay queued rather than vanish.
 	must(t, func() (Fact, error) {
-		return s.Save(Fact{Name: "beta-fact", Scope: ScopeProject, Body: "beta v2"})
+		return s.Save(Fact{Name: "beta-fact", Scope: ScopePersonal, Body: "beta v2"})
 	})
+	// I/O recovers — the directory comes back, byte-identical: the failed
+	// flush never wrote anything.
+	if err := os.Rename(blocked, s.dirs[ScopeProject]); err != nil {
+		t.Fatal(err)
+	}
 	if string(factBytes(t, s, ScopeProject, "alpha-fact")) != string(before) {
 		t.Errorf("alpha changed despite the blocked write")
 	}
@@ -225,10 +230,7 @@ func TestFailedFlushKeepsCounts(t *testing.T) {
 		t.Fatalf("in-memory count lost after failed flush: %d", f.Hits)
 	}
 
-	// I/O recovers → the next save point lands the queued count.
-	if err := os.Remove(block); err != nil {
-		t.Fatal(err)
-	}
+	// The next save point lands the queued count.
 	must(t, func() (Fact, error) {
 		return s.Save(Fact{Name: "alpha-fact", Scope: ScopeProject,
 			Body: "alpha records zebra migration paths (edited)"})

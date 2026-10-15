@@ -247,10 +247,37 @@ func (f *WriteFile) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return nil, fmt.Errorf("create dirs: %w", err)
 	}
-	if err := os.WriteFile(abs, []byte(in.Content), 0o644); err != nil {
+	if err := writeFileAtomic(abs, []byte(in.Content)); err != nil {
 		return nil, fmt.Errorf("write %s: %w", in.Path, err)
 	}
 	return TextResult(fmt.Sprintf("wrote %d bytes to %s", len(in.Content), in.Path)), nil
+}
+
+// writeFileAtomic stages data in a unique temp name beside path and
+// renames it over — a reader (or a concurrent session on the same path)
+// sees either the old file or the whole new one, never a torn write.
+// The staged file keeps path's original 0644 mode.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	_ = tmp.Chmod(0o644)
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 // EditFile replaces one exact occurrence of old_string in a file. Serial.
@@ -304,7 +331,7 @@ func (f *EditFile) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 		return nil, fmt.Errorf("old_string occurs %d times in %s; must be unique", n, in.Path)
 	}
 	out := strings.Replace(string(data), in.OldString, in.NewString, 1)
-	if err := os.WriteFile(abs, []byte(out), 0o644); err != nil {
+	if err := writeFileAtomic(abs, []byte(out)); err != nil {
 		return nil, fmt.Errorf("write %s: %w", in.Path, err)
 	}
 	return TextResult(fmt.Sprintf("replaced 1 occurrence in %s", in.Path)), nil

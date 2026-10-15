@@ -228,6 +228,33 @@ func storedElsewhere(snap Snapshot) (bool, error) {
 	return false, nil
 }
 
+// writeFileAtomic stages data under a unique temp name beside path and
+// renames it over, removing the staged file on any failure — a crash
+// mid-write or two writers sharing the old fixed path+".tmp" name can
+// never leave path half-written. 0600: snapshots and archives carry the
+// conversation verbatim.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
+}
+
 // writeArchive files snap into the workspace's archive directory under its
 // SavedAt timestamp (millisecond precision plus a collision suffix) and
 // prunes past archiveKeep. It never touches the latest slot.
@@ -253,11 +280,7 @@ func writeArchive(workspace string, snap Snapshot) error {
 		if _, err := os.Stat(path); err == nil {
 			continue // same-millisecond collision — try a suffix
 		}
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o600); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, path); err != nil {
+		if err := writeFileAtomic(path, data); err != nil {
 			return err
 		}
 		return pruneArchive(dir)
@@ -394,11 +417,7 @@ func SaveSnapshot(snap Snapshot) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeFileAtomic(path, data)
 }
 
 // LoadSnapshot reads a workspace's latest snapshot. (nil, nil) when no

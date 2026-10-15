@@ -187,7 +187,27 @@ func Save(wf Workflow) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, wf.Slug+".json"), append(data, '\n'), 0o644)
+	path := filepath.Join(dir, wf.Slug+".json")
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	_ = tmp.Chmod(0o644) // CreateTemp makes 0600; keep the file's original mode
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 // Checkout copies a builtin into the user directory so it can be edited

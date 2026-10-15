@@ -47,11 +47,27 @@ func BumpStreak(slug string, ok bool) int {
 	if err := os.MkdirAll(filepath.Dir(streakPath()), 0o755); err != nil {
 		return counts[slug]
 	}
-	if data, err := json.MarshalIndent(counts, "", "  "); err == nil {
-		tmp := streakPath() + ".tmp"
-		if os.WriteFile(tmp, data, 0o644) == nil {
-			_ = os.Rename(tmp, streakPath())
-		}
+	data, err := json.MarshalIndent(counts, "", "  ")
+	if err != nil {
+		return counts[slug]
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(streakPath()), filepath.Base(streakPath())+"-*.tmp")
+	if err != nil {
+		return counts[slug]
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return counts[slug]
+	}
+	_ = tmp.Chmod(0o644) // CreateTemp makes 0600; keep the file's original mode
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return counts[slug]
+	}
+	if err := os.Rename(name, streakPath()); err != nil {
+		os.Remove(name)
 	}
 	return counts[slug]
 }

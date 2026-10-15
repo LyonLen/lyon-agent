@@ -78,11 +78,26 @@ func (lb *Leaderboard) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(lb.path), 0o755); err != nil {
 		return err
 	}
-	tmp := lb.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(lb.path), filepath.Base(lb.path)+"-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, lb.path)
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	_ = tmp.Chmod(0o644) // CreateTemp makes 0600; keep the file's original mode
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, lb.path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 func appendCapped(hist []Scorecard, sc Scorecard) []Scorecard {
