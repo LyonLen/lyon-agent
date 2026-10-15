@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -75,6 +76,11 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	// The hooks manager exists before the transport so the apiGuard below
 	// can file its repair decisions into the same audit log.
 	hm := hooks.New(cfg.Workspace)
+	// ROADMAP 1.5: adopt the workspace's Claude Code hooks section so a
+	// migrated project keeps its hooks working (best-effort mapping).
+	if _, _, err := hooks.LoadClaudeSettings(hm, filepath.Join(cfg.Workspace, ".claude", "settings.json")); err != nil {
+		log.Printf("hooks: %v", err)
+	}
 	// One tuned HTTP client for the whole process: the Anthropic API and the
 	// client-side web tools share its keep-alive pool. With OpenAIBase set,
 	// a translating RoundTripper fronts the pool: Messages API calls become
