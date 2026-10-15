@@ -1,0 +1,100 @@
+# pkg/timer 设计：双定时器（进程内 + 操作系统级）
+
+用户需求 #8：「进程内定时器、操作系统定时器，两种都要，要做日志机制」。
+两种定时器共享**同一个 Task 定义**与同一份 JSON 持久化；差别只在「谁来数表」：
+
+| | 进程内 Scheduler | OS 级注册 |
+|---|---|---|
+| 存活范围 | lyon 进程活着才走拍 | lyon 退出后 OS 继续触发 |
+| 调度方 | 单 goroutine + 最小堆 | Windows 任务计划 / POSIX crontab |
+| 执行体 | 注入的 Runner（默认拉起 `lyon run` 子进程） | OS 直接拉起 `lyon run` |
+| 适用 | 会话期间的提醒/轮询/节拍任务 | 每日报告、夜间构建这类无人值守任务 |
+
+## 1. Task 定义与持久化（一切状态皆文件）
+
+- 一个任务一个文件：`$LYON_HOME/timers/<id>.json`（`$LYON_HOME` 缺省 `~/.lyon`）。
+- `kind ∈ {once, interval, cron}`：
+  - `once` — `at`（RFC3339）触发一次，触发后自动 `enabled=false`；
+  - `interval` — `every_ms`（毫秒，进程内粒度；OS 级要求 ≥ 1 分钟）；
+  - `cron` — 简式 5 段 `分 时 日 月 周`，支持 `*` `a` `a-b` `*\/n` `a-b/n` 列表，
+    月/周支持 `JAN..DEC` `SUN..SAT` 名字；日/周语义遵循 POSIX（两者都受限时取 OR）。
+- 载荷二选一：`command`（shell 命令）或 `prompt`（交给 `lyon run` 的提示词，可带 `workspace`）。
+- 运行时字段随跑随写：`last_run` / `last_status` / `last_error` / `run_count`。
+- `Save` 原子写（tmp + rename）；`Load` / `Delete` 与 `Save` 同走一把**包级互斥锁**——
+  Windows 上读与 rename-over 并发会直接报「文件被占用」共享冲突，串行后彻底消失。
+- `LoadAll` 对损坏文件**跳过并记日志**，绝不因一个坏文件拖死全部定时器。
+
+## 2. 进程内 Scheduler
+
+- 单 goroutine 事件循环 + `container/heap` 最小堆；`Start(ctx)` / `Stop()`（均幂等）。
+- 触发回调（Runner）**在独立 goroutine 执行**，调度循环永不被回调阻塞；
+  回调带 `context` 超时（任务级 `timeout_ms` 覆盖全局默认），超时/报错全部落日志。
+- **Stop 是排空式屏障**：取消 ctx → 等循环退出 → 用 `WaitGroup` **等在飞回调收尾**
+  （有界 2s 宽限，超时记 WARN 后放其在后台自行结束）。Stop 返回后保证：
+  不再有新的触发落地、在飞回调的记账已写盘。被 Stop 打断的回调只记一条
+  **aborted** 日志、**不改写** `last_status`——停机不是任务失败，不能用
+  `context canceled` 覆盖上一次真实的 `timeout`/`ok` 状态。
+- **Remove / Enable(false) 语义**：不等待在飞回调（否则一个卡死的 runner 能把
+  `/timer disable` 卡到超时上限），已在飞的那一次允许跑完（running 标志保证
+  至多一次）；之后不再有新触发。Remove 的防复活双保险：在飞期间 id 已从注册表
+  删除 → 记账保存被抑制；一拍内烧完的 one-shot 走 `spent` 标记仍会落最终记账
+  （并自动 `enabled=false`），但 `deleted` 台账兜底——Remove 之后任何保存都
+  不会让文件复活。
+- **并发触发策略（上一拍没跑完，下一拍来了）**：
+  - `overlap=skip`（默认）：跳过这一拍并记 `WARN` 日志。理由：多数任务是
+    「刷新状态/抓取数据」，重复并发执行既浪费 token 又可能互相踩文件；
+    跳过永远安全，语义上「最近一次还在跑 = 结果已有」。
+  - `overlap=queue`：挂起**一次**补跑（多拍合并为一次，不排队堆积），上一拍结束
+    后立刻执行。适合「必须每拍都有结果」的任务。选默认 skip 是因为它是无脑安全项；
+    queue 的合并语义避免了无界堆积。
+- **崩溃恢复**：`Start` 时 `LoadAll` 加载全部任务，下一拍一律从 **now** 计算，
+  **默认不补跑**（miss=skip）——错过的拍记一条 INFO 日志。可选 `miss=once`：
+  若宕机期间确实错过拍，启动时**补跑一次**（只一次，不逐拍补）。理由：默认不补
+  是因为补跑风暴（停机一夜后连跑 200 个 cron）比漏一拍伤害大得多。
+
+## 3. OS 级定时器
+
+统一入口 `Register/Unregister/List`，内部按 `runtime.GOOS` 分发；命令行**构造函数是纯函数**，
+在任何平台都可测试。
+
+### Windows（`schtasks`，任务名前缀 `lyon-`）
+
+- 创建：`schtasks /Create /TN lyon-<id> /TR <cmdline> /SC <type> [/MO n] [/D days] /ST HH:MM [/SD yyyy/mm/dd] /F`
+  （`/F` 幂等覆盖；语法已对照本机 `schtasks /Create /?` 输出核实）。
+- 映射：interval（整分钟、1..1439）→ `/SC MINUTE /MO n`；
+  cron `m h * * *` → `/SC DAILY /ST m:h`；`m h * * <dow集>` → `/SC WEEKLY /D MON,TUE.. /ST`；
+  `m h d * *` → `/SC MONTHLY /D d /ST`；`once` → `/SC ONCE /ST /SD`。
+  其余 cron 形态**拒绝并报清晰错误**（提示「保持进程内」），不半残注册。
+- 删除：`schtasks /Delete /TN lyon-<id> /F`（不存在视为成功，幂等）。
+- 列举：`schtasks /Query /FO CSV /NH`，筛 `TaskName` 前缀 `\lyon-`。
+- 无权限（Access denied / 拒绝访问）：原样返回带提示的错误，**不做任何半程状态**。
+
+### POSIX（crontab，`# lyon:` 注释锚点）
+
+- 行形态：`<cron> <command|lyon-run> >> "<logs>/timer-os-$(date +%F).log" 2>&1 # lyon:<id>`
+  —— 锚点在行尾、在 shell 里是注释，cron 实际执行时被 `sh` 剥掉，零副作用。
+- 注册 = `crontab -l`（无 crontab 视为空）→ 按锚点幂等去重 → `crontab -` 写回。
+- 删除/列举按 `# lyon:<id>` 锚点识别自己的条目，绝不动用户的其他行。
+- interval→cron 只接受能整除 60 的分钟数（`*/n` 在 n 不整除 60 时不是严格每 n 分钟），
+  `once` 在 POSIX 无原生对应 → 报清晰错误，提示用进程内。
+
+## 4. OS 级执行的命令行形态
+
+`lyon run` 是非交互子命令（`lyon run [flags] "prompt"`，prompt 也支持 stdin），
+所以 OS 任务的拉起命令是：
+
+- Windows：`"C:\path\lyon.exe" run "提示词"` —— /TR 里 exe 带空格要整体加引号，
+  prompt 按 CommandLineToArgvW 规则转义（`\"`、尾部反斜杠加倍）。
+- POSIX：`'/path/lyon' run '提示词'` —— sh 单引号转义。
+- exe 路径取 `os.Executable()`（EvalSymlinks 尽力解析），也可显式指定便于测试。
+- prompt 必须单行（schtasks /TR 上限 261 字符；crontab 是一行）——校验并给清晰错误。
+
+## 5. 日志机制
+
+- 文件：`$LYON_HOME/logs/timer-YYYY-MM-DD.log`，append + 全局 mutex，每行
+  `2006-01-02 15:04:05.000 [LEVEL] msg`。
+- 每次**触发 / 跳过（overlap、miss）/ 成功（含耗时）/ 失败 / 超时 / OS 注册与删除**都落盘。
+- OS 级任务的 stdout/stderr 重定向到 `$LYON_HOME/logs/timer-os-$(date +%F).log`（POSIX）；
+  Windows 的输出在 schtasks 历史里。
+- log-dev 正在做统一的 `pkg/logx`：当前 log.go 是极简自有实现，
+  **全部日志都走 `logLine()` 一个漏斗**，logx 落地后把漏斗体换成转发即可。
