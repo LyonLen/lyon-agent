@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // todoItem mirrors one plan entry of a todo_write call (#66 readable step
@@ -58,16 +60,22 @@ func todoRows(items []todoItem) []string {
 	rows = append(rows, fmt.Sprintf("%s %s %d/%d", paint(cYellow, "📋"),
 		tr("plan", "计划"), done, total))
 	for _, it := range items {
-		switch it.Status {
-		case "completed":
-			rows = append(rows, paint(cGreen, "☑ ")+it.Content)
-		case "in_progress":
-			rows = append(rows, paint(cCyan, "◐ ")+paint(cCyan, it.Content))
-		default:
-			rows = append(rows, paint(cDim, "☐ ")+paint(cDim, it.Content))
-		}
+		rows = append(rows, todoGlyphRow(it))
 	}
 	return rows
+}
+
+// todoGlyphRow renders one plan item — status glyph + content, painted
+// by status — shared by the transcript block and the corner panel.
+func todoGlyphRow(it todoItem) string {
+	switch it.Status {
+	case "completed":
+		return paint(cGreen, "☑ ") + it.Content
+	case "in_progress":
+		return paint(cCyan, "◐ ") + paint(cCyan, it.Content)
+	default:
+		return paint(cDim, "☐ ") + paint(cDim, it.Content)
+	}
 }
 
 // setTodos replaces the live plan and rewrites the transcript block in
@@ -172,4 +180,76 @@ func (m *tuiModel) applyTodos(raw json.RawMessage) bool {
 	}
 	m.setTodos(items)
 	return true
+}
+
+// planSectionH is the resident plan block's height in a column of h
+// rows (footer excluded): one header row plus every item while they
+// fit, capped at a third of the column so the panel keeps the bulk, and
+// never 0 — the corner seat exists even before the first todo_write (#1).
+func planSectionH(items []todoItem, h int) int {
+	if h < 1 {
+		return 0
+	}
+	want := len(items) + 1
+	if maxH := h / 3; want > maxH && maxH >= 1 {
+		want = maxH
+	}
+	if want > h {
+		want = h
+	}
+	return want
+}
+
+// renderPlan is the right column's resident plan block (#1): exactly h
+// rows of at most w cells — a scale header carrying the subtask the
+// model is on, one glyph row per item windowed from the top with a
+// "+n more" tail when the plan outruns the block, and a one-line dim
+// placeholder before the first todo_write so the seat always reads as
+// the plan's. The transcript keeps its own updating block; this is the
+// live corner view.
+func (m *tuiModel) renderPlan(w, h int) []string {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	out := make([]string, 0, h)
+	if len(m.todos) == 0 {
+		out = append(out, fitRow(paint(cDim, tr("📋 plan · none yet", "📋 计划 · 还没有")), w))
+		for len(out) < h {
+			out = append(out, "")
+		}
+		return out
+	}
+	done, total, current := m.todoProgress()
+	head := fmt.Sprintf("%s %s %d/%d", paint(cYellow, "📋"),
+		tr("plan", "计划"), done, total)
+	if current != "" {
+		// The header carries the live subtask so a windowed block can
+		// never hide what the model is actually doing right now.
+		if avail := w - ansi.StringWidth(head) - 6; avail > 8 {
+			head += paint(cDim, " ▸ "+truncateRunes(current, avail))
+		}
+	}
+	out = append(out, fitRow(head, w))
+
+	// Window from the top: when the plan outruns the block, one row is
+	// reserved for the "+n more" tail instead of a cut item.
+	items := m.todos
+	room := h - len(out)
+	if hide := len(items) - room; hide > 0 {
+		if room > 0 {
+			hide++ // reserve the tail row
+		}
+		items = items[:len(items)-hide]
+	}
+	for _, it := range items {
+		out = append(out, fitRow(todoGlyphRow(it), w))
+	}
+	if more := len(m.todos) - len(items); more > 0 {
+		out = append(out, fitRow(paint(cDim,
+			fmt.Sprintf(tr("…(+%d more)", "…(+%d 项)"), more)), w))
+	}
+	for len(out) < h {
+		out = append(out, "")
+	}
+	return out[:h]
 }

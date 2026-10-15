@@ -692,19 +692,10 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 		}
 	}
 
-	// Header on top, a key-hint footer at the bottom (the evolution
-	// panel already had one; steps didn't — #41), the step window
-	// between them.
+	// Header on top, the step window below it. The key-hint footer and
+	// the resident plan block are composed by composeSplit — they span
+	// the whole right column (#1), so they don't belong to one panel.
 	avail := h - 1
-	footer := ""
-	if h >= 2 {
-		avail = h - 2
-		// 50 cells EN / 47 ZH — fits the default 52-col panel whole.
-		// Every key carries its own modifier: "enter open · ←→ width"
-		// read as the BARE keys (send, cursor move) and misled (#6).
-		footer = fitRow(paint(cDim, tr("alt+↑↓ select · alt+enter open · alt+←→ width",
-			"alt+↑↓ 选择 · alt+enter 展开 · alt+←→ 调宽")), w)
-	}
 	if avail <= 0 {
 		return []string{fitRow(header, w)}
 	}
@@ -750,10 +741,17 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 	for len(out) < h {
 		out = append(out, "")
 	}
-	if footer != "" {
-		out[h-1] = footer
-	}
 	return out
+}
+
+// stepsFooter is the steps panel's key-hint row — the column's shared
+// bottom line, composed by composeSplit below the plan block (#1).
+// 50 cells EN / 47 ZH — fits the default 52-col panel whole. Every key
+// carries its own modifier: "enter open · ←→ width" read as the BARE
+// keys (send, cursor move) and misled (#6).
+func stepsFooter(w int) string {
+	return fitRow(paint(cDim, tr("alt+↑↓ select · alt+enter open · alt+←→ width",
+		"alt+↑↓ 选择 · alt+enter 展开 · alt+←→ 调宽")), w)
 }
 
 // stepLine renders one step: indent · #n · status glyph · name · detail ·

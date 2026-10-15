@@ -1716,15 +1716,48 @@ func (m *tuiModel) cmdOutView(budget int) []string {
 }
 
 // composeSplit joins the transcript viewport with the steps panel row by
-// row: [transcript, tw cells] │ [panel, pw cells], exactly vh rows. The
-// panel rows arrive pre-sized to pw; transcript rows are clipped and
-// padded to tw so the gutter and the right edge stay on their columns.
+// row: [transcript, tw cells] │ [right column, pw cells], exactly vh
+// rows. The right column composes bottom up (#1): one shared key-hint
+// footer, the resident plan block above it, and whichever panel (steps
+// or evolution) fills what's left — the plan parks in the corner with
+// either panel open. Transcript rows are clipped and padded to tw so
+// the gutter and the right edge stay on their columns.
 func (m *tuiModel) composeSplit(vh int) string {
 	vlines := strings.Split(m.vp.View(), "\n")
-	panels := m.renderSteps(m.pw, vh)
-	if m.evoOn {
-		panels = m.renderEvolve(m.pw, vh)
+	planH := planSectionH(m.todos, vh-1) // budget: the column minus its footer
+	if planH > vh-1 {
+		planH = vh - 1
 	}
+	if planH < 0 {
+		planH = 0
+	}
+	panelH := vh - 1 - planH
+	if panelH < 0 {
+		panelH = 0
+	}
+	var col []string
+	if panelH > 0 {
+		col = m.renderSteps(m.pw, panelH)
+		if m.evoOn {
+			col = m.renderEvolve(m.pw, panelH)
+		}
+	}
+	col = append(col, m.renderPlan(m.pw, planH)...)
+	if vh >= 1 {
+		footer := stepsFooter(m.pw)
+		if m.evoOn {
+			footer = evoFooter(m.pw)
+		}
+		col = append(col, footer)
+	}
+	// The render contracts make col exactly vh rows; the join below
+	// indexes col[i], so pad/trim anyway — an edge case must degrade to
+	// blank rows, never panic the frame.
+	for len(col) < vh {
+		col = append(col, "")
+	}
+	col = col[:vh]
+
 	var b strings.Builder
 	for i := 0; i < vh; i++ {
 		if i > 0 {
@@ -1743,7 +1776,7 @@ func (m *tuiModel) composeSplit(vh int) string {
 		b.WriteString(trow)
 		b.WriteByte(' ')
 		b.WriteString(paint(cDim, "│"))
-		b.WriteString(panels[i]) // exactly pw cells (renderSteps contract)
+		b.WriteString(col[i]) // exactly pw cells (render contract)
 	}
 	return b.String()
 }

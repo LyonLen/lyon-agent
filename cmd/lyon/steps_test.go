@@ -111,13 +111,11 @@ func TestRenderStepsSizing(t *testing.T) {
 	if !strings.Contains(rows[0], "steps") {
 		t.Fatalf("header row: %q", rows[0])
 	}
-	// The last row is the key-hint footer; the newest step sits just
-	// above it (#41).
-	if !strings.Contains(rows[8], "#50") {
-		t.Fatalf("newest step must sit above the footer: %q", rows[8])
-	}
-	if !strings.Contains(stripColor(rows[9]), "alt+↑↓") {
-		t.Fatalf("footer key-hint row missing: %q", rows[9])
+	// The key-hint footer moved out to composeSplit — it spans the whole
+	// right column now that the resident plan block sits above it (#1) —
+	// so the window's last row is simply the newest step.
+	if !strings.Contains(rows[9], "#50") {
+		t.Fatalf("newest step must sit at the window bottom: %q", rows[9])
 	}
 }
 

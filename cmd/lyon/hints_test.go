@@ -1,48 +1,52 @@
 package main
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-
-	"lyon-agent/pkg/agent"
 )
 
 // TestKeyHintsSpellModifiers: every key-hint surface spells the modifier
 // chords out — shift+alt+↑↓, alt+enter, alt+←→ — because the old
 // "enter open · ←→ width" footers read as the BARE send/cursor keys and
 // misled (#6). Both panel footers must also fit the default panel width
-// whole (no ellipsis); that is why panelWidth is 52 and not 40.
+// whole (no ellipsis); that is why panelWidth is 52 and not 40. The
+// composed column parks whichever footer at its very bottom row (#1).
 func TestKeyHintsSpellModifiers(t *testing.T) {
-	m := newTestModel(t)
-	m.applyEvent(agent.Event{
-		Type: agent.EventToolUseStart, ToolID: "t1", ToolName: "read_file",
-		Input: json.RawMessage(`{"path":"a.txt"}`),
-	})
-
-	// Steps footer: full text at the default width, every chord spelled.
-	rows := m.renderSteps(panelWidth, 10)
-	raw := rows[len(rows)-1]
-	if n := ansi.StringWidth(raw); n > panelWidth {
-		t.Fatalf("footer is %d cells, panel is %d: %q", n, panelWidth, raw)
+	// The steps footer, checked at the default width.
+	footer := stepsFooter(panelWidth)
+	if n := ansi.StringWidth(footer); n > panelWidth {
+		t.Fatalf("steps footer is %d cells, panel is %d: %q", n, panelWidth, footer)
 	}
-	footer := stripColor(raw)
-	if strings.Contains(footer, "…") {
-		t.Fatalf("steps footer truncated at panelWidth=%d: %q", panelWidth, footer)
+	plain := stripColor(footer)
+	if strings.Contains(plain, "…") {
+		t.Fatalf("steps footer truncated at panelWidth=%d: %q", panelWidth, plain)
 	}
 	for _, want := range []string{"alt+↑↓", "alt+enter", "alt+←→"} {
-		if !strings.Contains(footer, want) {
-			t.Fatalf("steps footer missing %q: %q", want, footer)
+		if !strings.Contains(plain, want) {
+			t.Fatalf("steps footer missing %q: %q", want, plain)
 		}
 	}
 	// The regression itself: a bare key after the separator means the
 	// modifier dropped out again.
 	for _, bare := range []string{" · enter open", " · ←→"} {
-		if strings.Contains(footer, bare) {
-			t.Fatalf("steps footer shows bare %q: %q", bare, footer)
+		if strings.Contains(plain, bare) {
+			t.Fatalf("steps footer shows bare %q: %q", bare, plain)
 		}
+	}
+
+	// The evolution footer: same width contract, resize chord spelled.
+	efooter := evoFooter(panelWidth)
+	if strings.Contains(stripColor(efooter), "…") {
+		t.Fatalf("evolve footer truncated at panelWidth=%d: %q", panelWidth, efooter)
+	}
+	if !strings.Contains(stripColor(efooter), "alt+←→") {
+		t.Fatalf("evolve footer missing alt+←→: %q", efooter)
+	}
+	if strings.Contains(stripColor(efooter), " · ←→") {
+		t.Fatalf("evolve footer shows bare ←→: %q", efooter)
 	}
 
 	// Resident idle legend: the same chords in both languages.
@@ -73,17 +77,19 @@ func TestKeyHintsSpellModifiers(t *testing.T) {
 		}
 	}
 
-	// Evolve panel footer: the resize chord spelled, fits the width whole.
-	erows := m.renderEvolve(panelWidth, 12)
-	eraw := erows[len(erows)-1]
-	efooter := stripColor(eraw)
-	if strings.Contains(efooter, "…") {
-		t.Fatalf("evolve footer truncated at panelWidth=%d: %q", panelWidth, efooter)
+	// Composed column: whichever panel is open, its footer parks on the
+	// very bottom row — the plan block sits directly above it (#1).
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	col := rightColumnRows(m, 20)
+	if len(col) != 20 {
+		t.Fatalf("composed column rows = %d, want 20", len(col))
 	}
-	if !strings.Contains(efooter, "alt+←→") {
-		t.Fatalf("evolve footer missing alt+←→: %q", efooter)
+	if last := col[len(col)-1]; !strings.Contains(last, "alt+enter") {
+		t.Fatalf("steps footer not at the column bottom: %q", last)
 	}
-	if strings.Contains(efooter, " · ←→") {
-		t.Fatalf("evolve footer shows bare ←→: %q", efooter)
+	m.evoOn = true
+	if last := rightColumnRows(m, 20)[19]; !strings.Contains(last, "/exam") {
+		t.Fatalf("evo footer not at the column bottom: %q", last)
 	}
 }

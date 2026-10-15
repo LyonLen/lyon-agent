@@ -34,7 +34,9 @@ func TestRenderEvolve(t *testing.T) {
 		}
 	}
 
-	// Fresh ledger: header first, hint block in the body, footer last.
+	// Fresh ledger: header first, hint block in the body. The footer is
+	// composed by composeSplit at the column bottom — it spans the whole
+	// right column now that the resident plan block sits above it (#1).
 	rows := m.renderEvolve(40, 12)
 	joined := strings.Join(rows, "\n")
 	if !strings.Contains(joined, "evolution") {
@@ -43,8 +45,8 @@ func TestRenderEvolve(t *testing.T) {
 	if !strings.Contains(joined, "no scores yet") {
 		t.Fatalf("empty-state hints missing:\n%s", joined)
 	}
-	if !strings.Contains(rows[len(rows)-1], "/exam") {
-		t.Fatalf("footer hint missing: %q", rows[len(rows)-1])
+	if !strings.Contains(evoFooter(40), "/exam") {
+		t.Fatalf("footer hint missing: %q", evoFooter(40))
 	}
 
 	// File a scorecard: the class row appears with seat, clock and mean.

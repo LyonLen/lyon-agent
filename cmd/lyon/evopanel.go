@@ -35,8 +35,9 @@ var evoClassOrder = []string{
 
 // renderEvolve produces exactly h rows of at most w cells — the same
 // contract as renderSteps, so composeSplit treats both panels alike.
-// Layout: header row, one row per class (clipped to the room), blanks,
-// footer hint row last.
+// Layout: header row, one row per class (clipped to the room), blanks.
+// The hint footer and the resident plan block are composed above/below
+// by composeSplit — they span the whole right column (#1).
 func (m *tuiModel) renderEvolve(w, h int) []string {
 	if w <= 0 || h <= 0 {
 		return nil
@@ -64,7 +65,7 @@ func (m *tuiModel) renderEvolve(w, h int) []string {
 		feed = feed[len(feed)-feedCap:]
 	}
 
-	room := h - 2 - len(feed) // content rows; footer takes one more
+	room := h - 1 - len(feed) // content rows; the header takes one more
 	if room < 0 {
 		room = 0
 	}
@@ -86,14 +87,18 @@ func (m *tuiModel) renderEvolve(w, h int) []string {
 	for _, l := range feed {
 		out = append(out, fitRow(l, w))
 	}
-	for len(out) < h-1 {
+	for len(out) < h {
 		out = append(out, "")
 	}
-	if h >= 2 {
-		out = append(out, fitRow(paint(cDim, tr("/exam · /route · alt+←→ width · alt+e close",
-			"/exam · /route · alt+←→ 调宽 · alt+e 关闭")), w))
-	}
 	return out
+}
+
+// evoFooter is the evolution panel's hint row — the column's shared
+// bottom line, composed by composeSplit below the plan block (#1), so
+// the plan sits in the corner whichever panel is open.
+func evoFooter(w int) string {
+	return fitRow(paint(cDim, tr("/exam · /route · alt+←→ width · alt+e close",
+		"/exam · /route · alt+←→ 调宽 · alt+e 关闭")), w)
 }
 
 // evolveRow renders one class: class name, seat (model or "(open)"), the
