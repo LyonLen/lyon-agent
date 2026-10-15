@@ -304,14 +304,21 @@ func (m *tuiModel) headerLine() string {
 // headerRows) so small windows keep their transcript rows.
 var lyonLogo = logoFont.render("LYON")
 
-// headerRows builds the pinned header block: the wordmark (roomy
-// terminals only), the identity line, and the divider that separates the
-// software area from the session area below it.
+// headerRows builds the pinned header block: the wordmark with the four
+// status cells riding its right side (roomy terminals only — #16,
+// header_widgets.go), the identity line, and the divider that separates
+// the software area from the session area below it. Row count is
+// unchanged either way, so View's frame math never moves.
 func (m *tuiModel) headerRows() []string {
 	rows := []string{m.clip(m.headerLine())}
 	if m.width >= 46 && m.height >= 26 {
-		for _, l := range lyonLogo {
-			rows = append(rows, m.clip(paint(cBold+cCyan, l)))
+		cells := widgetColumns(m, m.width-logoCells) // nil if too narrow to show
+		for i, l := range lyonLogo {
+			row := paint(cBold+cCyan, l)
+			if i < len(cells) {
+				row += cells[i]
+			}
+			rows = append(rows, m.clip(row))
 		}
 	}
 	rows = append(rows, m.clip(ruleRow(m.width)))

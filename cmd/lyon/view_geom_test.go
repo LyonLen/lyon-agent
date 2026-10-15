@@ -223,7 +223,8 @@ func TestIdleTypingKeepsViewportStable(t *testing.T) {
 // TestHeaderBlockGeometry: the pinned header block = identity line +
 // wordmark (roomy terminals only) + full-width divider; narrow windows
 // drop the logo but keep the rule. The block's row count feeds View's
-// frame math, and the logo rows must stay exactly wordmark-width.
+// frame math, and the logo rows must stay exactly full-width: the 36-cell
+// wordmark plus the four status cells' region reaching the right edge.
 func TestHeaderBlockGeometry(t *testing.T) {
 	m := newTestModel(t)
 
@@ -237,8 +238,8 @@ func TestHeaderBlockGeometry(t *testing.T) {
 		if !strings.ContainsAny(s, "█═╔╗╚╝") {
 			t.Fatalf("logo row %d missing box-drawing glyphs: %q", i, s)
 		}
-		if n := ansi.StringWidth(s); n != 36 {
-			t.Fatalf("logo row %d is %d cells, want the wordmark's 36: %q", i, n, s)
+		if n := ansi.StringWidth(s); n != 100 { // 36 wordmark + 64 cells of widgets
+			t.Fatalf("logo row %d is %d cells, want 36 wordmark + widgets == 100: %q", i, n, s)
 		}
 	}
 	if rule := stripColor(head[7]); rule != strings.Repeat("─", 100) {

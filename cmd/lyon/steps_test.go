@@ -160,9 +160,12 @@ func TestStepsPanelGeometry(t *testing.T) {
 		t.Fatalf("/steps off layout: tw=%d pw=%d", m.tw, m.pw)
 	}
 	checkView(t, m, "panel toggled off")
-	if strings.Contains(m.View(), "│") {
-		t.Fatal("gutter still present after toggle off")
-	}
+	// No View-level character assertion survives here: the header widget
+	// band (#16) draws its own box separators and the transcript echoes
+	// "exec #1 read_file", so every once-panel-only marker is now shared.
+	// pw==0 above already forces composeSplit to skip renderSteps — the
+	// toggle contract is geometric, and the on-state content is asserted
+	// at 140 cols above.
 	m.slash("/steps")
 	if m.pw != panelWidth {
 		t.Fatalf("/steps on pw=%d", m.pw)
