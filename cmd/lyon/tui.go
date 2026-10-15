@@ -684,6 +684,14 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			u.Input, u.Output, u.CacheRead, sanitizeText(ev.Detail),
 			paint(cDim, fmt.Sprintf("%dms", ev.DurationMS))))
 
+	case agent.EventQueueInjected:
+		// The session delivered a parked line at a turn gap (#2): drop the
+		// display mirror and record it like the prompt it now is — a real
+		// prompt row mid-run, so the transcript shows where the new
+		// instruction entered the conversation.
+		m.flushPend()
+		m.queueInjected(ev.Text)
+
 	case agent.EventError:
 		m.flushPend()
 		m.pushStyled("", paint(cRed, tr("error: ", "错误: ")+sanitizeText(ev.Err)))
@@ -2461,12 +2469,17 @@ func (m *tuiModel) submit() tea.Cmd {
 	}
 	if m.busy {
 		// Park the draft: enter never drops a keystroke while a prompt
-		// runs. The queue drains one line per prompt_end.
+		// runs. The line goes straight to the session too (#2) — it lands
+		// at the next turn gap of the running prompt; the local park is
+		// only the display mirror (removed when queue_injected arrives).
+		// If the run ends first, Enqueue's entry was dropped there and
+		// kickQueued sends the parked line the old way — never both.
 		m.ti.SetValue("")
 		m.updateSuggestions()
 		m.queued = append(m.queued, line)
-		m.status = tr(fmt.Sprintf("queued (%d) — sends when the current prompt ends", len(m.queued)),
-			fmt.Sprintf("已排队 (%d) — 当前提问结束后自动发送", len(m.queued)))
+		_ = m.sess.Enqueue(line) // idle/closed race: the parked copy still goes out at prompt_end
+		m.status = tr(fmt.Sprintf("queued (%d) — injects at the next gap of the running prompt", len(m.queued)),
+			fmt.Sprintf("已排队 (%d) — 将插入当前提问的下一个间隙", len(m.queued)))
 		m.refresh()
 		return nil
 	}
@@ -2530,6 +2543,26 @@ func (m *tuiModel) sendPrompt(line string) tea.Cmd {
 	m.follow = true
 	m.refresh()
 	return m.spin.Tick
+}
+
+// queueInjected lands a line the session delivered mid-run at a turn gap
+// (#2): the display mirror loses it (the session already has it in
+// history), and the transcript gains the prompt row so the injection point
+// is visible. FIFO order on both sides means the first equal string is the
+// one that arrived — duplicate lines stay in step.
+func (m *tuiModel) queueInjected(text string) {
+	for i, q := range m.queued {
+		if q == text {
+			m.queued = append(m.queued[:i], m.queued[i+1:]...)
+			break
+		}
+	}
+	m.hist = append(m.hist, text)
+	m.histIdx = len(m.hist)
+	m.lines = append(m.lines, tline{kind: linePrompt, raw: sanitizeText(text)},
+		tline{kind: lineStyled, raw: ""})
+	m.follow = true
+	m.status = tr("injected into the running prompt", "已插入当前提问的间隙")
 }
 
 // kickQueued sends the next parked prompt — one per call, so every

@@ -22,6 +22,9 @@ var (
 	ErrSessionClosed = errors.New("session closed")
 	// ErrPromptInProgress is returned by Submit while a prompt is still running.
 	ErrPromptInProgress = errors.New("a prompt is already in progress")
+	// ErrNoPromptRunning is returned by Enqueue when the session is idle —
+	// there is no run to inject into; Submit the line instead.
+	ErrNoPromptRunning = errors.New("no prompt running: use Submit")
 	// ErrInterrupted is the prompt_end error reported when Interrupt stops
 	// an in-flight prompt. The session stays usable for the next prompt.
 	ErrInterrupted = errors.New("interrupted")
@@ -69,6 +72,13 @@ type Session struct {
 	// runner is owned exclusively by the drive goroutine.
 	runner *anthropic.BetaToolRunnerStreaming
 	busy   atomic.Bool
+
+	// inbox holds Enqueue'd prompts waiting for the next turn gap (#2).
+	// Guarded by mu, and the idle transition shares that critical section:
+	// drive clears inbox in the same lock that drops busy, so an entry can
+	// neither outlive its run (the caller still holds its copy and re-sends
+	// on prompt_end) nor be delivered twice.
+	inbox []string
 
 	// promptCancel cancels the in-flight prompt's derived context. Set by
 	// drive at prompt start, consumed by Interrupt; nil while idle.
@@ -235,6 +245,60 @@ func (s *Session) SubmitOn(prompt, model string) error {
 	case <-s.ctx.Done():
 		s.busy.Store(false)
 		return ErrSessionClosed
+	}
+}
+
+// Enqueue accepts a prompt while another is running (#2 gap injection):
+// the line waits in the session inbox and joins the running conversation
+// at the next turn boundary instead of after prompt_end — like a queued
+// message in Claude Code, the working task sees it mid-flight. Returns
+// ErrNoPromptRunning when idle (Submit instead) and ErrSessionClosed
+// after Close. Best effort: entries still undelivered when the run ends
+// are dropped in drive's exit critical section, so callers keep their own
+// copy and re-send it on prompt_end — the TUI's queue does exactly that.
+func (s *Session) Enqueue(prompt string) error {
+	if s.ctx.Err() != nil {
+		return ErrSessionClosed
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.busy.Load() {
+		return ErrNoPromptRunning
+	}
+	s.inbox = append(s.inbox, prompt)
+	return nil
+}
+
+// injectQueuedGap drains the inbox at a turn gap (#2): each line joins the
+// runner's history as its own user turn — the next round appends its
+// tool_results right after, which the API combines into one turn (and the
+// apiGuard preflights to the same shape) — so the running prompt picks the
+// instruction up on its very next API call. The event lets the frontend
+// drop its display copy, and prompt_start keeps the audit trail honest.
+// Drive goroutine only; never called with the runner nil.
+func (s *Session) injectQueuedGap() {
+	s.mu.Lock()
+	if len(s.inbox) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	lines := s.inbox
+	s.inbox = nil
+	if last := lines[len(lines)-1]; strings.TrimSpace(last) != "" {
+		// Latest prompt drives title intent — same rule as SubmitOn.
+		s.lastPrompt = last
+	}
+	s.mu.Unlock()
+
+	for _, line := range lines {
+		s.runner.AppendMessages(anthropic.NewBetaUserMessage(
+			tools.PromptBlocks(s.eng.cfg.Workspace, line)...))
+		s.eng.hooks.Fire(hooks.Record{
+			Event:  hooks.EvPromptStart,
+			Prompt: line,
+			Detail: "injected at a turn gap (#2)",
+		})
+		s.emit(Event{Type: EventQueueInjected, Text: line, TS: time.Now()})
 	}
 }
 
@@ -450,6 +514,11 @@ func (s *Session) drive(prompt, runModel string) {
 			break
 		}
 
+		// The gap between rounds (#2): parked prompts join the conversation
+		// before this round's tools execute and POST — the model reads them
+		// together with the tool results on the very next API call.
+		s.injectQueuedGap()
+
 		// Global turn admission: bounds in-flight API+tool iterations across
 		// every session of this engine when MaxConcurrentTurns is set.
 		if !s.eng.acquireTurn(pctx) {
@@ -595,7 +664,14 @@ func (s *Session) drive(prompt, runModel string) {
 	// clearing busy after the emit loses that CAS (ErrPromptInProgress).
 	s.promptCancel.CompareAndSwap(&pcancel, nil)
 	pcancel()
+	// Undelivered inbox entries drop here, in the same critical section
+	// that releases busy (#2): Enqueue checks busy under mu, so nothing can
+	// land after the final gap unnoticed — the caller still holds its copy
+	// and re-sends on prompt_end, and no line is ever delivered twice.
+	s.mu.Lock()
+	s.inbox = nil
 	s.busy.Store(false)
+	s.mu.Unlock()
 
 	s.emit(Event{
 		Type:       EventPromptEnd,
@@ -685,7 +761,8 @@ func (s *Session) emit(e Event) {
 	// live output chunks): those would drown the log without adding
 	// decisions. Fire never blocks.
 	switch e.Type {
-	case EventTextDelta, EventThinkingDelta, EventMessageStart, EventToolExecOutput:
+	case EventTextDelta, EventThinkingDelta, EventMessageStart, EventToolExecOutput,
+		EventQueueInjected:
 	default:
 		var u *hooks.Usage
 		if e.Usage != nil {

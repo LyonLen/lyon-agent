@@ -465,6 +465,37 @@ func TestTUIQueueWhileBusy(t *testing.T) {
 	}
 }
 
+// TestTUIQueueInjection: queue_injected from the session reconciles the
+// display mirror — the delivered line leaves the queue and lands in the
+// transcript as a prompt row mid-run, so it never gets kicked again at
+// prompt_end. Duplicate parked text removes only the first match (FIFO).
+func TestTUIQueueInjection(t *testing.T) {
+	m := newTestModel(t)
+	m.busy = true
+	m.queued = []string{"first parked", "second parked"}
+
+	m.Update(tuiEv{ev: agent.Event{Type: agent.EventQueueInjected, Text: "first parked"}})
+	if len(m.queued) != 1 || m.queued[0] != "second parked" {
+		t.Fatalf("queue after inject: %#v", m.queued)
+	}
+	if n := len(m.hist); n == 0 || m.hist[n-1] != "first parked" {
+		t.Fatalf("injected line missing from history: %#v", m.hist)
+	}
+	if !strings.Contains(m.renderTranscript(), "first parked") {
+		t.Fatalf("injected line missing from transcript:\n%s", m.renderTranscript())
+	}
+	if !strings.Contains(m.status, "injected") {
+		t.Fatalf("injection status missing: %q", m.status)
+	}
+
+	// The same line parked twice: one delivery clears one mirror entry.
+	m.queued = []string{"twin", "twin"}
+	m.Update(tuiEv{ev: agent.Event{Type: agent.EventQueueInjected, Text: "twin"}})
+	if len(m.queued) != 1 || m.queued[0] != "twin" {
+		t.Fatalf("duplicate park after inject: %#v", m.queued)
+	}
+}
+
 // TestTUISlashAudit: a slash command leaves its own line in the
 // transcript — ↑ can find it again — while the output still answers in
 // the temporary area, and the line stays out of prompt history.

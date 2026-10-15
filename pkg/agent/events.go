@@ -25,6 +25,7 @@ const (
 	EventSubagentStart    EventType = "subagent_start"     // one dispatched subtask begins (#53 fan-out; carries SubID)
 	EventSubagentEnd      EventType = "subagent_end"       // run_subagent / dispatched subtask finished (independent usage line)
 	EventMemoryInjected   EventType = "memory_injected"    // hot memory block rode into the first message
+	EventQueueInjected    EventType = "queue_injected"     // a parked prompt landed mid-run at a turn gap (#2)
 	EventTurnEnd          EventType = "turn_end"           // one API turn finished (usage here)
 	EventPromptEnd        EventType = "prompt_end"         // whole tool loop for one prompt finished
 	EventError            EventType = "error"
