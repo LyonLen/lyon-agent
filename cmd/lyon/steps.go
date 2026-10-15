@@ -73,8 +73,10 @@ type execStep struct {
 
 const (
 	// panelWidth is the default right column's width; the transcript takes
-	// the rest. alt+←/→ moves it within [panelWMin, panelWMax].
-	panelWidth = 40
+	// the rest. alt+←/→ moves it within [panelWMin, panelWMax]. 52 because
+	// the key-hint footers spell every modifier out (alt+enter, alt+←→) —
+	// a shortened "enter open" reads as the bare key and misleads (#6).
+	panelWidth = 52
 	panelWMin  = 28
 	panelWMax  = 72
 	// panelMinWidth hides the panel on narrow terminals — a cramped
@@ -697,11 +699,11 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 	footer := ""
 	if h >= 2 {
 		avail = h - 2
-		// 35 cells EN / 34 ZH — fits the default 40-col panel whole;
-		// the alt+ prefix carries over from the row, only the first key
-		// spells it out.
-		footer = fitRow(paint(cDim, tr("alt+↑↓ select · enter open · ←→ width",
-			"alt+↑↓ 选择 · enter 展开 · ←→ 调宽")), w)
+		// 50 cells EN / 47 ZH — fits the default 52-col panel whole.
+		// Every key carries its own modifier: "enter open · ←→ width"
+		// read as the BARE keys (send, cursor move) and misled (#6).
+		footer = fitRow(paint(cDim, tr("alt+↑↓ select · alt+enter open · alt+←→ width",
+			"alt+↑↓ 选择 · alt+enter 展开 · alt+←→ 调宽")), w)
 	}
 	if avail <= 0 {
 		return []string{fitRow(header, w)}

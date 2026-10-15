@@ -1004,8 +1004,8 @@ func (m *tuiModel) doNew() {
 // are discoverable without knowing /help exists (narrow terminals clip
 // the tail).
 const (
-	idleLegendEN = "enter send · ctrl+c interrupt · esc close output · ctrl+o all folds · pgup/pgdn scroll · shift+alt+↑↓ steps · alt+e evolve · /help"
-	idleLegendZH = "enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+o 全展开 · pgup/pgdn 滚动 · shift+alt+↑↓ 面板 · alt+e 进化 · /help"
+	idleLegendEN = "enter send · ctrl+c interrupt · esc close output · ctrl+o all folds · pgup/pgdn scroll · shift+alt+↑↓ select · alt+enter open · alt+←→ width · alt+e evolve · /help"
+	idleLegendZH = "enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+o 全展开 · pgup/pgdn 滚动 · shift+alt+↑↓ 选择 · alt+enter 展开 · alt+←→ 调宽 · alt+e 进化 · /help"
 )
 
 var idleStatus = tr(idleLegendEN, idleLegendZH)
@@ -2748,7 +2748,7 @@ func helpLines() []string {
 			"  /quit    退出",
 			paint(cDim, "输入 / 弹出命令列表 — ↑/↓ 选择，enter 执行 · tab 补全 · esc 关闭"),
 			paint(cDim, "快捷键：pgup/pgdn 或滚轮滚动 · ↑/↓ 提问历史 · ctrl+t 思考折叠 · ctrl+o 展开全部折叠 · shift+tab 模式 · ctrl+c 中断 · esc 关闭 output/弹层 · alt+v 粘贴图片"),
-			paint(cDim, "steps 面板：alt+↑/↓ 选步骤 · alt+enter 展开 · alt+←（或 ctrl+shift+←）打开/加宽 · alt+→ 收窄"),
+			paint(cDim, "steps 面板：shift+alt+↑↓ 选步骤 · alt+enter 展开 · alt+←→ 打开/调宽（IDE 吞 alt 时用 shift+alt+方向键，或 ctrl+shift+←/→）"),
 			paint(cDim, "进化面板：alt+e（或 /evolve）— 榜单、考试时钟 · 面板开着时评分/考试卡直接进面板"),
 			paint(cDim, "批准卡片（shell/write/edit，默认开启）：y 一次 · a 本会话内放行该工具 · n 拒绝 · ↑↓/tab 选卡片 · enter 确认"),
 			paint(cDim, "附件：输入 @ 弹出工作区文件列表选择插入；@img.png 随提问发送图片（空格路径加引号）"),
@@ -2781,7 +2781,7 @@ func helpLines() []string {
 		"  /quit    exit",
 		paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),
 		paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · ctrl+o expand all folds · shift+tab mode · ctrl+c interrupt · esc close output/overlays · alt+v paste image"),
-		paint(cDim, "steps panel: alt+↑/↓ select a step · alt+enter expand · alt+← (or ctrl+shift+←) opens/widens · alt+→ narrows"),
+		paint(cDim, "steps panel: shift+alt+↑↓ select · alt+enter expand · alt+←→ opens/widens (if the IDE swallows alt, use shift+alt+arrows or ctrl+shift+←/→)"),
 		paint(cDim, "evolution panel: alt+e (or /evolve) — leaderboard, exam clock · score/exam cards feed the panel while it is open"),
 		paint(cDim, "approve card (shell/write/edit, on by default): y once · a allow this tool all session · n deny · ↑↓/tab choose · enter"),
 		paint(cDim, "attach: typing @ pops the workspace file list to pick from; @img.png sends an image (quote spaces)"),

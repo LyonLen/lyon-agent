@@ -90,8 +90,8 @@ func (m *tuiModel) renderEvolve(w, h int) []string {
 		out = append(out, "")
 	}
 	if h >= 2 {
-		out = append(out, fitRow(paint(cDim, tr("/exam · /route · alt+e close",
-			"/exam · /route · alt+e 关闭")), w))
+		out = append(out, fitRow(paint(cDim, tr("/exam · /route · alt+←→ width · alt+e close",
+			"/exam · /route · alt+←→ 调宽 · alt+e 关闭")), w))
 	}
 	return out
 }
