@@ -72,13 +72,13 @@
       <div class="card">
         <div class="icon">📊</div>
         <h3>Production scoring & leaderboard</h3>
-        <p>Every model is scored on four dimensions — success rate, latency, cost, human review — into a local leaderboard. On-duty means qualified: fail the bar and you are demoted, someone else steps in.</p>
+        <p>Every model is scored on four dimensions — correctness, efficiency, cost, compliance (weights 0.50 / 0.20 / 0.15 / 0.15) — into a local leaderboard. On-duty means qualified: fail the bar and you are demoted, someone else steps in.</p>
         <span class="tag">pkg/eval</span>
       </div>
       <div class="card">
         <div class="icon">📝</div>
         <h3>Closed-book exams</h3>
-        <p>Every 10 rounds triggers a closed-book exam with answer keys; failures auto-summarize their causes. Two consecutive fails revoke your seat until you fix it and re-certify — elimination, coded.</p>
+        <p>Every 10 rounds triggers a closed-book exam with answer keys. Two consecutive fails vacate the seat, and the next production scorecard re-elects — elimination, coded.</p>
         <span class="tag">/exam · LYON_EXAM</span>
       </div>
       <div class="card">
@@ -90,13 +90,13 @@
       <div class="card">
         <div class="icon">🧪</div>
         <h3>Knowledge coverage gate</h3>
-        <p>Before working open-book, take a closed-book quiz on the knowledge coverage; below 0.6 nothing passes — only the gap-specific material is injected. You only "know it" once you've proven it.</p>
+        <p>Before working open-book, take a closed-book quiz on the knowledge coverage; below 0.6 the misses become gaps and the gap-specific material is folded into the task — the gate feeds, it never blocks. You only "know it" once you've proven it.</p>
         <span class="tag">coverage ≥ 0.6</span>
       </div>
       <div class="card">
         <div class="icon">⚙️</div>
         <h3>Mechanical workflow execution</h3>
-        <p>Control flow is data, not prompt text: once a workflow is frozen through the gate, steps run mechanically in fixed order and the LLM only fills in each node — no more decide-as-you-go jitter.</p>
+        <p>Control flow is data, not prompt text: a workflow freezes only through a passing closed-book exam, then steps run mechanically in fixed order and the LLM only fills in each node — no more decide-as-you-go jitter.</p>
         <span class="tag">/flow · pkg/flow</span>
       </div>
     </div>
@@ -132,7 +132,7 @@
           <span class="title">/exam — closed-book exam</span>
         </div>
         <iframe src="screens/tui-exam.html" title="exam screenshot" scrolling="auto"></iframe>
-        <figcaption>Exams run async in the steps panel, graded against answer keys with failure-cause summarization — your work is never interrupted.</figcaption>
+        <figcaption>Exams run async in the steps panel, graded against answer keys with the score echoed back — your work is never interrupted.</figcaption>
       </figure>
 
       <figure class="term">
@@ -166,13 +166,13 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond     <span class="c"># 
 
     <h3>3 · Launch</h3>
 <pre><span class="p">$</span> ./bin/lyon chat            <span class="c"># fullscreen TUI workbench</span>
-<span class="p">$</span> ./bin/lyon -p <span class="s">"refactor this function"</span>  <span class="c"># one-shot CLI, run and go</span>
-<span class="p">$</span> ./bin/lyon chat            <span class="c"># sessions auto-save; /resume picks them up anytime</span></pre>
+<span class="p">$</span> ./bin/lyon run <span class="s">"refactor this function"</span>  <span class="c"># one-shot CLI, run and go</span>
+<span class="p">$</span> ./bin/lyon chat -c         <span class="c"># sessions auto-save; /resume or -c picks them up anytime</span></pre>
 
     <div class="note">
       <strong>Everything stays local:</strong> sessions, leaderboards and exam records all live in
       <code class="inline">$LYON_HOME</code> (default <code class="inline">~/.lyon</code>).
-      No telemetry, no cloud sync.
+      No telemetry; memory cloud sync stays off until you explicitly configure <code class="inline">LYON_SYNC_URL/TOKEN</code>, and only the team and personal layers sync — the project layer never leaves this machine.
     </div>
   </section>
 

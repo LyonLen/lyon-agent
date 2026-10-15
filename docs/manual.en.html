@@ -317,8 +317,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       Clock: every 10 successful prompts books a round; when due and the seat is occupied an
       exam auto-runs; <strong>two consecutive fails → dismissed</strong>, seat vacant, the next
       production scorecard re-elects.
-      Exams run async in the steps panel without interrupting your work; failures
-      auto-summarize their causes.
+      Exams run async in the steps panel without interrupting your work; the score
+      echoes back on the step line.
     </p>
 
     <div class="shots" style="margin-top:20px;">
@@ -336,7 +336,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
           <span class="title">/exam — closed-book grading</span>
         </div>
         <iframe src="screens/tui-exam.html" title="exam screenshot" scrolling="auto"></iframe>
-        <figcaption>Graded against answer keys; Pct ≥ 0.75 passes, wrong answers feed the failure-cause library.</figcaption>
+        <figcaption>Graded against answer keys; Pct ≥ 0.75 passes, the score echoes back immediately.</figcaption>
       </figure>
     </div>
 

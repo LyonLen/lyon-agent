@@ -69,13 +69,13 @@
       <div class="card">
         <div class="icon">📊</div>
         <h3>生产评分与在岗榜单</h3>
-        <p>按成功率、耗时、成本、用户复核四维给每个模型打分，写入本地 leaderboard。在岗的必须是达标的——不达标就降级，换人上场。</p>
+        <p>按正确性、效率、成本、合规四维（权重 0.50 / 0.20 / 0.15 / 0.15）给每个模型打分，写入本地 leaderboard。在岗的必须是达标的——不达标就降级，换人上场。</p>
         <span class="tag">pkg/eval</span>
       </div>
       <div class="card">
         <div class="icon">📝</div>
         <h3>闭卷考核</h3>
-        <p>每 10 轮触发一次带标准答案的闭卷考试，失败自动归纳错因。连挂 2 次撤销上岗资格，修复后重新认证——淘汰机制落到代码里。</p>
+        <p>每 10 轮触发一次带标准答案的闭卷考试。连挂 2 次撤销上岗资格，席位空缺，下一张生产记分卡重新选举——淘汰机制落到代码里。</p>
         <span class="tag">/exam · LYON_EXAM</span>
       </div>
       <div class="card">
@@ -87,13 +87,13 @@
       <div class="card">
         <div class="icon">🧪</div>
         <h3>知识覆盖率门禁</h3>
-        <p>开卷干活之前，先用题库闭卷测一次知识覆盖率；低于 0.6 不放行，只注入缺口对应的定向材料。学过了才算会。</p>
+        <p>开卷干活之前，先用题库闭卷测一次知识覆盖率；低于 0.6 记为缺口，缺口对应的定向材料折进任务再开工——门禁只补给、不拦路。学过了才算会。</p>
         <span class="tag">coverage ≥ 0.6</span>
       </div>
       <div class="card">
         <div class="icon">⚙️</div>
         <h3>机械式 Workflow 执行</h3>
-        <p>控制流是数据不是提示词：workflow 通过门禁冻结后，步骤按固定顺序机械执行，LLM 只负责节点内的填空，走一步算一步的抖动不复存在。</p>
+        <p>控制流是数据不是提示词：workflow 通过闭卷考核才能冻结，之后步骤按固定顺序机械执行，LLM 只负责节点内的填空，走一步算一步的抖动不复存在。</p>
         <span class="tag">/flow · pkg/flow</span>
       </div>
     </div>
@@ -129,7 +129,7 @@
           <span class="title">/exam — 闭卷考核</span>
         </div>
         <iframe src="screens/tui-exam.html" title="考核截图" scrolling="auto"></iframe>
-        <figcaption>考核异步跑在步骤面板里，带标准答案判卷、错因归纳，不打断你手头的活。</figcaption>
+        <figcaption>考核异步跑在步骤面板里，带标准答案判卷、得分当场回显，不打断你手头的活。</figcaption>
       </figure>
 
       <figure class="term">
@@ -157,18 +157,18 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond     <span class="c"># 
 <pre><span class="c"># Anthropic 官方</span>
 <span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=sk-ant-...
 
-<span class="c"># 或任意 OpenAI 兼容端点（key 与 base URL 二选一配置即可）</span>
+<span class="c"># 或任意 OpenAI 兼容端点（key 与 base URL 一并配置）</span>
 <span class="p">$</span> export ANTHROPIC_BASE_URL=<span class="s">https://token-plan-cn.xiaomimimo.com/v1</span>
 <span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=<span class="s">&lt;your-key&gt;</span></pre>
 
     <h3>3 · 启动</h3>
 <pre><span class="p">$</span> ./bin/lyon chat            <span class="c"># 全屏 TUI 工作台</span>
-<span class="p">$</span> ./bin/lyon -p <span class="s">"重构这个函数"</span>  <span class="c"># 单次 CLI 执行，打完即走</span>
-<span class="p">$</span> ./bin/lyon chat            <span class="c"># 会话自动落盘，/resume 随时续上</span></pre>
+<span class="p">$</span> ./bin/lyon run <span class="s">"重构这个函数"</span>  <span class="c"># 单次 CLI 执行，打完即走</span>
+<span class="p">$</span> ./bin/lyon chat -c         <span class="c"># 会话自动落盘，/resume 或 -c 随时续上</span></pre>
 
     <div class="note">
       <strong>数据都在本地：</strong>会话、榜单、考核记录全部存在 <code class="inline">$LYON_HOME</code>（默认 <code class="inline">~/.lyon</code>）。
-      无遥测、无云同步。
+      无遥测；记忆云同步默认关闭，显式配置 <code class="inline">LYON_SYNC_URL/TOKEN</code> 后才启用，且仅团队/个人层参与，项目层永不离开本机。
     </div>
   </section>
 
