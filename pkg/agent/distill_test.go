@@ -53,12 +53,13 @@ func newDistillSession(t *testing.T) (*Session, string, *memory.Store) {
 func TestApplyDistill(t *testing.T) {
 	s, _, st := newDistillSession(t)
 
-	// Save + slug + bogus scope falls back to project.
-	n := s.applyDistill(st, []distillFact{
+	// Save + slug + bogus scope falls back to project; the report
+	// carries the saved name for the visible echo.
+	rep := s.applyDistill(st, []distillFact{
 		{Name: "Build Cmd", Description: "how to build", Body: "go build ./...", Scope: "bogus"},
 	})
-	if n != 1 {
-		t.Fatalf("saved = %d, want 1", n)
+	if rep.Saved != 1 || len(rep.Names) != 1 || rep.Names[0] != "build-cmd" || len(rep.Promoted) != 0 {
+		t.Fatalf("report = %+v, want 1 saved build-cmd, no promotion", rep)
 	}
 	f, ok := st.Get(memory.ScopeProject, "build-cmd")
 	if !ok || !strings.Contains(f.Body, "go build") || f.Description != "how to build" {
@@ -66,10 +67,10 @@ func TestApplyDistill(t *testing.T) {
 	}
 
 	// Idempotent: exit distills re-run constantly — no-change saves nothing.
-	if n = s.applyDistill(st, []distillFact{
+	if rep = s.applyDistill(st, []distillFact{
 		{Name: "Build Cmd", Description: "how to build", Body: "go build ./...", Scope: "project"},
-	}); n != 0 {
-		t.Fatalf("re-apply saved %d, want 0", n)
+	}); rep.Saved != 0 {
+		t.Fatalf("re-apply saved %d, want 0", rep.Saved)
 	}
 
 	// hot=true from the model pins the fact into the resident tier.
@@ -82,21 +83,21 @@ func TestApplyDistill(t *testing.T) {
 
 	// Proven-useful facts (hits >= 2) graduate to hot on re-distill.
 	st.Save(memory.Fact{Name: "used-often", Scope: memory.ScopeProject, Body: "v1", Hits: 2})
-	if n = s.applyDistill(st, []distillFact{
+	if rep = s.applyDistill(st, []distillFact{
 		{Name: "used-often", Body: "v2 refined", Scope: "project"},
-	}); n != 1 {
-		t.Fatalf("re-distill saved %d, want 1", n)
+	}); rep.Saved != 1 {
+		t.Fatalf("re-distill saved %d, want 1", rep.Saved)
 	}
 	if f, _ := st.Get(memory.ScopeProject, "used-often"); !f.Hot || !strings.Contains(f.Body, "refined") {
 		t.Fatalf("promotion/update: %+v", f)
 	}
 
 	// Empty bodies and nameless/descless facts are dropped.
-	if n = s.applyDistill(st, []distillFact{
+	if rep = s.applyDistill(st, []distillFact{
 		{Body: "   "},
 		{Name: "", Description: "", Body: "orphan"},
-	}); n != 0 {
-		t.Fatalf("junk saved %d, want 0", n)
+	}); rep.Saved != 0 {
+		t.Fatalf("junk saved %d, want 0", rep.Saved)
 	}
 
 	// The per-pass cap keeps a runaway model from flooding the store.
@@ -104,8 +105,8 @@ func TestApplyDistill(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		flood = append(flood, distillFact{Name: "f" + string(rune('a'+i)), Body: "body"})
 	}
-	if n = s.applyDistill(st, flood); n != distillMaxFacts {
-		t.Fatalf("capped saved = %d, want %d", n, distillMaxFacts)
+	if rep = s.applyDistill(st, flood); rep.Saved != distillMaxFacts {
+		t.Fatalf("capped saved = %d, want %d", rep.Saved, distillMaxFacts)
 	}
 }
 

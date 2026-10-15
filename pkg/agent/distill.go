@@ -17,11 +17,13 @@ import (
 
 // Session self-evolution: distill durable facts from the conversation
 // into the layered memory store using the cheap subagent tier. Two
-// triggers: /remember (explicit, result shown) and exit (once, silent) —
-// both gated by LYON_DISTILL=off. The call deliberately does NOT emit on
-// the session's event channel: at exit the TUI pump may already be gone,
-// and a blocked emit would hang the process. Audit goes straight through
-// hooks.Fire (non-blocking by design); /remember reports via its return.
+// triggers: /remember (explicit, result shown) and exit — both gated by
+// LYON_DISTILL=off. The call deliberately does NOT emit on the session's
+// event channel: at exit the TUI pump may already be gone, and a blocked
+// emit would hang the process. Audit goes straight through hooks.Fire
+// (non-blocking by design); the user-visible channel is the one-line
+// echo: stdout for the exit and plain-REPL paths (Distill), the command
+// panel for the TUI (DistillWithReport → pushCmd). See DistillReport.
 const (
 	// distillMaxTokens bounds one extraction pass: facts are short.
 	distillMaxTokens = 1500
@@ -86,18 +88,87 @@ type distillFact struct {
 	Hot         bool   `json:"hot"`
 }
 
+// DistillReport summarizes one distill pass for the visible echo: how
+// many facts were written, their names, and which of them entered the
+// resident hot tier this pass. A fact that was already hot is not
+// re-promoted — Promoted only records tiers that actually changed.
+type DistillReport struct {
+	Saved    int      // facts written this pass
+	Names    []string // their names, in save order
+	Promoted []string // names that entered the hot tier this pass
+}
+
+// EchoLine renders the one-line English summary, e.g.
+// "memory: +2 facts (a, b) · 1 promoted to hot: a". Empty when nothing
+// was saved — callers keep their own "nothing durable" wording.
+func (r DistillReport) EchoLine() string { return r.echoLine(false) }
+
+// EchoLineZH is the Chinese variant: the TUI picks it through tr(), the
+// exit echo through LYON_LANG (distillEchoLine).
+func (r DistillReport) EchoLineZH() string { return r.echoLine(true) }
+
+func (r DistillReport) echoLine(zh bool) string {
+	if r.Saved <= 0 {
+		return ""
+	}
+	names := strings.Join(r.Names, ", ")
+	if zh {
+		line := fmt.Sprintf("memory: +%d 条事实（%s）", r.Saved, names)
+		if len(r.Promoted) > 0 {
+			line += fmt.Sprintf(" · %d 条晋升热层：%s", len(r.Promoted), strings.Join(r.Promoted, ", "))
+		}
+		return line
+	}
+	line := fmt.Sprintf("memory: +%d facts (%s)", r.Saved, names)
+	if len(r.Promoted) > 0 {
+		line += fmt.Sprintf(" · %d promoted to hot: %s", len(r.Promoted), strings.Join(r.Promoted, ", "))
+	}
+	return line
+}
+
+// distillEchoLine picks the exit echo's language variant. The stdout
+// echo never passes through cmd/lyon's tr(), so it reads LYON_LANG the
+// way lang.go's initLang does at startup — a runtime /lang switch does
+// not reach pkg/agent, and the exit line follows the startup language.
+func distillEchoLine(r DistillReport) string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LYON_LANG"))) {
+	case "zh", "cn", "zh-cn", "zh_cn", "zh-hans", "chinese":
+		return r.EchoLineZH()
+	default:
+		return r.EchoLine()
+	}
+}
+
 // Distill extracts durable facts from this session's history and saves
 // them into the layered memory store. Returns how many facts were
-// written. ctx bounds the model call; the history snapshot is taken
-// under histMu — but only briefly: exit runs this while a prompt may
+// written. Both in-tree callers discard the report (the exit defer and
+// the plain REPL's /remember), so Distill prints the one-line summary
+// itself: at exit the TUI is gone and stdout is the only visible
+// channel that still reaches the user. The TUI's /remember must NOT use
+// this variant — raw stdout mid-alt-screen garbles the view; it calls
+// DistillWithReport and echoes through its own command panel.
+// ctx bounds the model call; the history snapshot is taken under
+// histMu — but only briefly: exit runs this while a prompt may
 // still be settling, and an unbounded lock wait would hang the process
 // (see lockHistForDistill).
 func (s *Session) Distill(ctx context.Context) (int, error) {
+	rep, err := s.DistillWithReport(ctx)
+	if err == nil && rep.Saved > 0 {
+		fmt.Println(distillEchoLine(rep))
+	}
+	return rep.Saved, err
+}
+
+// DistillWithReport is the structured twin of Distill: same pass, same
+// gates, but the caller receives fact names and hot-tier promotions for
+// its own echo and stdout stays clean (UI layers route the report
+// through their channels instead of a raw write).
+func (s *Session) DistillWithReport(ctx context.Context) (DistillReport, error) {
 	if strings.EqualFold(os.Getenv("LYON_DISTILL"), "off") {
-		return 0, nil
+		return DistillReport{}, nil
 	}
 	if !s.lockHistForDistill(distillLockWait) {
-		return 0, nil // drive still busy — skip this round, never hang exit
+		return DistillReport{}, nil // drive still busy — skip this round, never hang exit
 	}
 	msgs := s.seed
 	if s.runner != nil {
@@ -107,7 +178,7 @@ func (s *Session) Distill(ctx context.Context) (int, error) {
 
 	rendered := renderHistory(msgs)
 	if r := []rune(rendered); len(r) < distillMinHistory {
-		return 0, nil
+		return DistillReport{}, nil
 	} else if len(r) > distillHistoryCap {
 		rendered = "(earlier history elided)\n" + string(r[len(r)-distillHistoryCap:])
 	}
@@ -119,7 +190,7 @@ func (s *Session) Distill(ctx context.Context) (int, error) {
 	prev := s.distillHash
 	s.mu.Unlock()
 	if key == prev {
-		return 0, nil
+		return DistillReport{}, nil
 	}
 
 	params := anthropic.BetaMessageNewParams{
@@ -131,7 +202,7 @@ func (s *Session) Distill(ctx context.Context) (int, error) {
 	}
 	resp, err := s.eng.client.Beta.Messages.New(ctx, params)
 	if err != nil {
-		return 0, err
+		return DistillReport{}, err
 	}
 	s.mu.Lock()
 	s.distillHash = key // extraction ran clean — next identical pass is free
@@ -144,7 +215,7 @@ func (s *Session) Distill(ctx context.Context) (int, error) {
 	}
 	facts := parseDistillFacts(strings.Join(parts, "\n"))
 	if len(facts) == 0 {
-		return 0, nil
+		return DistillReport{}, nil
 	}
 	return s.applyDistill(memory.Open(s.eng.cfg.Workspace), facts), nil
 }
@@ -169,14 +240,15 @@ func parseDistillFacts(text string) []distillFact {
 	return facts
 }
 
-// applyDistill persists parsed facts and audits each write. Idempotent:
-// re-distilling an unchanged conversation saves nothing (exit runs this
-// every time). Facts that already exist and have proven useful
-// (hits >= distillPromoteHits) graduate to the hot tier.
-func (s *Session) applyDistill(st *memory.Store, facts []distillFact) int {
-	saved := 0
+// applyDistill persists parsed facts and audits each write, returning
+// the report the visible echo renders (names + hot-tier promotions).
+// Idempotent: re-distilling an unchanged conversation saves nothing
+// (exit runs this every time). Facts that already exist and have proven
+// useful (hits >= distillPromoteHits) graduate to the hot tier.
+func (s *Session) applyDistill(st *memory.Store, facts []distillFact) DistillReport {
+	var rep DistillReport
 	for _, f := range facts {
-		if saved >= distillMaxFacts {
+		if rep.Saved >= distillMaxFacts {
 			break
 		}
 		body := strings.TrimSpace(f.Body)
@@ -214,9 +286,15 @@ func (s *Session) applyDistill(st *memory.Store, facts []distillFact) int {
 		if !hot && existed && old.Hits >= distillPromoteHits {
 			hot = true // proven useful: graduate to the resident tier
 		}
+		promoted := false
 		if hot {
+			// Save carries an existing fact's hot flag through, so the
+			// toggle (not the hot flag itself) marks a tier that just
+			// changed — an already-hot fact is not re-promoted.
 			if cur, ok := st.Get(scope, name); ok && !cur.Hot {
-				st.ToggleHot(scope, name)
+				if _, err := st.ToggleHot(scope, name); err == nil {
+					promoted = true
+				}
 			}
 		}
 		hotNote := ""
@@ -228,7 +306,11 @@ func (s *Session) applyDistill(st *memory.Store, facts []distillFact) int {
 			Tool:   name,
 			Detail: fmt.Sprintf("%s scope%s", scope, hotNote),
 		})
-		saved++
+		rep.Saved++
+		rep.Names = append(rep.Names, name)
+		if promoted {
+			rep.Promoted = append(rep.Promoted, name)
+		}
 	}
-	return saved
+	return rep
 }
