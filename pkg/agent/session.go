@@ -120,6 +120,13 @@ type Session struct {
 	memoryInjected bool
 	memEcho        bool
 
+	// skillsText is the skills-availability section (skills.go) appended
+	// to this session's system prompt after the frozen base. Scanned once
+	// at session creation, then byte-stable for the session — the prompt
+	// cache prefix only misses once per process, not per turn. Empty when
+	// no skills exist (nothing is injected).
+	skillsText string
+
 	// compactArmed defers an already-triggered compaction until the next
 	// turn has run its pending tool calls, so the summary covers their
 	// results before the history is replaced.
@@ -129,6 +136,20 @@ type Session struct {
 	// (compaction mid-prompt) so prompt_end reports the prompt's true API
 	// call total. Drive goroutine only.
 	iterOffset int
+
+	// dumpRec is this run's dump recorder (#3): drive stores a fresh one
+	// at prompt start, emit appends every event while it is open, and the
+	// prompt_end path swaps it out to write $LYON_HOME/dumps/… — one file
+	// per finished run (dump.go). atomic.Pointer because emit runs on
+	// tool/subagent goroutines while store/swap stay on the drive
+	// goroutine; nil while idle drops any straggler.
+	dumpRec atomic.Pointer[runDump]
+	// dumpPending counts dump file writes still on disk (finishRunDump
+	// raises it before spawn, the writer goroutine drops it when done) so
+	// Close can wait for them — a plain counter, not a WaitGroup: Close
+	// may race a prompt that is still finishing, and Add-vs-Wait at a zero
+	// counter is exactly what WaitGroup turns into a misuse panic.
+	dumpPending atomic.Int64
 
 	mu    sync.Mutex
 	turns []TurnStat
@@ -193,6 +214,7 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		reqs:       make(chan submitReq, 1),
 		extObs:     obs,
 		memoryText: tools.MemoryFacts(e.cfg.Workspace),
+		skillsText: skillsSection(),
 	}
 	s.streamCtx = context.WithValue(ctx, sessionCtxKey{}, s)
 	s.betaTools = e.reg.Adapt(tools.AdapterConfig{
@@ -356,11 +378,15 @@ func detailIf(cond bool, d string) string {
 }
 
 // Close cancels any in-flight work, stops the session goroutine and closes
-// the event stream. Idempotent. Also flushes the engine's audit queue so
-// the session's tail records survive process exit.
+// the event stream. Idempotent. Also waits for this session's in-flight
+// dump writes (#3) and flushes the engine's audit queue, so the run's tail
+// records — dump file and audit lines alike — survive process exit.
 func (s *Session) Close() {
 	s.closeOne.Do(func() {
 		s.cancel()
+		for s.dumpPending.Load() > 0 {
+			time.Sleep(time.Millisecond) // dump writers are short-lived; mirrors the audit flush below
+		}
 		s.eng.hooks.Flush()
 	})
 }
@@ -414,7 +440,10 @@ func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMe
 		MaxTokens: cfg.MaxTokens,
 		Messages:  msgs,
 		System: []anthropic.BetaTextBlockParam{{
-			Text:         s.systemWithMode(cfg.SystemPrompt),
+			// Frozen base first, then this session's skills block
+			// (skills.go) — both byte-stable per session, so the cache
+			// prefix holds for the whole conversation.
+			Text:         s.systemWithMode(cfg.SystemPrompt) + s.skillsText,
 			CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 		}},
 		OutputConfig: anthropic.BetaOutputConfigParam{
@@ -442,6 +471,9 @@ func (s *Session) drive(prompt, runModel string) {
 	// Wall-clock start of the whole prompt (stream + tools); reported on
 	// prompt_end so every frontend can show the total execution time (#43).
 	promptStart := time.Now()
+	// Open this run's dump recorder (#3): emit feeds it every event below,
+	// finishRunDump flushes the closed run to disk at prompt_end.
+	s.beginRunDump(prompt, runModel, promptStart)
 
 	// The prompt runs on its own cancellable context so Interrupt can stop
 	// just this prompt (stream + tools) while the session survives.
@@ -673,14 +705,20 @@ func (s *Session) drive(prompt, runModel string) {
 	s.busy.Store(false)
 	s.mu.Unlock()
 
-	s.emit(Event{
+	pe := Event{
 		Type:       EventPromptEnd,
 		Err:        promptErr,
 		StopReason: budgetStop,
 		Iterations: s.iterOffset + s.runner.IterationCount(),
 		DurationMS: time.Since(promptStart).Milliseconds(),
 		TS:         time.Now(),
-	})
+	}
+	// Close this run's dump (#3) before announcing: assembly is in-memory,
+	// the disk write rides its own goroutine (Close waits it out), and a
+	// write failure is only audited (dump_error) — the run's outcome is
+	// already settled here, success, failure or interrupt alike.
+	s.finishRunDump(pe)
+	s.emit(pe)
 }
 
 // repairInterruptedHistory queues synthetic error tool_results when the
@@ -756,6 +794,12 @@ func isCompactionMessage(msg *anthropic.BetaMessage) bool {
 func (s *Session) emit(e Event) {
 	if e.TS.IsZero() {
 		e.TS = time.Now()
+	}
+	// Mirror the event into the open run's dump recorder (#3) — before the
+	// audit filter below, so stream noise lands in the dump too. Absent or
+	// already closed: no-op, never blocks.
+	if rec := s.dumpRec.Load(); rec != nil {
+		rec.add(e)
 	}
 	// Audit everything except raw stream noise (deltas, message_start,
 	// live output chunks): those would drown the log without adding
