@@ -570,6 +570,17 @@ func (s *Session) drive(prompt, runModel string) {
 	// Before the next prompt can observe it, close a history that ends mid
 	// tool-call (interrupt raced the tool dispatch, or MaxIterations cut it).
 	repaired := s.repairInterruptedHistory()
+	// Prompt-end sweep: the runner can record an empty stream response as a
+	// role-less, content-less message (BetaMessage.ToParam of a response
+	// with no events). Drop or repair it now, before Export, distill,
+	// rollback or the next buildHistory sees or persists it. Drive
+	// goroutine, histMu held — no stream is in flight here.
+	if s.runner != nil {
+		if fixed, ok := sanitizeMessages(s.runner.Params.Messages); ok {
+			s.runner.Params.Messages = fixed
+			s.auditHistoryRepair("prompt-end sweep")
+		}
+	}
 	budgetStop := ""
 	if promptErr == "" && repaired {
 		// Clean end that still needed repair: the iteration budget cut the
@@ -836,6 +847,14 @@ func (s *Session) buildHistory(note, prompt string) []anthropic.BetaMessageParam
 		hist = s.runner.Messages()
 	case s.seed != nil:
 		hist = append([]anthropic.BetaMessageParam(nil), s.seed...)
+	}
+	// Preflight after every append/merge: a role-less or empty entry in the
+	// inherited history would fail the whole request with 400 (the
+	// messages[69].role incident) — repair or drop it before the runner is
+	// ever built from this history.
+	if fixed, ok := sanitizeMessages(hist); ok {
+		s.auditHistoryRepair("buildHistory before POST")
+		hist = fixed
 	}
 	if strings.TrimSpace(note) != "" {
 		hist = append(hist, anthropic.NewBetaSystemMessage(

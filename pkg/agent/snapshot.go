@@ -77,6 +77,13 @@ func (s *Session) Export() Snapshot {
 	case s.seed != nil:
 		msgs = append([]anthropic.BetaMessageParam(nil), s.seed...)
 	}
+	// Never persist a malformed entry: a role-less/empty message saved now
+	// would poison every future resume (the messages[69].role incident
+	// survived on disk for exactly this reason).
+	if fixed, ok := sanitizeMessages(msgs); ok {
+		s.auditHistoryRepair("export")
+		msgs = fixed
+	}
 	s.mu.Lock()
 	title, first := s.title, s.firstPrompt
 	uiState := append(json.RawMessage(nil), s.uiState...)
@@ -107,7 +114,14 @@ func (s *Session) Export() Snapshot {
 func (s *Session) Restore(snap Snapshot) {
 	s.histMu.Lock()
 	defer s.histMu.Unlock()
-	s.seed = append([]anthropic.BetaMessageParam(nil), snap.Messages...)
+	// Repair on the way in too: a snapshot saved by an older build (or a
+	// resumed slot that still carries the poisoned entry) must not seed the
+	// next prompt with messages the API will reject.
+	msgs, repaired := sanitizeMessages(snap.Messages)
+	if repaired {
+		s.auditHistoryRepair("restore/resume")
+	}
+	s.seed = msgs
 	s.pendingToolResults = append([]anthropic.BetaContentBlockParamUnion(nil), snap.PendingToolResults...)
 	s.runner = nil // pre-restore history must not leak into the next build
 	s.compactArmed = false

@@ -2890,6 +2890,16 @@ type diagDone struct {
 // subagent-tier call turning the trajectory into checkable conditions and
 // a patch a retry would inherit. The panel's stepDiagnose row opens here
 // and closes on diagDone; LYON_DIAGNOSE=off disables (mirrors LYON_TITLE).
+//
+// The post-mortem must COMPLETE: a deadline or a poisoned payload used to
+// end the step as a bare error badge. Two bounded model attempts, then a
+// local fallback (localDiagnosis) mines the run's own record for checkable
+// conditions — diagDone always carries at least one condition.
+const (
+	diagnoseAttempts = 2
+	diagnoseTimeout  = 60 * time.Second
+)
+
 func (m *tuiModel) kickDiagnose(fail string) {
 	if strings.EqualFold(os.Getenv("LYON_DIAGNOSE"), "off") {
 		return
@@ -2899,19 +2909,83 @@ func (m *tuiModel) kickDiagnose(fail string) {
 		prompt = m.hist[len(m.hist)-1]
 	}
 	traj := m.diagTrajectory(prompt, fail)
+	// Snapshot the step tail for the fallback post-mortem: this goroutine
+	// reads it away from the model's own loop.
+	var tail []execStep
+	{
+		t := m.steps
+		if len(t) > 14 {
+			t = t[len(t)-14:]
+		}
+		tail = append([]execStep(nil), t...)
+	}
 	step := m.pushAsyncStep(stepDiagnose, "diagnose", "post-mortem of the failed run…")
 	sess := m.sess
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		d, err := eval.SummarizeFailure(ctx,
+		d := diagnoseWithFallback(sess, traj, fail, tail)
+		// Always a success payload: the step closes with conditions, never
+		// a bare deadline/error badge (错因归纳 runs to completion).
+		if p := tuiProg.Load(); p != nil {
+			p.Send(diagDone{step: step, diag: d})
+		}
+	}()
+}
+
+// diagnoseWithFallback is kickDiagnose's bounded post-mortem loop: up to
+// diagnoseAttempts model calls, then localDiagnosis mines the run's own
+// record — the return always carries at least one checkable condition, so
+// the diagnose step completes instead of dying on a deadline or a 400.
+func diagnoseWithFallback(sess *agent.Session, traj, fail string, tail []execStep) eval.Diagnosis {
+	var d eval.Diagnosis
+	var err error
+	for attempt := 0; attempt < diagnoseAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), diagnoseTimeout)
+		d, err = eval.SummarizeFailure(ctx,
 			func(ctx context.Context, system, user string) (string, error) {
 				return sess.Ask(ctx, system, user, diagnoseMaxTokens)
 			}, traj)
-		if p := tuiProg.Load(); p != nil {
-			p.Send(diagDone{step: step, diag: d, err: err})
+		cancel()
+		if err == nil && len(d.FailedConditions) > 0 {
+			break
 		}
-	}()
+	}
+	if err != nil || len(d.FailedConditions) == 0 {
+		d = localDiagnosis(fail, tail, err)
+	}
+	return d
+}
+
+// localDiagnosis is the guaranteed-completion post-mortem: when the
+// diagnoser model is unavailable (timeout, 400, empty reply) the step still
+// closes with checkable conditions mined from the run's own record — the
+// failure line and every failed step — with a final condition marking why
+// the model post-mortem was skipped.
+func localDiagnosis(fail string, tail []execStep, callErr error) eval.Diagnosis {
+	var conds []string
+	if f := strings.TrimSpace(fail); f != "" {
+		conds = append(conds, "run failed: "+truncateRunes(strings.ReplaceAll(f, "\n", " "), 240))
+	}
+	for _, s := range tail {
+		if s.status != stepError {
+			continue
+		}
+		msg := s.err
+		if msg == "" {
+			msg = s.detail
+		}
+		conds = append(conds, fmt.Sprintf("step #%d %s failed: %s",
+			s.n, s.name, truncateRunes(strings.ReplaceAll(msg, "\n", " "), 240)))
+	}
+	if len(conds) == 0 {
+		conds = append(conds, "run failed with no error line recorded")
+	}
+	if callErr != nil {
+		conds = append(conds, "diagnoser model unavailable: "+
+			truncateRunes(callErr.Error(), 200))
+	} else {
+		conds = append(conds, "diagnoser returned no conditions — local post-mortem used")
+	}
+	return eval.Diagnosis{FailedConditions: conds}
 }
 
 // diagTrajectory builds the failed run's evidence for the diagnoser: the
