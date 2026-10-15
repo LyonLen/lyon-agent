@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -272,6 +273,16 @@ func examAnswererOn(sess *agent.Session, model string) eval.Answerer {
 	}
 }
 
+// contestNoFieldHint is the actionable answer for a contest with no one
+// to elect between — the field is the built-in self incumbent alone.
+// The command syntax mirrors agentsCommand's usage line verbatim, so the
+// hint is always copy-paste runnable (EVOLUTION-GAPS task C).
+func contestNoFieldHint() string {
+	return tr(
+		"no candidates beyond self — create one first: /agents add <id> <model> [effort]",
+		"除 self 外没有候选 — 先创建一个：/agents add <id> <model> [effort]")
+}
+
 // contestCommand is the manual /contest [class]: bare classifies from
 // the last prompt. Async — the stepEval row opens here and contestDone
 // closes it.
@@ -299,6 +310,15 @@ func (m *tuiModel) contestCommand(args string) {
 func (m *tuiModel) kickContest(class, why string) {
 	self := m.cfg.Model
 	cands := eval.Contestants(self)
+	// Contestants always carries the live self incumbent, so a field of
+	// one means zero external candidates: an election of one decides
+	// nothing. Answer with the create-a-candidate hint instead of
+	// opening a step that would burn a gateway exam on a one-horse race.
+	if len(cands) <= 1 {
+		m.pushCmd(paint(cYellow, contestNoFieldHint()))
+		m.refresh()
+		return
+	}
 	step := m.pushAsyncStep(stepEval, "contest."+class,
 		fmt.Sprintf("%d candidates — held-out, closed-book…", len(cands)))
 	sess := m.sess
@@ -320,11 +340,17 @@ func (m *tuiModel) kickContest(class, why string) {
 // the combined evidence, routing steered to the winner. Split from the
 // TUI wiring so tests can run it synchronously against a mock gateway.
 func runContest(ctx context.Context, sess *agent.Session, selfModel, class string) ([]contestRow, string, error) {
+	cands := eval.Contestants(selfModel)
+	// Same zero-candidate refusal as kickContest, on the error channel
+	// (the contestDone error line renders it) — and before
+	// LoadOrSeedExam, so a refused contest seeds no held-out bank.
+	if len(cands) <= 1 {
+		return nil, "", errors.New(contestNoFieldHint())
+	}
 	ex, err := eval.LoadOrSeedExam(class)
 	if err != nil {
 		return nil, "", err
 	}
-	cands := eval.Contestants(selfModel)
 	rows := make([]contestRow, len(cands))
 	var wg sync.WaitGroup
 	for i, c := range cands {
