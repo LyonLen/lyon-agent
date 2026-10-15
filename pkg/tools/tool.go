@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+
+	"lyon-agent/pkg/logx"
 )
 
 // Tool is a capability the model can invoke through the agent loop.
@@ -190,13 +192,21 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 		})
 	}
 	defer func() {
-		if r := recover(); r != nil {
+		r := recover()
+		if r != nil {
 			content = nil
 			err = fmt.Errorf("tool panic: %v", r)
 		}
 		ev.Duration = time.Since(ev.Start)
 		if err != nil {
 			ev.Err = err.Error()
+			// Run-log seam (#9): every failed or panicking tool execution
+			// leaves a trace, whatever the caller does with the error.
+			if r != nil {
+				logx.Error("tools", "tool panicked", "tool", ev.Name, "duration_ms", ev.Duration.Milliseconds(), "panic", fmt.Sprint(r))
+			} else {
+				logx.Error("tools", "tool execution failed", "tool", ev.Name, "duration_ms", ev.Duration.Milliseconds(), "err", err)
+			}
 		}
 		if a.cfg.Observer != nil {
 			a.cfg.Observer.OnToolEnd(ev)

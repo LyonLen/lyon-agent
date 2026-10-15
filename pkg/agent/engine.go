@@ -12,6 +12,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"lyon-agent/pkg/hooks"
+	"lyon-agent/pkg/logx"
 	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/tools"
 )
@@ -156,6 +157,10 @@ func (e *Engine) Close() {
 	if e.hooks != nil {
 		e.hooks.Close()
 	}
+	// Run log last: the hooks close path may itself log write failures,
+	// and Close both flushes the log and releases its file handle (the
+	// next log call reopens lazily, so this stays idempotent).
+	logx.Close()
 }
 
 // NewSession starts a session: its own event stream, its own serial-tool
@@ -194,6 +199,7 @@ func (e *Engine) Warmup(ctx context.Context) error {
 	}
 	_, err := e.client.Beta.Messages.New(ctx, params)
 	if err != nil {
+		logx.Warn("engine", "warmup request failed (engine continues cold)", "model", e.cfg.Model, "err", err)
 		return fmt.Errorf("warmup: %w", err)
 	}
 	return nil

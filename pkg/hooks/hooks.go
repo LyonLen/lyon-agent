@@ -33,6 +33,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"lyon-agent/pkg/logx"
 )
 
 // Event names — these double as hook.json "event" selectors. "*" matches
@@ -214,21 +216,31 @@ func (m *Manager) writeStatsFile(b []byte) {
 		return
 	}
 	if err := os.MkdirAll(m.home, 0o755); err != nil {
+		logx.Error("hooks", "stats persist failed: mkdir", "dir", m.home, "err", err)
 		return
 	}
 	// Unique temp name: Flush and the writer may race the rename, and the
 	// last complete write wins — counters differ by at most one event.
 	tmp, err := os.CreateTemp(m.home, "stats-*.json.tmp")
 	if err != nil {
+		logx.Error("hooks", "stats persist failed: create temp", "dir", m.home, "err", err)
 		return
 	}
 	name := tmp.Name()
-	if _, err := tmp.Write(b); err != nil || tmp.Close() != nil {
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
 		os.Remove(name)
+		logx.Error("hooks", "stats persist failed: write temp", "err", err)
 		return
 	}
-	if os.Rename(name, filepath.Join(m.home, "stats.json")) != nil {
+	if err := tmp.Close(); err != nil {
 		os.Remove(name)
+		logx.Error("hooks", "stats persist failed: close temp", "err", err)
+		return
+	}
+	if err := os.Rename(name, filepath.Join(m.home, "stats.json")); err != nil {
+		os.Remove(name)
+		logx.Error("hooks", "stats persist failed: rename", "err", err)
 	}
 }
 
@@ -420,6 +432,7 @@ func (m *Manager) writeAuditLine(r Record, day *string) {
 			m.mu.Lock()
 			m.auditOn = false // broken output must not break the agent
 			m.mu.Unlock()
+			logx.Error("hooks", "audit disabled: mkdir failed", "dir", dir, "err", err)
 			return
 		}
 		pruneAudit(dir, 30)
@@ -427,6 +440,7 @@ func (m *Manager) writeAuditLine(r Record, day *string) {
 	}
 	b, err := json.Marshal(r)
 	if err != nil {
+		logx.Error("hooks", "audit line dropped: marshal failed", "event", r.Event, "err", err)
 		return
 	}
 	f, err := os.OpenFile(filepath.Join(m.home, "audit", today+".jsonl"),
@@ -435,10 +449,13 @@ func (m *Manager) writeAuditLine(r Record, day *string) {
 		m.mu.Lock()
 		m.auditOn = false
 		m.mu.Unlock()
+		logx.Error("hooks", "audit disabled: open failed", "err", err)
 		return
 	}
 	defer f.Close()
-	f.Write(append(b, '\n'))
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		logx.Error("hooks", "audit line write failed", "err", err)
+	}
 }
 
 // CheckTool is the security seam: local policy first, then blocking

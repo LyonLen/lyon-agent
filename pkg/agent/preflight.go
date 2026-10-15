@@ -35,6 +35,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 
 	"lyon-agent/pkg/hooks"
+	"lyon-agent/pkg/logx"
 )
 
 // ---------------------------------------------------------------------------
@@ -507,8 +508,12 @@ func (g *apiGuard) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	sent := [][]byte{cur}
 	resp, err := g.send(req, cur)
-	if err != nil || resp.StatusCode != http.StatusBadRequest {
-		return resp, err
+	if err != nil {
+		logx.Warn("apiguard", "messages api transport error", "url", req.URL.String(), "err", err)
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		return resp, nil
 	}
 
 	// 400: read the error once so the response can be handed back intact
@@ -542,6 +547,7 @@ func (g *apiGuard) RoundTrip(req *http.Request) (*http.Response, error) {
 		g.audit(fmt.Sprintf("400: repaired messages[%d].%s and resent (attempt %d)", idx, field, i+1), false)
 		r2, err2 := g.send(req, next)
 		if err2 != nil {
+			logx.Warn("apiguard", "messages api transport error during repair resend", "url", req.URL.String(), "err", err2)
 			return r2, err2
 		}
 		sent = append(sent, next)
@@ -560,6 +566,11 @@ func (g *apiGuard) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Repairs exhausted (or the 400 is something else): return the last
 	// 400 with its body restored so the SDK reports it to the caller.
 	last.Body = io.NopCloser(bytes.NewReader(lastBody))
+	snippet := string(lastBody)
+	if len(snippet) > 400 {
+		snippet = snippet[:400]
+	}
+	logx.Warn("apiguard", "messages api 400 not repaired by guard", "attempts", len(sent), "body", snippet)
 	return last, nil
 }
 
