@@ -76,7 +76,7 @@ func TestPlanModeGate(t *testing.T) {
 			t.Errorf("plan mode must block %s, got %v", name, err)
 		}
 	}
-	allowed := []string{"read_file", "view_image", "read_memory", "run_subagent"}
+	allowed := []string{"read_file", "view_image", "read_memory", "run_subagent", "run_subagents"}
 	for _, name := range allowed {
 		if err := s.preTool(ctx, name, in); err != nil {
 			t.Errorf("plan mode must pass %s: %v", name, err)

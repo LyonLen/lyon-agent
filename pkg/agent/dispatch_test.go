@@ -224,6 +224,41 @@ func TestDispatchRejectsBadInput(t *testing.T) {
 	}
 }
 
+// TestDispatchAllFailedCarriesDiagnosis: when every subtask of a fan-out
+// dies (here: all silenced past the injected idle budget), the merged
+// error must fold in each task's cause — "all N failed" with no reason is
+// undiagnosable, which is how the plan-mode triple timeout read on the
+// surface. Regress the watchdog diagnosis through the dispatch path too.
+func TestDispatchAllFailedCarriesDiagnosis(t *testing.T) {
+	mock := mockapi.New(mockapi.Config{
+		Script:  []mockapi.Turn{{Text: []string{"never arrives"}}},
+		Latency: 3 * time.Second, // beyond the 300ms idle budget (2×150ms)
+	})
+	t.Cleanup(mock.Close)
+	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "dispatch-timeout-test-token")
+
+	sess := subTimeoutSession(t, subTimeoutConfig(t, 150*time.Millisecond), nil)
+
+	_, err := sess.dispatch(context.Background(), json.RawMessage(`{"tasks":[
+		{"task":"survey the tea archives"},
+		{"task":"compare coffee brewing methods"}]}`))
+	if err == nil {
+		t.Fatal("a fan-out silenced past the idle budget must fail")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"all 2 subtasks failed", // the aggregate
+		"no progress",           // each task's watchdog diagnosis
+		"tea archives",          // first subtask's name and cause
+		"coffee brewing",        // second subtask's name and cause
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("fan-out error missing %q:\n%v", want, msg)
+		}
+	}
+}
+
 // TestAskModelRidesRequestedModel: the contest grades every candidate on
 // ITS model — AskModel must put that model on the wire, and Ask keeps
 // defaulting to the subagent tier.

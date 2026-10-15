@@ -217,7 +217,7 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		skillsText: skillsSection(),
 	}
 	s.streamCtx = context.WithValue(ctx, sessionCtxKey{}, s)
-	s.betaTools = e.reg.Adapt(tools.AdapterConfig{
+	adaptCfg := tools.AdapterConfig{
 		SerialMu:  &s.serialMu,
 		Timeout:   e.cfg.ToolTimeout,
 		ResultCap: e.cfg.ToolResultCap,
@@ -225,7 +225,23 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		Approve:   s.wrapApprove(e.cfg.Approve),
 		PreTool:   s.preTool,
 		Seq:       &s.seq,
-	})
+	}
+	s.betaTools = e.reg.Adapt(adaptCfg)
+	// run_subagent / run_subagents are whole nested tool-loops, not single
+	// executions: wrapping them in the wall-clock ToolTimeout killed healthy
+	// multi-round research at a fixed second (the plan-mode triple-timeout
+	// bug — a 48.9s run lived only because it beat the 120s ceiling). Their
+	// no-progress idle watchdog in runNested owns the budget now; every
+	// other tool keeps the wall clock.
+	adaptCfg.Timeout = 0
+	for i, t := range s.betaTools {
+		if t.Name() != "run_subagent" && t.Name() != "run_subagents" {
+			continue
+		}
+		if raw, ok := e.reg.Get(t.Name()); ok {
+			s.betaTools[i] = tools.Adapt(raw, adaptCfg)
+		}
+	}
 	go s.loop()
 	return s
 }

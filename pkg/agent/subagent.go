@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -201,6 +203,15 @@ func (o subObs) OnToolOutput(e tools.ExecEvent) {
 // EventSubagentEnd — the run_subagents fan-out runs several of these
 // concurrently (#53). preview seeds the task node's row. The answer,
 // usage and iteration count come back unformatted for the caller to merge.
+//
+// The run is bounded by a no-progress (idle) budget, not a wall clock:
+// every stream event, tool start/end and round transition resets the
+// clock, so healthy multi-round research can take as long as it keeps
+// moving while a genuinely stuck run (hung request, starved turn slot,
+// dead gateway) is cancelled after 2×ToolTimeout of total silence. One
+// ToolTimeout of silence is still explainable — an inner tool is allowed
+// to run that long — so the budget is twice that. Failures come back
+// through diagnose() with the task, elapsed time and stall point.
 func (s *Session) runNested(ctx context.Context, model, task, subID, preview string) (string, Usage, int, error) {
 	// Mark the nested run so OnToolStart/End stamp Event.Sub — renderers
 	// nest these executions under this task instead of mixing them into
@@ -210,6 +221,12 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 	atomic.AddInt32(&s.subNest, 1)
 	defer atomic.AddInt32(&s.subNest, -1)
 
+	// A legacy run_subagent passes no preview (it has no task node); the
+	// diagnosis still needs the task's name — derive it from the task.
+	if preview == "" {
+		preview = clipRunes(strings.Join(strings.Fields(task), " "), 56)
+	}
+
 	obs := tools.Observer(s)
 	if subID != "" {
 		obs = subObs{s: s, id: subID}
@@ -218,6 +235,21 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 			ToolName: model, Detail: preview, TS: time.Now(),
 		})
 	}
+	prog := &nestProgress{
+		budget: 2 * s.eng.cfg.ToolTimeout,
+		last:   time.Now(),
+		act:    "starting",
+	}
+	obs = &progressObs{p: prog, inner: obs}
+
+	// Watchdog context: inherits the caller's cancellation (Interrupt,
+	// session close) but is cancelled by the idle watchdog when the run
+	// goes silent for the whole budget.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := make(chan struct{})
+	defer close(stop)
+	go prog.watch(runCtx, cancel, stop)
 
 	runner := s.eng.client.Beta.Messages.NewToolRunnerStreaming(s.nestedTools(obs), anthropic.BetaToolRunnerParams{
 		BetaMessageNewParams: anthropic.BetaMessageNewParams{
@@ -239,8 +271,13 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 	})
 
 	start := time.Now()
+	// The caller's wall clock (the adapter's ToolTimeout while it still
+	// wraps these tools) — named in a deadline diagnosis so the error says
+	// WHICH budget was hit, not just that a context died.
+	wall, hasWall := ctx.Deadline()
 	iters := 0
 	fail := func(err error) (string, Usage, int, error) {
+		err = prog.diagnose(runCtx.Err(), err, preview, iters, start, wall, hasWall)
 		if subID != "" {
 			// Close this task's node — a fan-out has no parent exec row to
 			// fall back on, a dangling spinner would lie about the state.
@@ -253,27 +290,33 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 		return "", Usage{}, iters, err
 	}
 	for !runner.IsCompleted() {
-		if ctx.Err() != nil {
-			return fail(ctx.Err())
+		if runCtx.Err() != nil {
+			return fail(runCtx.Err())
 		}
-		if !s.eng.acquireTurn(ctx) {
-			return fail(ctx.Err())
+		prog.touch("waiting for a turn slot")
+		if !s.eng.acquireTurn(runCtx) {
+			return fail(runCtx.Err())
 		}
+		round := iters + 1
+		prog.touch(fmt.Sprintf("api round %d", round))
 		var iterErr error
 		got := false
-		for _, err := range runner.NextStreaming(ctx) {
+		for _, err := range runner.NextStreaming(runCtx) {
 			if err != nil {
 				iterErr = err
 				break
 			}
 			got = true
+			// Stream events are the heartbeat: tool executions inside this
+			// round stamp progress through progressObs on their own.
+			prog.touch(fmt.Sprintf("api round %d", round))
 		}
 		s.eng.releaseTurn()
 		if iterErr == nil {
 			iterErr = runner.Err()
 		}
 		if iterErr != nil {
-			return fail(fmt.Errorf("subagent: %w", iterErr))
+			return fail(iterErr)
 		}
 		if !got {
 			break
@@ -312,4 +355,132 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 		TS:         time.Now(),
 	})
 	return answer.String(), usage, iters, nil
+}
+
+// nestProgress feeds one nested run's no-progress watchdog: every stream
+// event, tool start/end and round transition stamps the last-activity
+// clock, and the watchdog cancels a run whose clock has been silent for
+// the whole budget. A wall clock kills healthy multi-round research at an
+// arbitrary second; silence is what "stuck" actually means.
+type nestProgress struct {
+	budget time.Duration // no-progress bound: 2×ToolTimeout (runNested)
+
+	mu      sync.Mutex
+	last    time.Time
+	act     string // where the run believes it is: "tool read_file", "api round 3", …
+	stalled bool   // set by the watchdog right before it cancels
+}
+
+// touch records activity at where. Cheap and lock-short: it runs on every
+// stream delta.
+func (p *nestProgress) touch(where string) {
+	p.mu.Lock()
+	p.last = time.Now()
+	p.act = where
+	p.mu.Unlock()
+}
+
+// stale reports whether nothing has happened for the whole budget.
+func (p *nestProgress) stale() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return time.Since(p.last) >= p.budget
+}
+
+// markStalled records that the watchdog — not a context deadline — is
+// about to be the executioner, so diagnose can say "no progress" instead
+// of misattributing the kill.
+func (p *nestProgress) markStalled() {
+	p.mu.Lock()
+	p.stalled = true
+	p.mu.Unlock()
+}
+
+// snapshot reads what a diagnosis needs: the stall point, how long the
+// run has been silent there, and whether the watchdog fired.
+func (p *nestProgress) snapshot() (where string, since time.Duration, stalled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.act, time.Since(p.last), p.stalled
+}
+
+// watch cancels the run once it goes silent for the whole budget. It
+// exits when the run does (stop) or when either side of the run's context
+// ends, so one watchdog goroutine per nested run leaves no residue.
+func (p *nestProgress) watch(ctx context.Context, cancel context.CancelFunc, stop <-chan struct{}) {
+	interval := p.budget / 4
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if p.stale() {
+				p.markStalled()
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+// diagnose turns a nested-run failure into a self-contained, actionable
+// error: which task, how long it ran, how many rounds it completed and
+// where it was when it died. Timeouts name the actual killer — the idle
+// watchdog ("no progress") or the caller's wall-clock budget — instead of
+// a bare context error the model can only retry blind.
+func (p *nestProgress) diagnose(rctxErr, err error, task string, rounds int, start, wall time.Time, hasWall bool) error {
+	if err == nil {
+		return nil
+	}
+	where, since, stalled := p.snapshot()
+	elapsed := time.Since(start).Round(time.Second)
+	switch {
+	case stalled:
+		return fmt.Errorf("subagent timed out with no progress for %s (task %q, elapsed %s, at %s)",
+			p.budget, task, elapsed, where)
+	case errors.Is(rctxErr, context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded):
+		budget := time.Duration(0)
+		if hasWall {
+			budget = wall.Sub(start).Round(10 * time.Millisecond)
+		}
+		return fmt.Errorf("subagent hit the %s per-call time budget (task %q, elapsed %s, %d round(s) done, at %s, last activity %s ago) — shrink the task or raise ToolTimeout",
+			budget, task, elapsed, rounds, where, since.Round(time.Second))
+	default:
+		return fmt.Errorf("subagent failed (task %q, elapsed %s, %d round(s) done, at %s): %w",
+			task, elapsed, rounds, where, err)
+	}
+}
+
+// progressObs stamps inner tool executions as the nested run's heartbeat —
+// the watchdog's proof of life — and forwards to the attribution observer
+// (the session, or the fan-out's subObs) unchanged. It also stands in for
+// that observer as the adapter's live-output sink, so open-step streaming
+// keeps flowing (#11).
+type progressObs struct {
+	p     *nestProgress
+	inner tools.Observer
+}
+
+func (o *progressObs) OnToolStart(e tools.ExecEvent) {
+	o.p.touch("tool " + e.Name)
+	o.inner.OnToolStart(e)
+}
+
+func (o *progressObs) OnToolEnd(e tools.ExecEvent) {
+	o.p.touch("tool " + e.Name)
+	o.inner.OnToolEnd(e)
+}
+
+func (o *progressObs) OnToolOutput(e tools.ExecEvent) {
+	o.p.touch("tool " + e.Name)
+	if oo, ok := o.inner.(tools.OutputObserver); ok {
+		oo.OnToolOutput(e)
+	}
 }

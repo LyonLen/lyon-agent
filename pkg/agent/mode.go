@@ -89,11 +89,13 @@ func (s *Session) modeGate(name string, input json.RawMessage) error {
 // registry's built-in "no side effects" annotation (read_file, web_*,
 // view_image, read_memory — and it already excludes shell/write/edit/
 // memory mutations). Two overrides: MCP tools declare safe but their
-// real side effects are unknown (fail closed), and run_subagent is
-// allowed because it receives only read-only tools and passes this very
-// same gate.
+// real side effects are unknown (fail closed), and both subagent tools
+// (run_subagent and the run_subagents fan-out) are allowed because they
+// hand their nested loops only read-only tools that pass this very same
+// gate — blocking the fan-out in plan mode would contradict that and
+// silently disable the concurrent path (#53, 并发倾向).
 func planReadable(reg *tools.Registry, name string) bool {
-	if name == "run_subagent" {
+	if name == "run_subagent" || name == "run_subagents" {
 		return true
 	}
 	if strings.HasPrefix(name, "mcp_") {

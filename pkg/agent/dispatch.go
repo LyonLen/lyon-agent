@@ -163,7 +163,16 @@ func (s *Session) dispatch(ctx context.Context, input json.RawMessage) ([]anthro
 		b.WriteString("\n")
 	}
 	if fails == len(results) {
-		return nil, fmt.Errorf("run_subagents: all %d subtasks failed", len(results))
+		// "all N failed" with no cause is undiagnosable — fold each task's
+		// error in so the model (and the user) sees WHY the fan-out died.
+		causes := make([]string, 0, fails)
+		for _, r := range results {
+			if r.err != nil {
+				causes = append(causes, r.err.Error())
+			}
+		}
+		return nil, fmt.Errorf("run_subagents: all %d subtasks failed: %s",
+			len(results), strings.Join(causes, " | "))
 	}
 	return tools.TextResult(strings.TrimRight(b.String(), "\n")), nil
 }

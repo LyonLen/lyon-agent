@@ -241,6 +241,7 @@ func writeToolResponse(w http.ResponseWriter, streaming bool, model, id string, 
 		"index": 0, "content_block": map[string]any{"type": "tool_use", "id": toolID, "name": tc.Name, "input": map[string]any{}},
 	})
 	f.event("content_block_delta", map[string]any{
+		"type":  "content_block_delta",
 		"index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": tc.Input},
 	})
 	f.event("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
