@@ -1,0 +1,49 @@
+# CI: build + vet + test on the three release platforms.
+#
+# Known repo caveats — run honestly, no relaxation:
+#   - Windows: bench thresholds (engine p95 overhead <= 25ms, cache-hit gate)
+#     can flake under heavily parallel runners; the bench itself takes best of
+#     up to N rounds. A red bench on Windows should be re-run, not silenced.
+#   - Windows: external scanners touching %TEMP% used to race TempDir cleanup
+#     ("directory not empty"); mitigated by scratchHome retry-cleanup. If a
+#     fresh temp-dir flake appears, fix the leak — don't add retries here.
+#   - Roadmap doc (§1.7) keeps this list current; update this header when a
+#     flake is closed.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build+vet+test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x' # keep in sync with go.mod (go 1.25.0)
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # -count=1 disables the test cache so every run exercises the real code.
+      - name: Test
+        run: go test ./... -count=1

@@ -1,28 +1,142 @@
 # lyon-agent
 
-High-performance general-purpose AI agent, written in Go, **shipped as both a server and a CLI**.
-One process runs the full agent loop (streaming output, tool calls, context compaction,
-subagents) and exposes an HTTP/SSE service plus an interactive CLI; a built-in stress
-acceptance suite fails the build when performance thresholds are not met.
+**the agent that grades itself and gets better** — a self-evolving coding agent that
+scores itself, exams itself, demotes the unqualified, routes work to the evidence-backed
+model, and **gets better the more it runs**.
+
+[![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
+[![CI](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+High-performance general-purpose AI agent, written in Go, **shipped as both a server and a
+CLI**. One process runs the full agent loop (streaming output, tool calls, context
+compaction, concurrent subagent fan-out) and exposes an HTTP/SSE service plus a fullscreen
+TUI; a built-in stress acceptance suite fails the build when performance thresholds are not
+met. Around it sits a full **evolution system** — production scoring with an on-duty
+leaderboard, a closed-book exam every 10 rounds (two straight fails dismiss the seat),
+evidence-based task routing, and workflows that freeze themselves after consecutive green
+runs — every ledger on disk, restored as-is after a restart.
 
 > 📘 **Docs site**: open [`docs/index.en.html`](docs/index.en.html) (product tour + screenshots)
 > and [`docs/manual.en.html`](docs/manual.en.html) (user manual: getting started → UI →
 > evolution mechanics → configuration reference → FAQ) in a browser — pure local static
 > pages, no network resources, double-click to read.
 > **中文**: [`README.md`](README.md) ·
-> [`docs/index.html`](docs/index.html) · [`docs/manual.html`](docs/manual.html)。
+> [`docs/index.html`](docs/index.html) · [`docs/manual.html`](docs/manual.html).
 > The interface itself is bilingual too: `/lang zh|en` or `LYON_LANG=zh` at startup
 > (see the manual, "Interface language").
 
+## Features
+
+- **Self-evolving loop**: every finished production prompt is blind-judged onto the
+  leaderboard → a closed-book exam every 10 rounds (two straight fails dismiss the seat) →
+  task classification with evidence-based routing (when `lyon run` doesn't pin `-model`,
+  it swaps in the recommended model) → a workflow that freezes itself into an artifact
+  after 3 consecutive green runs — scoring, exams, routing and freezing all persist to
+  disk and survive a restart;
+- **Three-layer persistent memory**: team / personal / project one-fact-per-file Markdown,
+  local BM25 retrieval (CJK bigrams), the hot tier injected with the first prompt,
+  automatic distill on exit;
+- **Failure diagnosis fed back**: failed prompts async-extract "checkable conditions +
+  patch" — shown in the panel, recorded in audit, and written into the project memory hot
+  tier, so the next session starts with the lesson in context;
+- **hooks audit & security gates**: full-lifecycle jsonl audit + aggregate stats +
+  `policy.json` regex blocking + external blocking hooks (`LYON_AUDIT`/`LYON_HOOKS` to
+  turn off);
+- **Live output**: the expanded step and the resident right-column output band (`alt+o`)
+  stream the running command's stdout/stderr in real time (40 ms / 16 KB coalescing,
+  12-line cap);
+- **Queue while busy, inject at the gap** (#2): typing while a prompt runs is **never
+  lost** — it injects at the **next gap** of the current run, merged with that round's
+  tool results into a single user message, no waiting for the whole run to finish;
+- **Concurrent subagents**: `run_subagent` read-only subagents, plus `run_subagents`
+  fanning 2–6 independent subtasks out **concurrently**, each on the evidence-backed model
+  for its task class;
+- **MCP**: stdio and streamable HTTP transports, persistent `~/.lyon/mcp.json`
+  (`mcpServers` schema, bad entries warn-and-skip) plus `-mcp` / `-mcp-http` flags, tools
+  mapped to `mcp_<srv>_<tool>`;
+- **Parallel-safe workspace search**: `search_files` (glob + context lines) and
+  `read_file` `offset`/`limit` paging — batched searches and paging no longer queue
+  behind shell's serial lock;
+- **Hard performance gates**: an in-process fake Anthropic API + bench suite (engine p95
+  overhead ≤ 25 ms, steady-state cache hits ≥ 95%, zero SSE event loss) — miss a
+  threshold and the build FAILs;
+- **OpenAI-compatible gateway**: HTTP-layer protocol translation (`-openai-base` for any
+  endpoint), with the tool system, compaction and subagents reused unchanged;
+- **Bilingual interface**: `/lang zh|en` switches the whole UI chrome at runtime;
+  transcript content is data and is never translated.
+
+## Installation
+
+Requires Go ≥ 1.25 (declared in `go.mod` as 1.25.0). Build from source for now:
+
+```bash
+git clone https://github.com/LyonLen/lyon-agent.git
+cd lyon-agent
+go build -o bin/lyon ./cmd/lyon      # CLI (bin\lyon.exe on Windows)
+go build -o bin/lyond ./cmd/lyond    # HTTP/SSE service (optional)
+export ANTHROPIC_AUTH_TOKEN=...      # your key, never commit it
+# add bin/ to PATH — `lyon` / `lyond` below refer to these two binaries
 ```
-go build ./...          # build everything
-go test ./... -count=1  # full test suite (includes bench acceptance)
-go test ./bench -run 'TestLoad|TestCache|TestSSE' -v   # performance acceptance (prints result tables)
+
+Prebuilt binaries for all three platforms (+ checksums) will ship with GitHub Releases —
+until then, build from source.
+
+## Quick start
+
+```bash
+lyon chat                     # fullscreen TUI: streaming transcript + steps panel + slash commands (auto-saves on exit)
+lyon chat -c                  # resume this workspace's last session
+lyon run "run echo hello in the shell then summarize"   # one-shot (also accepts piped stdin)
+lyon tools                    # list all tools
 ```
+
+Inside the TUI type `/` to pop the command picker: `/help` (commands + full key table) ·
+`/stats` usage & cache hits · `/model` model knowledge card · `/memory` memory ·
+`/sessions` `/resume` archives · `/evolve` (`alt+e`) evolution panel · `/route` `/exam`
+`/flow` evolution mechanics · `/mode` plan/bypass. Core keys: `ctrl+c` interrupt (again
+to quit) · `ctrl+o` expand all folds · `alt+↑/↓` walk steps · `alt+enter` expand step ·
+`alt+o` live-output band. Details in "Usage guide" below and the docs-site manual.
+
+> Note: bare `lyon` (no subcommand) just prints usage and exits — the TUI entry is
+> `lyon chat`.
+
+## Screenshots
+
+All frames below are **real TUI renders produced offline** by
+`cmd/lyon/gen_screens_test.go` (not hand-assembled) — open them directly in a browser:
+
+| File | Content |
+|---|---|
+| [`docs/screens/tui-workbench.html`](docs/screens/tui-workbench.html) | fullscreen TUI workbench |
+| [`docs/screens/tui-route.html`](docs/screens/tui-route.html) | `/route` task classification & recommended routing |
+| [`docs/screens/tui-flow.html`](docs/screens/tui-flow.html) | `/flow` mechanical workflow execution |
+| [`docs/screens/tui-exam.html`](docs/screens/tui-exam.html) | `/exam` closed-book exam |
+| [`docs/screens/tui-help.html`](docs/screens/tui-help.html) | `/help` command cheat sheet |
+
+The full site (all screenshots embedded + user manual) lives at
+[`docs/index.en.html`](docs/index.en.html).
 
 ## Architecture
 
+Layered overview (calls flow top-down; evolution/memory/governance layers only touch
+ledgers and the event stream, never the engine loop):
+
+```text
+┌─ entry    lyon chat (fullscreen TUI) · lyond (HTTP/SSE) · lyon run (one-shot) · Go library embed
+├─ engine   pkg/agent   driving loop · event stream · compaction · snapshot/rollback · subagents & fan-out
+├─ tools    pkg/tools   shell / files / search / image / web / memory / todos
+│             pkg/mcp    MCP stdio & streamable HTTP
+├─ evolution pkg/eval · pkg/routing · pkg/models · pkg/flow · pkg/market
+│             scoring & leaderboard · task routing · model profiles · workflow state machine · task-hour ledger
+├─ memory   pkg/memory  three-layer persistent memory · BM25 retrieval · distill · cloud sync
+└─ govern   pkg/hooks   audit jsonl · aggregate stats · policy/external-hook security gates
+(transport) pkg/server (SSE service) · pkg/openaix (OpenAI gateway protocol translation)
 ```
+
+Directory detail:
+
+```text
 cmd/lyon            CLI: run (one-shot) / chat (fullscreen TUI) / tools (tool listing)
   tui.go             bubbletea TUI for chat: streaming transcript, scrollable viewport,
                      y/n approval overlay, thinking fold, slash suggestion popup, alt+v clipboard paste
@@ -32,27 +146,45 @@ pkg/agent           engine core
                       semaphore, Warmup
   session.go          Session: one driving goroutine per session, serial tool lock,
                       event stream (text_delta → turn_end → prompt_end), compaction trigger,
-                      history assembly
+                      history assembly, gap injection for the busy queue
+                      (Enqueue → merged in before the next round's tool execution)
   compact.go          ★ client-side compaction: render history → separate summarize request →
                       summary replaces history (works on any endpoint)
   snapshot.go         session snapshots: Export/Restore + ~/.lyon/sessions multi-session archive
                       (latest slot + 20 archive rotation; /sessions /resume N /new)
   subagent.go         run_subagent: read-only subagent on a low-quota model
+  dispatch.go         ★ run_subagents: 2–6 independent subtasks fanned out concurrently
+                      (#53, each on the evidence-backed model for its class)
   events.go           event protocol (server SSE and CLI share one event stream)
 pkg/tools           tool system
   registry.go         registration / adaptation / parallel-safety annotation
-  shell.go files.go   run_shell / read_file / write_file / edit_file (workspace confinement)
+  shell.go files.go   run_shell / read_file (offset/limit paging) / write_file / edit_file
+                      (workspace confinement)
+  search.go           ★ search_files: parallel-safe glob search (context lines, result cap)
   image.go            view_image / @path image attachments (magic-byte checks, size & pixel caps)
   paste.go            ★ PasteImage/PasteFile: alt+v writes .lyon/paste + over-limit re-encode + rotation
   web.go              web_search / web_fetch (client-side implementation, shared pool)
-  memory.go           ★ save/read/forget_memory: cross-session memory (<workspace>/.lyon/memory.json)
+  memory.go           ★ save/read/forget_memory: cross-session memory (the layered store,
+                      see "Memory module" below)
   todos.go            ★ todo_write: readable step feedback — the model writes a subtask
                       plan, the transcript block rewrites in place (☑/◐/☐), the busy
                       status strip shows a 📋 x/y scale with the current step (snapshot-restored)
   stable.go           ★ prompt-cache byte stabilization (see below)
   metrics.go          per-tool p50/p95 + last_error
-pkg/mcp             MCP client: stdio and streamable HTTP, tools mapped to mcp_<srv>_<tool>
+pkg/mcp             MCP client: stdio and streamable HTTP, tools mapped to mcp_<srv>_<tool>,
+                      persistent ~/.lyon/mcp.json config (mcpServers schema, bad entries
+                      warn and skip)
 pkg/server          HTTP/SSE service: /v1/sessions, /metrics, /healthz, session store & TTL
+pkg/hooks           audit (~/.lyon/audit/*.jsonl), aggregate stats, policy/hooks security gates
+pkg/memory          three-layer persistent memory: BM25 retrieval, hot-tier injection,
+                      distill, cloud sync
+pkg/eval            evolution mechanics: four-dimension scoring, leaderboard, exams,
+                      coverage gate, failure diagnosis
+pkg/routing         task classification (bilingual) & recommended routing table
+pkg/models          model parameter knowledge base + capability profiles (32 models)
+pkg/flow            workflow state machine: mechanical execution, auto-freeze on green streaks
+pkg/market          task-hour ledger (/market)
+pkg/openaix         OpenAI-compatible gateway: HTTP-layer protocol translation (http.RoundTripper)
 internal/mockapi    fake API for acceptance tests: real SSE frame order + prefix-hash
                     prompt-cache simulator
 bench               performance acceptance suite (thresholds enforced)
@@ -65,7 +197,7 @@ which ends honestly with
 `prompt_end.stop_reason="max_iterations"`), compaction threshold 0.7×200k,
 subagents default to the low-quota tier (their turn count is likewise uncapped).
 
-## Getting started
+## Usage guide
 
 ### CLI
 
@@ -77,12 +209,15 @@ go run ./cmd/lyon chat -c                                   # resume this worksp
 go run ./cmd/lyon tools                                     # list all tools
 ```
 
-Common flags: `-model` `-effort` `-workspace` (shell/file confinement root) `-approve`
-(manual confirmation before shell/write; **on by default in interactive chat**, off with
-`-approve=false`, never shown on piped stdin so scripts can't hang; `lyon run` only enables
-it with an explicit `-approve`) `-shell-allow echo,ls,git` (allowlist) `-mcp name=cmd args`
-(connect an MCP server) `-mcp-http name=url` `-prewarm` (warm the cache before the first
-prompt) `-max-turns N` (global concurrent-turn cap) `-web-tools server|client|off`.
+Common flags: `-model` `-effort` `-workspace` (shell/file confinement root) `-system`
+(custom system prompt file) `-approve` (manual confirmation before shell/write; **on by
+default in interactive chat**, off with `-approve=false`, never shown on piped stdin so
+scripts can't hang; `lyon run` only enables it with an explicit `-approve`)
+`-shell-allow echo,ls,git` (allowlist) `-mcp name=cmd args` / `-mcp-http name=url`
+(connect an MCP server; persistent config lives in `~/.lyon/mcp.json` — a flag beats a
+same-name entry, bad entries warn and skip) `-subagent-model` (the cheap tier for
+subagents/distill) `-prewarm` (warm the cache before the first prompt) `-max-turns N`
+(global concurrent-turn cap) `-web-tools server|client|off`.
 
 **Image input**: reference png/jpeg/gif/webp files inside the workspace with `@path` in your
 prompt; the image is sent to the model as an image block (`look at @screenshot.png`; quote
@@ -127,12 +262,14 @@ just because nothing follows; blocks replayed by `/resume` fold too. `ctrl+t` (o
 |---|---|
 | `enter` | send (`/`-prefixed input goes to local commands; a unique matching prefix executes directly, `/st` → `/stats`) |
 | `tab` | complete the highlighted slash command in the suggestion popup |
-| `esc` | while busy, interrupt the current prompt (history is repaired, you can keep chatting); while idle with a popup open, close it first |
-| `ctrl+c` | while busy: interrupt first, press again to exit; while idle: exit |
+| `esc` | closes popups/the output area **only** — it no longer interrupts the prompt (interrupting belongs to `ctrl+c`) |
+| `ctrl+c` | while busy: interrupt the current prompt (history is repaired, you can keep chatting), press again to exit; while idle: exit |
 | `ctrl+t` | expand/collapse all thinking blocks |
+| `ctrl+o` | expand/collapse **all** folds (one toggle for every collapsed region, thinking included) |
 | `↑` / `↓` | move through suggestions when the popup is open, otherwise recall input history |
 | `alt+↑` / `alt+↓` | step-panel step selection (first press picks the latest; walking past the end returns to live follow) |
 | `alt+enter` | expand/collapse the selected step's full action |
+| `alt+o` | expand/collapse the right-column **live-output** band (streams the running command's output) |
 | `alt+←` / `alt+→` | widen/narrow the panel (28–72, transcript columns re-flow in sync) |
 | `alt+e` | open/close the **evolution panel** (leaderboard + exam clock, same as `/evolve`) |
 | `alt+v` | paste clipboard image: lands in `<workspace>/.lyon/paste/` and inserts `@path` into the input (same as `/paste`) |
@@ -143,14 +280,18 @@ step-panel keys also accept `alt+shift+…` variants (`alt+shift+↑/↓/←/→
 `alt+shift+enter`) — the detection logic (`KeyMsg.String()`) renders shift as labels like
 `alt+shift+up`, case-insensitively, so both presses are equivalent. **Resident key legend**:
 while idle the status line permanently shows
-`enter send · esc interrupt · pgup/pgdn scroll · ctrl+t think · alt+↑↓ steps ·
-alt+e evolve · alt+v paste · /help` (the full key table lives in `/help`); narrow terminals
-trim the tail without affecting sending.
+`enter send · ctrl+c interrupt · esc close output · ctrl+o all folds · pgup/pgdn scroll ·
+shift+alt+↑↓ select · alt+enter open · alt+o live output · alt+←→ width · alt+e evolve ·
+/help` (the full key table lives in `/help`); narrow terminals trim the tail without
+affecting sending.
 
-**Queue while busy**: typing your next question while a prompt is running is **no longer
-lost** — press enter and it is queued, the status line shows
-`queued (N) — sends when the current prompt ends`, and each message is sent FIFO once the
-current prompt's `prompt_end` lands (interrupts drain the queue too).
+**Queue while busy (gap injection)**: typing your next question while a prompt is running
+is **no longer lost** — press enter and it queues; the status line shows
+`queued (N) — injects at the next gap of the running prompt`. Before the next round's tool
+execution the queue head is injected into the conversation, **merged with that round's tool
+results into a single user message** — no waiting for the whole run to finish (the
+`prompt_end` kick remains as a fallback, the queue drains on interrupt too; never
+double-sent, never silently dropped).
 
 **Interface language**: `/lang zh` / `/lang en` switches the whole interface chrome at
 runtime (status line, command help, popup descriptions, panel labels, approval row, console
@@ -182,7 +323,8 @@ Commands: `/stats` usage & cache-hit table · `/clear` clear the view (session h
 Nth) · `/sessions` list all archives · `/new` start a fresh session (current one archived) ·
 `/think` same as `ctrl+t` · `/steps` `/evolve` side panels (or `alt+↑↓` / `alt+e`) ·
 `/lang zh|en` interface language · `/help` · `/quit` (`/memory` `/remember` `/rollback`
-`/route` `/exam` `/flow` `/model` `/mode` `/paste` are covered in their own sections below).
+`/route` `/exam` `/contest` `/agents` `/market` `/flow` `/model` `/mode` `/paste` are
+covered in their own sections below).
 Interactive chat **pops** a y/n overlay in the status line for shell/write tools by default
 (off with `-approve=false`, auto-off on piped stdin): `y` approves once ·
 **`a` approves that tool for the whole session** (so a long task isn't interrupted ten times
@@ -219,13 +361,14 @@ races the driving goroutine for the history lock). The save order is fixed
 `Interrupt → Export → Save`: Export takes the history lock and snapshots only after the
 in-flight prompt winds down, so what you get is always a complete history.
 
-**Memory**: built-in `save_memory` / `read_memory` / `forget_memory` write facts into
-`<workspace>/.lyon/memory.json` (case-insensitive upsert by title, capped at 500 facts /
-8 KB each, oldest evicted, atomic writes). The first prompt of each session injects a
-`[persistent-memory]` snapshot once; sessions restored with `chat -c` skip injection when
-the history already contains the current memory block. Injection goes through a user
-message block rather than `role:"system"` — the latter is unproven across gateways, the
-former is 100% compatible.
+**Memory**: `save_memory` / `read_memory` / `forget_memory` sit on top of the layered
+persistent store (see "Memory module" below) — facts land in the project layer
+(`<workspace>/.lyon/memory/`, one fact per Markdown file), case-insensitive upsert by
+title, 8 KB clip per entry, atomic writes. The first prompt of each session injects the
+hot-tier snapshot (`[persistent-memory — hot tier, always in context]`, 4KB budget);
+sessions restored with `chat -c` skip injection when the history already contains the
+current memory block. Injection goes through a user message block rather than
+`role:"system"` — the latter is unproven across gateways, the former is 100% compatible.
 
 **Compaction (client-side, works on any endpoint)**: when one turn's usage reaches
 threshold × context window (default 0.7×200k, tuned by `-compact-threshold`, negative
@@ -353,8 +496,8 @@ marker and exit code) and broken binaries are eliminated; when Git Bash isn't on
 probe also tries common install paths like `%ProgramFiles%\Git\bin\bash.exe`. Only when all
 fail does it report `no working shell found (tried: ...)`.
 
-**Interruptible prompts** (`Session.Interrupt`): `esc`/`ctrl+c` cancels the context derived
-from that prompt — the API stream and running tools stop together, the session itself
+**Interruptible prompts** (`Session.Interrupt`): pressing `ctrl+c` while busy cancels the
+context derived from that prompt — the API stream and running tools stop together, the session itself
 survives, and prompt_end ends with `interrupted` (no red error event). If history ends on an
 assistant `tool_use` (interrupted before the tool ran, or `MaxIterations` cut before
 dispatch), `repairInterruptedHistory` queues a synthetic `tool_result` for every dangling
@@ -433,7 +576,9 @@ Three layers of persistent memory, one-fact-per-file Markdown, hand-editable:
   session exit — a cheap submodel (SubagentModel) extracts durable facts from the recent
   conversation into the store. Idempotent (unchanged content is not rewritten), 20s time
   limit so it never blocks exit, off with `LYON_DISTILL=off`; every write logs a
-  `memory_save` audit event.
+  `memory_save` audit event; on exit one bilingual line is printed to stdout reporting the
+  result (facts saved + cold-to-hot promotions — the only channel alive after the TUI
+  tears down).
 - **Cloud sync**: enable by setting `LYON_SYNC_URL` (optionally `LYON_SYNC_TOKEN`),
   `POST /memory/push {"facts":[…]}`, `POST /memory/pull {"scopes":["team","personal"]}`,
   newer `updated` wins; only team+personal sync — the project layer never leaves the machine.
@@ -493,11 +638,18 @@ body…
   prompt_end); use_start records the decision, exec_start pairs the execution ID, exec_end
   closes by ID (parallel same-name tools pair FIFO); steps still running at prompt_end are
   honestly recorded as interrupted/aborted.
+- **Live output (#11 + #13)**: with a step expanded, the running command's stdout/stderr
+  streams into that step block **live** (first write flushes, then 40 ms / 16 KB
+  coalescing); `alt+o` additionally keeps a **resident output band** in the right column —
+  sampling order selected → latest running → latest step with output, 12-line cap,
+  folding to a count line when narrow, sharing the steps panel's column geometry
+  (`alt+←/→` widens both); the band yields to the steps list before the steps header does.
 - **Interactive**: `alt+↑/↓` walks history (selected row highlighted, header shows `@#n`,
   window follows the selection, passing the newest returns to live follow); `alt+enter`
   expands the selected step — full command wrapped (up to 6 lines, then truncated), full
-  error text, start time; `alt+←/→` resizes the panel 28–72 with transcript re-flow in
-  sync. `/steps` toggles, `/steps open|close|width N` mirror the keys.
+  error text, start time; `alt+o` toggles the live-output band; `alt+←/→` resizes the
+  panel 28–72 with transcript re-flow in sync. `/steps` toggles,
+  `/steps open|close|width N` mirror the keys.
 - **Auditable**: step numbers increase monotonically within a session (line up with the
   hooks audit log); compaction failures and tool error text show inline at the row end;
   /new /resume reset the panel (historical action audit lives in the hooks log and
@@ -754,8 +906,10 @@ mechanical executor); wiring lives in TUI commands and `lyon run` flags.
   turns itself into an artifact.
 - **Failure diagnosis feedback**: failed prompts run `SummarizeFailure` async, producing
   checkable conditions + a patch — shown in the panel, recorded in audit (off with
-  `LYON_DIAGNOSE=off`); flow retries use the same mechanism to append the constraint block
-  into the next node prompt.
+  `LYON_DIAGNOSE=off`); the diagnosis is also **written into the project memory hot tier**
+  (content-deduped, 3-entry hot window, audited as `memory_save`), so the next session's
+  injection carries the lesson; flow retries use the same mechanism to append the
+  constraint block into the next node prompt.
 
 ### Evolution panel (alt+e / /evolve)
 
@@ -771,6 +925,14 @@ mechanical executor); wiring lives in TUI commands and `lyon run` flags.
 - **Race-safe**: everything is read from `eval.Leaderboard.Views'` **locked snapshot** —
   scoring records into the leaderboard on a background goroutine and the panel never reads
   the map directly (data race).
+- **Overall summary block (#14)**: one computed line at the top — task classes tracked,
+  counts of tested/seated/vacant/failing/due/routable classes, the strongest and weakest
+  class (each by its newest scorecard, a demoted failing seat is never hidden) and the
+  newest scorecard anywhere (class / source / total); pure statistics from one locked
+  snapshot plus the routing table, zero model calls.
+- **Exam-set block (#14)**: the on-disk reality — seeded exam banks, total question count,
+  per-class footprints, and the candidate field (`/agents` roster + self) — what gets
+  examined and who sits the exam, both checkable in the panel.
 - **Empty state**: with no scorecards yet it shows a guidance block ("every completed prompt
   files a scorecard and books a round"); the footer permanently shows
   `/exam · /route · alt+e close`.
@@ -843,12 +1005,21 @@ exited 0 (zero failures), ~3 min/round.**
 | --- | --- |
 | `/route [text]` | routing evidence table / task classification + recommendation + profile comparison |
 | `/exam [class]` | manual closed-book exam (auto every 10 rounds, `LYON_EXAM=off`) |
+| `/contest [class]` | seat competition: the whole candidate field vs held-out tasks (a field of one refuses and points at `/agents add`) |
+| `/agents` | candidate field: `list` · `add <id> <model> [effort]` · `rm <id>` |
+| `/market` | task-hour market: history ledger + per-class estimates |
 | `/flow list\|show\|match\|export\|save <slug>` | workflow browsing and freezing |
 | `lyon run -exam auto\|<class>` | examine before executing |
 | `lyon run -coverage` | coverage gate + gap injection |
 | `lyon run -flow <slug>` | mechanically execute a workflow, results scored |
 | `LYON_SCORE=off` | disable blind-judge entry for ordinary prompts (exam rounds still count) |
 | `LYON_AUTOFREEZE=off` | disable workflow auto-freeze after consecutive green runs (§3.1) |
+
+## Roadmap
+
+In progress (shipped one at a time, no vaporware): a web UI, in-process and OS-level
+timers, one-click installers with Release prebuilt binaries, a `lyon doctor` self-check —
+discuss priorities in issues.
 
 ## Testing
 
@@ -877,3 +1048,11 @@ built-in workflow structure & user override, TUI /route /exam /flow and the 10-r
 clock, CLI -exam/-coverage/-flow e2e mock scoring into the leaderboard), mockapi (cache
 simulator fidelity), bench (performance acceptance).
 All offline — no network, no real keys required.
+
+Continuous integration (`.github/workflows/ci.yml`) runs
+`go build ./... && go vet ./... && go test ./... -count=1` on ubuntu / windows / macos —
+thresholds are never loosened; a red build gets fixed.
+
+## License
+
+[MIT License](LICENSE) © 2026 LyonLen. Issues and PRs welcome.

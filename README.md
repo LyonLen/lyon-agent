@@ -1,8 +1,17 @@
 # lyon-agent
 
+**the agent that grades itself and gets better** —— 自己打分、考试、淘汰、
+路由换将，并且**越用越强**的自进化 coding agent。
+
+[![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
+[![CI](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 高性能通用 AI Agent，Go 编写，**服务 + CLI 双形态**。一个进程内跑完整的
-agent 循环（流式输出、工具调用、上下文压缩、子代理），对外提供 HTTP/SSE 服务
-和交互式 CLI；自带压力验收套件，性能阈值不达标直接 FAIL。
+agent 循环（流式输出、工具调用、上下文压缩、子代理并发扇出），对外提供
+HTTP/SSE 服务和全屏 TUI；自带压力验收套件，性能阈值不达标直接 FAIL。
+外圈是一整套**演化机制**——生产评分与在岗榜单、每 10 轮闭卷考核（连挂撤职）、
+任务分类与证据路由、workflow 连绿自动固化——账本全部落盘、重启原样恢复。
 
 > 📘 **文档站**：浏览器打开 [`docs/index.html`](docs/index.html)（产品介绍 + 截图）
 > 与 [`docs/manual.html`](docs/manual.html)（使用手册：上手 → 界面 → 演化机制 →
@@ -11,40 +20,138 @@ agent 循环（流式输出、工具调用、上下文压缩、子代理），�
 > [`docs/index.en.html`](docs/index.en.html) · [`docs/manual.en.html`](docs/manual.en.html)。
 > 界面本身也双语：`/lang zh|en` 或启动时 `LYON_LANG=zh`（详见手册「界面语言」）。
 
+## 特性
+
+- **自进化闭环**：生产 prompt 跑完自动盲评入榜 → 每 10 轮闭卷考核（连挂 2 次撤职）
+  → 任务分类推荐路由（`lyon run` 未钉 `-model` 时自动换将）→ workflow 连续 3 次
+  绿灯自动冻结为工件——评分、考核、路由、固化全部落盘，重启进程原样恢复；
+- **三层持久记忆**：team / personal / project 单事实 Markdown，本地 BM25（CJK
+  二元组）检索，热层随首条 prompt 注入，退出时自动蒸馏入库；
+- **错因归纳回灌**：失败的 prompt 异步提取「可核对条件 + patch」——面板显示、
+  审计留痕，并写入项目记忆热层，下一次会话带着教训开跑；
+- **hooks 审计与安全门**：全生命周期 jsonl 审计 + 聚合统计 + `policy.json` 正则
+  拦截 + 外部阻塞钩子（`LYON_AUDIT`/`LYON_HOOKS` 可关）；
+- **实时输出**：展开的步骤与右列常驻输出带（`alt+o`）实时显示运行中命令的
+  stdout/stderr（40ms / 16KB 合帧，12 行封顶）；
+- **忙时排队、间隙插队**（#2）：prompt 跑着时输入的问题**不丢失**——在当前轮的
+  **间隙**注入，与该轮工具结果合并成同一条 user 消息送达模型，不必等整段跑完；
+- **并发子代理**：`run_subagent` 只读子代理，`run_subagents` 一次扇出 2–6 个
+  独立子任务**并行**执行，各用该任务类有证据的模型；
+- **MCP 接入**：stdio 与 streamable HTTP 双传输，`~/.lyon/mcp.json` 持久配置
+  （`mcpServers` 格式，坏条目告警跳过）+ `-mcp` / `-mcp-http` 旗标，工具映射为
+  `mcp_<srv>_<tool>`；
+- **并行安全的工作区搜索**：`search_files`（glob + 上下文行）与 `read_file` 的
+  `offset`/`limit` 分页——批量搜索/翻页不再排在 shell 的串行锁后面；
+- **性能验收硬门限**：进程内 mock Anthropic API + bench 套件（引擎 p95 开销
+  ≤ 25ms、稳态缓存命中 ≥ 95%、SSE 零丢事件），不达标直接 FAIL；
+- **OpenAI 兼容网关**：HTTP 层协议翻译（`-openai-base` 任意端点），工具系统、
+  压缩、子代理零改动复用；
+- **双语界面**：`/lang zh|en` 运行时切换整套界面文案，转录内容永不翻译。
+
+## 安装
+
+需要 Go ≥ 1.25（`go.mod` 声明 1.25.0）。当前从源码构建：
+
+```bash
+git clone https://github.com/LyonLen/lyon-agent.git
+cd lyon-agent
+go build -o bin/lyon ./cmd/lyon      # CLI（Windows 产出 bin\lyon.exe）
+go build -o bin/lyond ./cmd/lyond    # HTTP/SSE 服务（可选）
+export ANTHROPIC_AUTH_TOKEN=...      # 密钥，勿提交
+# 把 bin/ 加进 PATH，下文的 lyon / lyond 即指这两个二进制
 ```
-go build ./...          # 构建
-go test ./... -count=1  # 全量测试（含 bench 验收）
-go test ./bench -run 'TestLoad|TestCache|TestSSE' -v   # 性能验收（打印结果表）
+
+三平台预编译产物（+ checksum）将随 GitHub Release 分发——现阶段请从源码构建。
+
+## 快速开始
+
+```bash
+lyon chat                     # 全屏 TUI：流式转录 + 步骤面板 + 斜杠命令（退出自动存档）
+lyon chat -c                  # 恢复本工作区上次会话继续聊
+lyon run "在 shell 里跑 echo hello 然后总结"   # 一次性任务（也接受管道 stdin）
+lyon tools                    # 列出全部工具
 ```
+
+TUI 里输入 `/` 唤出命令候选弹窗，常用：`/help`（命令与完整键位表）· `/stats`
+用量与缓存 · `/model` 模型知识卡 · `/memory` 记忆 · `/sessions` `/resume`
+会话存档 · `/evolve`（`alt+e`）进化面板 · `/route` `/exam` `/flow` 演化机制 ·
+`/mode` plan/bypass。核心键位：`ctrl+c` 中断（再按退出）· `ctrl+o` 展开全部
+折叠 · `alt+↑/↓` 走步 · `alt+enter` 展开步骤 · `alt+o` 实时输出带。详细见
+下方「使用详解」与文档站手册。
+
+> 注意：裸 `lyon`（不带子命令）只打印用法并退出——TUI 入口是 `lyon chat`。
+
+## 截图
+
+以下均为仓库内 `cmd/lyon/gen_screens_test.go` **离线渲染的真实 TUI 帧**（非手工
+拼贴），浏览器直接打开：
+
+| 文件 | 内容 |
+|---|---|
+| [`docs/screens/tui-workbench.html`](docs/screens/tui-workbench.html) | 全屏 TUI 工作台 |
+| [`docs/screens/tui-route.html`](docs/screens/tui-route.html) | `/route` 任务分类与推荐路由 |
+| [`docs/screens/tui-flow.html`](docs/screens/tui-flow.html) | `/flow` 机械式 workflow 执行 |
+| [`docs/screens/tui-exam.html`](docs/screens/tui-exam.html) | `/exam` 闭卷考核 |
+| [`docs/screens/tui-help.html`](docs/screens/tui-help.html) | `/help` 指令速查 |
+
+整站（内嵌全部截图 + 使用手册）见 [`docs/index.html`](docs/index.html)。
 
 ## 架构
 
+分层简图（调用方向自上而下；演化/记忆/治理层只经账本与事件流，不侵入引擎循环）：
+
+```text
+┌─ 入口   lyon chat（全屏 TUI）· lyond（HTTP/SSE 服务）· lyon run（一次性）· Go 库嵌入
+├─ 引擎   pkg/agent   驱动循环 · 事件流 · 压缩 · 快照/回滚 · 子代理与并发扇出
+├─ 工具   pkg/tools   shell / files / search / image / web / memory / todos
+│           pkg/mcp    MCP stdio 与 streamable HTTP
+├─ 演化   pkg/eval · pkg/routing · pkg/models · pkg/flow · pkg/market
+│           评分榜单 · 任务路由 · 模型画像 · workflow 状态机 · 工时台账
+├─ 记忆   pkg/memory  三层持久记忆 · BM25 检索 · 蒸馏 · 云同步
+└─ 治理   pkg/hooks   审计 jsonl · 聚合统计 · policy/外部钩子安全门
+（传输侧）pkg/server（SSE 服务）· pkg/openaix（OpenAI 网关协议翻译）
 ```
+
+目录明细：
+
+```text
 cmd/lyon            CLI：run（一次性）/ chat（全屏 TUI）/ tools（工具清单）
   tui.go             chat 的 bubbletea TUI：流式转录、滚动视口、y/n 审批浮层、thinking 折叠、斜杠候选弹层、alt+v 剪贴板贴图
 cmd/lyond           HTTP 服务：SSE 流式会话、/metrics、准入控制
 pkg/agent           引擎核心
   engine.go           Engine：单进程调优 HTTP 连接池、全局并发 turn 信号量、Warmup
   session.go          Session：每会话一个驱动 goroutine，串行工具锁，
-                      事件流 (text_delta → turn_end → prompt_end)、压缩触发、历史组装
+                      事件流 (text_delta → turn_end → prompt_end)、压缩触发、历史组装、
+                      忙时排队的间隙注入（Enqueue → 下一轮工具执行前并入）
   compact.go          ★ 客户端压缩：渲染历史 → 独立摘要请求 → 摘要替换历史（任意端点可用）
   snapshot.go         会话快照：Export/Restore + ~/.lyon/sessions 多会话存档
                       （最新槽位 + 20 份归档轮转，/sessions /resume N /new）
   subagent.go         run_subagent：低配额模型的只读子代理
+  dispatch.go         ★ run_subagents：2–6 个独立子任务并发扇出（#53，各用有证据的模型）
   events.go           事件协议（服务端 SSE 与 CLI 共用同一事件流）
 pkg/tools           工具系统
   registry.go         注册/适配/并行安全标注
-  shell.go files.go   run_shell / read_file / write_file / edit_file（工作区禁闭）
+  shell.go files.go   run_shell / read_file（offset/limit 分页）/ write_file / edit_file（工作区禁闭）
+  search.go           ★ search_files：并行安全的 glob 搜索（上下文行、结果上限）
   image.go            view_image / @path 图片附件（magic 校验、大小与像素上限）
   paste.go            ★ PasteImage/PasteFile：alt+v 落盘 .lyon/paste + 超限重编码 + 轮转
   web.go              web_search / web_fetch（客户端实现，共享连接池）
-  memory.go           ★ save/read/forget_memory：跨会话记忆（<工作区>/.lyon/memory.json）
+  memory.go           ★ save/read/forget_memory：跨会话记忆（分层记忆库，见下「记忆模块」）
   todos.go            ★ todo_write：可读步骤反馈——模型写子任务计划，转录块就地更新
                       ☑/◐/☐、忙时状态条显示 📋 x/y 刻度与当前步骤（随快照恢复）
   stable.go           ★ prompt-cache 字节稳定化（见下文）
   metrics.go          每工具 p50/p95 + last_error
-pkg/mcp             MCP 客户端：stdio 与 streamable HTTP，工具映射为 mcp_<srv>_<tool>
+pkg/mcp             MCP 客户端：stdio 与 streamable HTTP，工具映射为 mcp_<srv>_<tool>，
+                      ~/.lyon/mcp.json 持久配置（mcpServers 格式，坏条目告警跳过）
 pkg/server          HTTP/SSE 服务：/v1/sessions、/metrics、/healthz、会话存储与 TTL
+pkg/hooks           审计（~/.lyon/audit/*.jsonl）、聚合统计、policy/hooks 两层安全门
+pkg/memory          三层持久记忆：BM25 检索、热层注入、蒸馏、云同步
+pkg/eval            演化机制：四维评分、在岗榜单、闭卷考核、覆盖率门禁、错因归纳
+pkg/routing         任务分类（中英双语）与推荐路由表
+pkg/models          模型参数知识库 + 能力画像（32 个型号）
+pkg/flow            workflow 状态机：机械执行、连绿自动固化
+pkg/market          任务工时台账（/market）
+pkg/openaix         OpenAI 兼容网关：HTTP 层协议翻译（http.RoundTripper）
 internal/mockapi    验收用假 API：真实 SSE 帧序 + 前缀哈希 prompt-cache 模拟器
 bench               性能验收套件（阈值强制）
 ```
@@ -55,7 +162,7 @@ bench               性能验收套件（阈值强制）
 `prompt_end.stop_reason="max_iterations"` 如实收尾）、压缩阈值 0.7×200k、
 子代理默认低配额档（轮次同样不设上限，跑到模型收工为止）。
 
-## 快速开始
+## 使用详解
 
 ### CLI
 
@@ -67,11 +174,13 @@ go run ./cmd/lyon chat -c                                   # 恢复本工作区
 go run ./cmd/lyon tools                                     # 列出全部工具
 ```
 
-常用旗标：`-model` `-effort` `-workspace`（shell/文件禁闭根）`-approve`（shell/写
-文件前人工确认；**chat 交互式默认开启**，`-approve=false` 关、管道 stdin 不弹防脚本
-卡死，`lyon run` 仅显式 `-approve` 时开启）`-shell-allow echo,ls,git`（白名单）`-mcp name=cmd args`（接 MCP 服
-务器）`-mcp-http name=url` `-prewarm`（首 prompt 前预热缓存）`-max-turns N`（全局
-并发 turn 上限）`-web-tools server|client|off`。
+常用旗标：`-model` `-effort` `-workspace`（shell/文件禁闭根）`-system`（自定义
+system prompt 文件）`-approve`（shell/写文件前人工确认；**chat 交互式默认开启**，
+`-approve=false` 关、管道 stdin 不弹防脚本卡死，`lyon run` 仅显式 `-approve` 时
+开启）`-shell-allow echo,ls,git`（白名单）`-mcp name=cmd args` / `-mcp-http name=url`
+（接 MCP 服务器；持久配置写 `~/.lyon/mcp.json`，同名时旗标优先、坏条目告警跳过）
+`-subagent-model`（子代理/蒸馏用的低价档）`-prewarm`（首 prompt 前预热缓存）
+`-max-turns N`（全局并发 turn 上限）`-web-tools server|client|off`。
 
 **图片输入**：prompt 里用 `@路径` 引用工作区内的 png/jpeg/gif/webp，图片会作为
 image block 随消息一起发给模型（`看看 @screenshot.png`；文件名含空格写成
@@ -108,12 +217,14 @@ lines` 头部），下一个非思考内容一到就把整块折成一行
 |---|---|
 | `enter` | 发送（`/` 开头走本地命令；唯一匹配的前缀直接执行，`/st` → `/stats`） |
 | `tab` | 完成候选弹层里选中的斜杠命令 |
-| `esc` | 忙时中断当前 prompt（历史自动修复，可继续聊）；空闲且弹层开着先关弹层 |
-| `ctrl+c` | 忙时：先中断，再按一次退出；空闲：退出 |
+| `esc` | 只关弹层/输出区——**不再**中断 prompt（中断归 `ctrl+c`） |
+| `ctrl+c` | 忙时：中断当前 prompt（历史自动修复，可继续聊），再按一次退出；空闲：退出 |
 | `ctrl+t` | 展开/折叠全部 thinking 块 |
+| `ctrl+o` | 展开/折叠**全部**折叠块（thinking 等所有折叠区一键开关） |
 | `↑` / `↓` | 弹层打开时在候选间移动，否则输入历史回忆 |
 | `alt+↑` / `alt+↓` | 步骤面板选步（首下选中最新，走到底回到实时跟随） |
 | `alt+enter` | 展开/折叠选中步骤的完整操作 |
+| `alt+o` | 展开/折叠右列「实时输出」带（常驻显示运行中命令的输出流） |
 | `alt+←` / `alt+→` | 面板加宽/变窄（28–72，转录列同步重排） |
 | `alt+e` | 打开/关闭**进化面板**（在岗榜单 + 考试时钟，等价 `/evolve`） |
 | `alt+v` | 粘贴剪贴板图片：落到 `<workspace>/.lyon/paste/` 并在输入框插入 `@path`（等价命令 `/paste`） |
@@ -123,13 +234,15 @@ lines` 头部），下一个非思考内容一到就把整块折成一行
 `alt+shift+…` 变体（`alt+shift+↑/↓/←/→`，以及 `alt+shift+enter`）——检测逻辑
 `KeyMsg.String()` 会把 shift 修饰拼成 `alt+shift+up` 这类标签，大小写不敏感，
 两种按法等价。**常驻键位提示**：状态行空闲时固定显示
-`enter send · esc interrupt · pgup/pgdn scroll · ctrl+t think · alt+↑↓ steps ·
-alt+e evolve · alt+v paste · /help`（`/help` 里还有完整键位表），窄终端裁掉
-尾巴也不影响发送。
+`enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+o 全展开 · pgup/pgdn 滚动 ·
+shift+alt+↑↓ 选择 · alt+enter 展开 · alt+o 实时输出 · alt+←→ 调宽 · alt+e 进化 ·
+/help`（`/help` 里还有完整键位表），窄终端裁掉尾巴也不影响发送。
 
-**busy 时排队**：prompt 正在跑时直接输入下一条问题**不再丢失**——回车即入队，
-状态行显示 `queued (N) — sends when the current prompt ends`，当前 prompt 的
-`prompt_end` 落地后自动按 FIFO 逐条发出（中断也照常排空）。
+**busy 时排队（间隙插队）**：prompt 正在跑时直接输入下一条问题**不再丢失**——
+回车即入队，状态行显示 `已排队 (N) — 将插入当前提问的下一个间隙`；下一轮工具
+执行前，队头的提问被注入对话，**与该轮工具结果合并成同一条 user 消息**送达
+模型——不必等整段跑完（`prompt_end` 的补投仍是兜底，中断也照常排空，绝无双发
+或静默丢失）。
 
 **界面语言**：`/lang zh` / `/lang en` 运行时切换整套界面文案（状态行、命令帮助、
 弹窗描述、面板标签、审批行、console 提示），`LYON_LANG=zh` 启动即中文；
@@ -156,7 +269,8 @@ compact、审批与回滚审计）；指令说明与查询结果（`/stats` `/he
 `/sessions` 列出全部存档 · `/new` 开新会话（当前对话先归档）· `/think` 同
 `ctrl+t` · `/steps` `/evolve` 侧面板（或 `alt+↑↓` / `alt+e`）· `/lang zh|en`
 界面语言 · `/help` · `/quit`（`/memory` `/remember` `/rollback` `/route`
-`/exam` `/flow` `/model` `/mode` `/paste` 见后文各节）。交互式 chat **默认**对 shell/写文件工具在状态行弹
+`/exam` `/contest` `/agents` `/market` `/flow` `/model` `/mode` `/paste`
+见后文各节）。交互式 chat **默认**对 shell/写文件工具在状态行弹
 y/n 浮层（`-approve=false` 关闭、管道 stdin 自动关闭）：`y` 一次放行 ·
 **`a` 本会话该工具全部放行**（审批默认开后长任务不被同一问题打断十次）· `n` 拒绝
 （超时/关窗一律拒绝，fail closed；拒绝不持久化）。`lyon run` 默认不弹，
@@ -186,12 +300,12 @@ home），**每个工作区一个槽位 + 一个归档目录**
 选择列表（绝不和驱动 goroutine 抢历史锁）。保存顺序固定为 `Interrupt → Export → Save`：Export 落在历史锁上，
 等在跑的 prompt 收完尾才截快照，拿到的永远是一份完整历史。
 
-**记忆**：内置 `save_memory` / `read_memory` / `forget_memory` 把事实写进
-`<工作区>/.lyon/memory.json`（按 title 无大小写 upsert，上限 500 条 / 单条
-8KB，最旧淘汰，原子写）。每个会话的首次 prompt 自动注入一次
-`[persistent-memory]` 快照；用 `chat -c` 恢复的会话若历史里已含当前记忆块则
-跳过注入。注入走 user 消息块而非 `role:"system"`——后者在各网关上未经验证，
-前者 100% 兼容。
+**记忆**：`save_memory` / `read_memory` / `forget_memory` 背后是分层持久记忆库
+（详见下「记忆模块」）——事实存 project 层（`<工作区>/.lyon/memory/` 单事实
+Markdown），按标题无大小写 upsert、单条 8KB 截断、原子写。每个会话的首次
+prompt 自动注入热层快照（`[persistent-memory — hot tier, always in context]`，
+4KB 预算）；用 `chat -c` 恢复的会话若历史里已含当前记忆块则跳过注入。注入走
+user 消息块而非 `role:"system"`——后者在各网关上未经验证，前者 100% 兼容。
 
 **压缩（客户端实现，任意端点可用）**：单轮用量达到阈值×上下文窗口（默认
 0.7×200k，`-compact-threshold` 调节、负数禁用）即触发：把历史渲染成带角色
@@ -305,7 +419,7 @@ go test ./bench -run 'TestLoad|TestCache|TestSSE' -v
 `%ProgramFiles%\Git\bin\bash.exe` 等常见安装路径。全部失败才报
 `no working shell found (tried: ...)`。
 
-**可中断 prompt**（`Session.Interrupt`）：`esc`/`ctrl+c` 取消的是本次 prompt 派生
+**可中断 prompt**（`Session.Interrupt`）：忙时按 `ctrl+c` 取消的是本次 prompt 派生
 的 context——API 流与运行中的工具一起停，会话本身存活，prompt_end 以
 `interrupted` 收尾（不发红色 error 事件）。若历史停在 assistant 的 `tool_use`
 上（工具没跑完就被打断，或 `MaxIterations` 在派发前切断），`repairInterrupted-
@@ -368,7 +482,7 @@ busy 锁在发出 prompt_end **之前**
 - **检索**：本地 BM25 倒排索引（CJK 二元分词，无需分词器），字段加权 name 3.0 / tags 2.5 / description 2.0 / body 1.0；平局时近层优先（project > personal > team）。纯内存索引，毫秒级，召回与排序强于 grep。
 - **热层**：`hot: true` 的事实随会话首条 prompt 常驻系统提示（默认 4KB 预算、整条渲染不截断）。`/memory N` 切换冷热；已存事实被检索/精读命中累计 hits≥2 后，再蒸馏时自动晋级热层。
 - **模型工具**：`save_memory`（按标题 upsert，`scope`/`hot` 参数）、`read_memory`（`query`=BM25 检索 / `title`=精读 / 空=紧凑列表）、`forget_memory`（按名删除）。
-- **自进化（distill）**：`/remember` 手动触发或退出会话时自动跑一次——用低价位子模型（SubagentModel）从近期对话提取耐久事实入库。幂等（内容没变不重写）、限时 20s 不拖住退出、`LYON_DISTILL=off` 关闭；每次写入记 `memory_save` 审计事件。
+- **自进化（distill）**：`/remember` 手动触发或退出会话时自动跑一次——用低价位子模型（SubagentModel）从近期对话提取耐久事实入库。幂等（内容没变不重写）、限时 20s 不拖住退出、`LYON_DISTILL=off` 关闭；每次写入记 `memory_save` 审计事件；退出时向 stdout 打印一行蒸馏结果（写入几条、冷转热几条——TUI 关闭后这是唯一存活的输出通道）。
 - **云同步**：设置 `LYON_SYNC_URL`（可选 `LYON_SYNC_TOKEN`）后启用，`POST /memory/push {"facts":[…]}`、`POST /memory/pull {"scopes":["team","personal"]}`，`updated` 新者胜；只同步 team+personal，project 层永不出机。`/memory sync` 手动触发。
 - **旧格式迁移**：`<workspace>/.lyon/memory.json` 首次打开时自动拆为 project 层单条事实，原文件改名 `memory.json.imported`。
 - **TUI/REPL**：`/memory` 渲染编号表格（层、命中数、更新时间、摘要），`/memory N` 置热、`/memory forget N` 删除、`/memory reload` 重读磁盘（其他 agent 的改动）、`/memory sync` 云同步；plain REPL 同样支持。
@@ -413,10 +527,15 @@ hits: 3
   tool_exec_* / server_tool_result / subagent_end / compaction / prompt_end），
   use_start 记决策、exec_start 配对执行 ID、exec_end 按 ID 收尾（并行同名工具
   FIFO 配对）；prompt_end 收尾时仍在跑的步骤如实记为 interrupted/aborted。
+- **实时输出（#11 + #13）**：选中步骤的完整命令在面板展开时，运行中命令的
+  stdout/stderr **实时流入**该步骤块（首写即刷、其后 40ms / 16KB 合帧）；
+  `alt+o` 还能在右列常驻一条**输出带**——采样顺序选中 → 最新运行中 → 最新有
+  输出的步骤，12 行封顶、窄时折叠成计数行，与步骤面板共享列几何（`alt+←/→`
+  同步调宽），带宽不足时输出带先让位给步骤列表。
 - **可操作**：`alt+↑/↓` 在历史里走步（选中行反白、表头标 `@#n`，窗口跟随选择，
   走过最新回到实时跟随）；`alt+enter` 展开选中步骤——完整命令换行显示（最多 6 行，
-  超出截断）、错误全文、开始时刻；`alt+←/→` 调整面板宽度 28–72，转录列同步重排。
-  `/steps` 切换开关，`/steps open|close|width N` 与按键等价。
+  超出截断）、错误全文、开始时刻；`alt+o` 开关实时输出带；`alt+←/→` 调整面板宽度
+  28–72，转录列同步重排。`/steps` 切换开关，`/steps open|close|width N` 与按键等价。
 - **审计可追溯**：步骤号会话内连续递增（与 hooks 审计日志对得上），compact 失败、
   工具报错文本直接显示在行尾；/new /resume 重置面板（历史动作审计在 hooks 日志与转录里）。
 - **几何**：窄终端（<110 列）自动隐藏且 `/steps` 无法越过 110 下限；布局为
@@ -628,8 +747,10 @@ hits: 3
   - TUI：`/flow list|show <slug>|match <text>|export <slug>` 本地即时；
     `/flow run` 的 TUI 内执行暂未接（CLI 已验证同一执行器）。
 - **错因归纳回灌**：失败的 prompt 异步跑 `SummarizeFailure`，产出可核对
-  条件 + patch——面板显示、audit 留痕（`LYON_DIAGNOSE=off` 关）；flow 重试
-  时同一机制把约束块追加进下一次节点 prompt。
+  条件 + patch——面板显示、audit 留痕（`LYON_DIAGNOSE=off` 关）；诊断结论
+  还会**写入项目记忆热层**（内容去重、热窗上限 3 条，审计事件 `memory_save`），
+  下一次会话的注入带着教训开跑；flow 重试时同一机制把约束块追加进下一次
+  节点 prompt。
 
 ### 进化面板（alt+e / /evolve）
 
@@ -642,6 +763,11 @@ hits: 3
   `EXAM`（到点应考，黄）· `fN`（连挂 N 次，红）· `open`（席位空缺，暗）。
 - **数据安全**：全部读自 `eval.Leaderboard.Views` 的**加锁快照**——评分在
   后台 goroutine 落榜，面板绝不去直接读 map（竞态）。
+- **整体摘要块（#14）**：面板顶部一行汇总——追踪的任务类、已考/在座/空缺/
+  连挂/应考/可路由各类计数，最强与最弱类（各取最新记分卡，连挂撤职的弱席不被
+  藏起来）、最近一张记分卡（类/来源/得分）；纯统计，零模型调用。
+- **考题集块（#14）**：读盘面实况——已落盘的考题库数、总题量、各类题量与
+  候选场（`/agents` 名单 + 自身）——考什么、谁来考，面板上可核对。
 - **空态提示**：账本无据时显示「每次完成的提问都会记一张评分卡并记一轮」的
   指引块；页脚常驻 `/exam · /route · alt+e close`。
 
@@ -702,12 +828,20 @@ hits: 3
 | --- | --- |
 | `/route [text]` | 路由证据表 / 任务分类 + 推荐 + 画像对比 |
 | `/exam [class]` | 手动闭卷考核（每 10 轮自动，`LYON_EXAM=off`） |
+| `/contest [class]` | 竞争上岗：候选场同考 held-out 任务（单候选拒考并提示先 `/agents add`） |
+| `/agents` | 候选名单：`list` · `add <id> <model> [effort]` · `rm <id>` |
+| `/market` | 任务工时市场：历史台账 + 分类预估 |
 | `/flow list\|show\|match\|export\|save <slug>` | workflow 浏览与冻结 |
 | `lyon run -exam auto\|<class>` | 先考核后执行 |
 | `lyon run -coverage` | 覆盖率门禁 + 缺口注入 |
 | `lyon run -flow <slug>` | 机械执行 workflow，结果入榜 |
 | `LYON_SCORE=off` | 关闭普通 prompt 的盲评入榜（考核轮次照记） |
 | `LYON_AUTOFREEZE=off` | 关闭 workflow 连续绿灯自动固化（§3.1） |
+
+## 路线图
+
+在建中（落地一个划掉一个）：Web 版交互、进程内与操作系统级定时器、一键安装与
+Release 预编译分发、`lyon doctor` 体检——欢迎在 issue 里讨论优先级。
 
 ## 测试
 
@@ -733,3 +867,10 @@ SDK 穿层、引擎级工具循环 e2e）、MCP 客户端、服务（SSE、metri
 TUI /route /exam /flow 与 10 轮考核时钟、CLI -exam/-coverage/-flow 端到端
 mock 打分入榜）、mockapi（缓存模拟器可信度）、bench（性能验收）。
 全部无网络、无真实密钥依赖。
+
+持续集成（`.github/workflows/ci.yml`）在 ubuntu / windows / macos 三平台执行
+`go build ./... && go vet ./... && go test ./... -count=1`——阈值不放宽，红了就修。
+
+## 许可
+
+[MIT License](LICENSE) © 2026 LyonLen。欢迎 issue 与 PR。
