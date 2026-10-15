@@ -705,6 +705,9 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		m.flushPend()
 		m.busy = false
 		m.armedQuit = false
+		// §3.1 streak tick + freeze hint while this run's steps are still
+		// on the panel (flowhint.go) — before deferred actions can wipe them.
+		m.flowHint(ev)
 		// Topic may have shifted: kick the cheap intent check so the
 		// header title follows the conversation.
 		m.kickTitleCheck()
