@@ -39,7 +39,7 @@
     <ol>
       <li><a href="#quickstart">快速上手 — 构建、凭证、三种运行方式</a></li>
       <li><a href="#tour">界面导览 — 四个区域与步骤审计面板</a></li>
-      <li><a href="#keys">按键与指令 — 全键位、20 条斜杠命令</a></li>
+      <li><a href="#keys">按键与指令 — 全键位、23 条斜杠命令</a></li>
       <li><a href="#evolution">演化机制 — 评分 · 考核 · 路由 · 覆盖门禁 · workflow</a></li>
       <li><a href="#reference">配置参考 — 启动标志与环境变量全表</a></li>
       <li><a href="#faq">常见问题 — 迭代预算、resume、门禁…</a></li>
@@ -135,8 +135,11 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       唯一匹配的前缀直接执行（<code class="inline">/st</code> → <code class="inline">/stats</code>）。
       <code class="inline">@路径</code> 引用工作区图片随消息发送，<code class="inline">alt+v</code> 直接把剪贴板里的截图存成
       <code class="inline">.lyon/paste/</code> 下的文件并填好 <code class="inline">@路径</code>，<code class="inline">↑/↓</code> 空闲时回忆输入历史。
-      <strong>忙时打的字不会丢</strong>：prompt 正在跑时继续输入，回车会把这条消息排队，
-      当前回答一结束自动发出（状态行提示 <code class="inline">queued (1)</code>）。
+      <strong>忙时打的字不会丢</strong>：prompt 正在跑时继续输入，回车会把这条消息排队；
+      下一轮工具执行前，队头插入当前提问的<strong>间隙</strong>——与该轮工具结果合并成
+      同一条 user 消息送达模型，不必等整段跑完（状态行提示
+      <code class="inline">已排队 (1) — 将插入当前提问的下一个间隙</code>，
+      <code class="inline">prompt_end</code> 补投兜底、中断照常排空）。
       输入行右端是<strong>常驻用量仪表</strong>：上下文占用条、模型名、轮次；
       窄终端（输入区不足 40 列）自动让位，不挤占输入。
     </p>
@@ -153,7 +156,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <p>
       每一次工具执行一行：序号、名称、耗时、状态，进行中的转圈、失败的标红；
       <code class="inline">alt+↑/↓</code> 选步、<code class="inline">alt+enter</code> 展开完整操作、
-      <code class="inline">alt+←/→</code> 调宽（28–72 列）；
+      <code class="inline">alt+o</code> 开关右列<strong>实时输出带</strong>（常驻显示运行中命令的
+      输出流，12 行封顶）、<code class="inline">alt+←/→</code> 调宽（28–72 列）；
       这些键同时接受 <strong>alt+shift+… 变体</strong>（IDE 如 Trae 常吞掉裸 alt 键）。
       面板底部有<strong>常驻键位提示行</strong>，不用记也能上手。
       迭代预算耗尽时，被跳过的步骤如实标 <code class="inline">over budget</code> 而不是伪装成失败。
@@ -189,12 +193,14 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       <tbody>
         <tr><td><code>enter</code></td><td>发送（<code>/</code> 开头走本地命令；唯一匹配前缀直接执行）</td></tr>
         <tr><td><code>tab</code></td><td>把候选弹层里选中的斜杠命令补进输入框</td></tr>
-        <tr><td><code>esc</code></td><td>忙时中断当前 prompt（历史自动修复，可继续聊）；空闲且弹层开着先关弹层</td></tr>
-        <tr><td><code>ctrl+c</code></td><td>忙时：先中断，再按一次退出；空闲：退出</td></tr>
+        <tr><td><code>esc</code></td><td>只关弹层/输出区——不再中断 prompt（中断归 <code>ctrl+c</code>）</td></tr>
+        <tr><td><code>ctrl+c</code></td><td>忙时：中断当前 prompt（历史自动修复，可继续聊），再按一次退出；空闲：退出</td></tr>
         <tr><td><code>ctrl+t</code></td><td>展开/折叠全部 thinking 块</td></tr>
+        <tr><td><code>ctrl+o</code></td><td>展开/折叠全部折叠块（thinking 等所有折叠区一键开关）</td></tr>
         <tr><td><code>↑</code> / <code>↓</code></td><td>弹层开时移动候选，否则输入历史回忆</td></tr>
         <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>步骤面板选步（首下选中最新，走到底回到实时跟随）；<code>alt+shift+…</code> 同效</td></tr>
         <tr><td><code>alt+enter</code></td><td>展开/折叠选中步骤的完整操作；<code>alt+shift+enter</code> 同效</td></tr>
+        <tr><td><code>alt+o</code></td><td>开关右列实时输出带（常驻显示运行中命令的输出流，12 行封顶）</td></tr>
         <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>面板加宽/变窄（28–72，转录列同步重排）；<code>alt+shift+…</code> 同效</td></tr>
         <tr><td><code>alt+e</code></td><td>开关进化面板（榜单 / 考试时钟）；<code>alt+shift+e</code> 同效</td></tr>
         <tr><td><code>shift+tab</code></td><td>循环切换 plan / bypass / default 模式</td></tr>
@@ -203,7 +209,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       </tbody>
     </table>
 
-    <h3>斜杠指令（20 条，输入 <code>/</code> 即见）</h3>
+    <h3>斜杠指令（23 条，输入 <code>/</code> 即见）</h3>
     <table>
       <thead><tr><th>指令</th><th>作用</th></tr></thead>
       <tbody>
@@ -223,6 +229,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>/evolve</code></td><td>进化面板：分类榜单、考试时钟（同 <code>alt+e</code>）</td></tr>
         <tr><td><code>/route [text]</code></td><td>路由证据表；<code>/route &lt;任务&gt;</code> 做分类 + 推荐 + 画像对比</td></tr>
         <tr><td><code>/exam [class]</code></td><td>手动闭卷考核（每 10 轮自动考，<code>LYON_EXAM=off</code> 关）</td></tr>
+        <tr><td><code>/contest [class]</code></td><td>竞争上岗：全部候选同考 held-out 任务（单候选拒考并提示先 <code>/agents add</code>）</td></tr>
+        <tr><td><code>/agents</code></td><td>候选名单：<code>list</code> · <code>add &lt;id&gt; &lt;model&gt; [effort]</code> · <code>rm &lt;id&gt;</code></td></tr>
+        <tr><td><code>/market</code></td><td>任务工时市场：历史台账 + 分类预估</td></tr>
         <tr><td><code>/flow …</code></td><td>workflow：list · show · match · export · save &lt;slug&gt;</td></tr>
         <tr><td><code>/lang zh|en</code></td><td>切换界面语言（也可启动前设 <code>LYON_LANG=zh</code>）</td></tr>
         <tr><td><code>/help</code></td><td>指令与按键速查</td></tr>
@@ -376,7 +385,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
           <span class="title">/help — 指令速查弹层</span>
         </div>
         <iframe src="screens/tui-help.html" title="帮助截图" scrolling="auto"></iframe>
-        <figcaption>本手册第 3 章的指令表就是这 17 条，随二进制内置。</figcaption>
+        <figcaption>本手册第 3 章的指令表就是这 23 条，随二进制内置。</figcaption>
       </figure>
     </div>
 
@@ -523,7 +532,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
           <code class="inline">LYON_MAX_ITER</code>（正整数）时，单个 prompt 最多发那么多次
           API 调用（<code class="inline">MaxIterations</code>，防跑飞、防刷 token）。
           <strong>默认不设上限</strong>（<code class="inline">MaxIterations=0</code>）：
-          ReAct 轮次一路跑到模型自己收工，或 <code class="inline">esc</code> 中断为止。
+          ReAct 轮次一路跑到模型自己收工，或 <code class="inline">ctrl+c</code> 中断为止。
         </p>
         <p>
           到顶时转录会打印黄色的 <code class="inline">⚡ budget reached — 50 API calls ·
@@ -589,7 +598,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     </details>
 
     <details class="faq">
-      <summary>中断（esc / ctrl+c）之后为什么还能继续聊？</summary>
+      <summary>中断（ctrl+c）之后为什么还能继续聊？</summary>
       <div class="body">
         <p>
           中断会触发<strong>历史修复</strong>：给悬空的 tool_use 合成一个

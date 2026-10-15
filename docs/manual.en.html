@@ -40,7 +40,7 @@
     <ol>
       <li><a href="#quickstart">Quick start — build, credentials, three ways to run</a></li>
       <li><a href="#tour">UI tour — four areas and the step audit panel</a></li>
-      <li><a href="#keys">Keys & commands — full keymap, 20 slash commands</a></li>
+      <li><a href="#keys">Keys & commands — full keymap, 23 slash commands</a></li>
       <li><a href="#evolution">Evolution — scoring · exams · routing · coverage gate · workflow</a></li>
       <li><a href="#reference">Reference — launch flags and environment variables</a></li>
       <li><a href="#faq">FAQ — iteration budget, resume, gates…</a></li>
@@ -146,8 +146,13 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       <code class="inline">.lyon/paste/</code> and fills in the <code class="inline">@path</code>,
       <code class="inline">↑/↓</code> recalls input history while idle.
       <strong>Typing while busy is not lost</strong>: keep typing while a prompt runs and
-      enter queues the message; it sends automatically the moment the current answer ends
-      (status line shows <code class="inline">queued (1)</code>).
+      enter queues the message; before the next round's tool execution the queue head is
+      injected at the <strong>gap</strong> of the current question — merged with that round's
+      tool results into a single user message, no waiting for the whole run to finish
+      (status line shows
+      <code class="inline">queued (1) — injects at the next gap of the running prompt</code>;
+      the <code class="inline">prompt_end</code> kick is the fallback and interrupts drain
+      the queue too).
       At the right end of the input line sits the <strong>resident usage gauge</strong>:
       context bar, model name, turns; on narrow terminals (input area under 40 cells) it
       yields the seat entirely rather than squeeze your typing.
@@ -167,6 +172,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       One row per tool execution: index, name, duration, status; running rows spin, failures
       turn red; <code class="inline">alt+↑/↓</code> walks steps,
       <code class="inline">alt+enter</code> expands the full action,
+      <code class="inline">alt+o</code> toggles the right-column <strong>live-output band</strong>
+      (streams the running command's output, 12-line cap),
       <code class="inline">alt+←/→</code> resizes (28–72 columns) — these keys also accept
       <strong>alt+shift+… variants</strong> (IDEs like Trae often swallow the plain alt keys).
       The panel bottom carries a <strong>resident key-legend row</strong> so you never have to
@@ -212,12 +219,14 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       <tbody>
         <tr><td><code>enter</code></td><td>send (<code>/</code>-prefixed input runs local commands; a unique prefix executes directly)</td></tr>
         <tr><td><code>tab</code></td><td>complete the highlighted slash command from the popup into the input</td></tr>
-        <tr><td><code>esc</code></td><td>while busy, interrupt the current prompt (history auto-repaired, chat continues); while idle with a popup open, close it first</td></tr>
-        <tr><td><code>ctrl+c</code></td><td>busy: interrupt first, press again to exit; idle: exit</td></tr>
+        <tr><td><code>esc</code></td><td>closes popups/the output area only — it no longer interrupts the prompt (interrupting belongs to <code>ctrl+c</code>)</td></tr>
+        <tr><td><code>ctrl+c</code></td><td>busy: interrupt the current prompt (history auto-repaired, chat continues), press again to exit; idle: exit</td></tr>
         <tr><td><code>ctrl+t</code></td><td>expand/collapse all thinking blocks</td></tr>
+        <tr><td><code>ctrl+o</code></td><td>expand/collapse all folds (one toggle for every collapsed region, thinking included)</td></tr>
         <tr><td><code>↑</code> / <code>↓</code></td><td>move candidates when the popup is open, otherwise recall input history</td></tr>
         <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>step-panel selection (first press picks the latest; walking past the end returns to live follow); <code>alt+shift+…</code> works the same</td></tr>
         <tr><td><code>alt+enter</code></td><td>expand/collapse the selected step's full action; <code>alt+shift+enter</code> works the same</td></tr>
+        <tr><td><code>alt+o</code></td><td>toggle the right-column live-output band (streams the running command's output, 12-line cap)</td></tr>
         <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>panel wider/narrower (28–72, transcript columns re-flow); <code>alt+shift+…</code> works the same</td></tr>
         <tr><td><code>alt+e</code></td><td>toggle the evolution panel (leaderboard / exam clock); <code>alt+shift+e</code> works the same</td></tr>
         <tr><td><code>shift+tab</code></td><td>cycle plan / bypass / default modes</td></tr>
@@ -226,7 +235,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
       </tbody>
     </table>
 
-    <h3>Slash commands (20, visible the moment you type <code>/</code>)</h3>
+    <h3>Slash commands (23, visible the moment you type <code>/</code>)</h3>
     <table>
       <thead><tr><th>Command</th><th>What it does</th></tr></thead>
       <tbody>
@@ -246,6 +255,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
         <tr><td><code>/evolve</code></td><td>evolution panel: class leaderboard, exam clock (same as <code>alt+e</code>)</td></tr>
         <tr><td><code>/route [text]</code></td><td>routing evidence table; <code>/route &lt;task&gt;</code> classifies + recommends + compares profiles</td></tr>
         <tr><td><code>/exam [class]</code></td><td>manual closed-book exam (auto every 10 rounds, off with <code>LYON_EXAM=off</code>)</td></tr>
+        <tr><td><code>/contest [class]</code></td><td>seat competition: the whole candidate field vs held-out tasks (a field of one refuses and points at <code>/agents add</code>)</td></tr>
+        <tr><td><code>/agents</code></td><td>candidate field: <code>list</code> · <code>add &lt;id&gt; &lt;model&gt; [effort]</code> · <code>rm &lt;id&gt;</code></td></tr>
+        <tr><td><code>/market</code></td><td>task-hour market: history ledger + per-class estimates</td></tr>
         <tr><td><code>/flow …</code></td><td>workflow: list · show · match · export · save &lt;slug&gt;</td></tr>
         <tr><td><code>/lang zh|en</code></td><td>switch the interface language (or set <code>LYON_LANG=zh</code> before launch)</td></tr>
         <tr><td><code>/help</code></td><td>command and key cheat sheet</td></tr>
@@ -428,7 +440,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
           <span class="title">/help — command cheat sheet</span>
         </div>
         <iframe src="screens/tui-help.html" title="help screenshot" scrolling="auto"></iframe>
-        <figcaption>The command table of chapter 3 — these 20 ship with the binary.</figcaption>
+        <figcaption>The command table of chapter 3 — these 23 ship with the binary.</figcaption>
       </figure>
     </div>
 
@@ -588,7 +600,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
           (<code class="inline">MaxIterations</code> — runaway protection, token-burn
           protection). <strong>By default there is no cap</strong>
           (<code class="inline">MaxIterations=0</code>): the ReAct loop runs until the model
-          finishes on its own, or you interrupt with <code class="inline">esc</code>.
+          finishes on its own, or you interrupt with <code class="inline">ctrl+c</code>.
         </p>
         <p>
           At the cap the transcript prints a yellow
@@ -665,7 +677,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># o
     </details>
 
     <details class="faq">
-      <summary>Why can I keep chatting after an interrupt (esc / ctrl+c)?</summary>
+      <summary>Why can I keep chatting after an interrupt (ctrl+c)?</summary>
       <div class="body">
         <p>
           An interrupt triggers <strong>history repair</strong>: a synthetic
