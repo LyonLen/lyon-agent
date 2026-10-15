@@ -241,6 +241,10 @@ type tuiModel struct {
 	stepSel  int
 	stepOpen bool
 	panelW   int
+	// stepOutOpen expands the right column's live-output band (#13): the
+	// column stacks steps / live output / plan, and alt+o grows the
+	// middle band from its one-line summary to the output tail window.
+	stepOutOpen bool
 }
 
 func newTUIModel(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics) *tuiModel {
@@ -337,6 +341,7 @@ func (m *tuiModel) resetTranscript() {
 	m.stepSeq = 0
 	m.stepSel = 0
 	m.stepOpen = false
+	m.stepOutOpen = false // the band collapses with the audit it reads
 	m.cmdOut = nil
 	m.todos = nil // the plan block dies with the lines; restore re-adds it
 }
@@ -1012,8 +1017,8 @@ func (m *tuiModel) doNew() {
 // are discoverable without knowing /help exists (narrow terminals clip
 // the tail).
 const (
-	idleLegendEN = "enter send · ctrl+c interrupt · esc close output · ctrl+o all folds · pgup/pgdn scroll · shift+alt+↑↓ select · alt+enter open · alt+←→ width · alt+e evolve · /help"
-	idleLegendZH = "enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+o 全展开 · pgup/pgdn 滚动 · shift+alt+↑↓ 选择 · alt+enter 展开 · alt+←→ 调宽 · alt+e 进化 · /help"
+	idleLegendEN = "enter send · ctrl+c interrupt · esc close output · ctrl+o all folds · pgup/pgdn scroll · shift+alt+↑↓ select · alt+enter open · alt+o live output · alt+←→ width · alt+e evolve · /help"
+	idleLegendZH = "enter 发送 · ctrl+c 中断 · esc 关输出 · ctrl+o 全展开 · pgup/pgdn 滚动 · shift+alt+↑↓ 选择 · alt+enter 展开 · alt+o 实时输出 · alt+←→ 调宽 · alt+e 进化 · /help"
 )
 
 var idleStatus = tr(idleLegendEN, idleLegendZH)
@@ -1725,21 +1730,29 @@ func (m *tuiModel) cmdOutView(budget int) []string {
 
 // composeSplit joins the transcript viewport with the steps panel row by
 // row: [transcript, tw cells] │ [right column, pw cells], exactly vh
-// rows. The right column composes bottom up (#1): one shared key-hint
-// footer, the resident plan block above it, and whichever panel (steps
-// or evolution) fills what's left — the plan parks in the corner with
-// either panel open. Transcript rows are clipped and padded to tw so
-// the gutter and the right edge stay on their columns.
+// rows. The right column composes bottom up (#1/#13): one shared key-hint
+// footer, the resident plan block above it, the live-output band above
+// that (steps mode only), and whichever panel (steps or evolution)
+// fills what's left — the plan parks in the corner with either panel
+// open, the band reads the selected (or live) step's #11 output store in
+// between. Transcript rows are clipped and padded to tw so the gutter and
+// the right edge stay on their columns.
 func (m *tuiModel) composeSplit(vh int) string {
 	vlines := strings.Split(m.vp.View(), "\n")
-	planH := planSectionH(m.todos, vh-1) // budget: the column minus its footer
-	if planH > vh-1 {
-		planH = vh - 1
+	avail := vh - 1 // budget: the column minus its shared footer
+	if avail < 0 {
+		avail = 0
 	}
-	if planH < 0 {
-		planH = 0
+	planH := planSectionH(m.todos, avail) // the seat keeps first claim (#1)
+	if planH > avail {
+		planH = avail
 	}
-	panelH := vh - 1 - planH
+	mid := avail - planH // rows the top segments may claim
+	outH := 0
+	if !m.evoOn {
+		outH = m.stepOutSectionH(m.pw, mid)
+	}
+	panelH := mid - outH
 	if panelH < 0 {
 		panelH = 0
 	}
@@ -1749,6 +1762,9 @@ func (m *tuiModel) composeSplit(vh int) string {
 		if m.evoOn {
 			col = m.renderEvolve(m.pw, panelH)
 		}
+	}
+	if outH > 0 {
+		col = append(col, m.renderStepOut(m.pw, outH)...)
 	}
 	col = append(col, m.renderPlan(m.pw, planH)...)
 	if vh >= 1 {
@@ -1956,10 +1972,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				"remember: 没有值得留存的收获")))
 		default:
 			m.finishStep(msg.step, stepDone, fmt.Sprintf("saved %d fact(s)", msg.n), "")
-			m.pushCmd(tr(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
-				paint(cCyan, "🧠 memory"), msg.n),
-				fmt.Sprintf("%s 已存 %d 条事实 — /memory 查看",
-					paint(cCyan, "🧠 memory"), msg.n)))
+			m.pushCmd(msg.echoLine())
 		}
 		m.refresh()
 
@@ -2014,6 +2027,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Event:  hooks.EvDiagnosis,
 				Output: sanitizeText(d.String()),
 			})
+			// Memory writeback: the lesson pins into the project layer's
+			// hot tier, so the NEXT session's MemoryFacts carries it —
+			// deduped and audited inside, best-effort like distill.
+			_ = rememberDiagnosis(m.workspace, m.sess.Hooks().Fire, d)
 		}
 		m.refresh()
 
@@ -2206,11 +2223,11 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		// Panel navigation (steps.go / evopanel.go): walk the audit,
-		// expand the selected step, resize the column. Every arrow also
-		// answers to alt+shift+… because IDEs (Trae) swallow plain
-		// alt+arrows. The panel owns these while it is on; they never
-		// reach the input. Selection keys are steps-only (evo panel has
-		// no selection); resize applies to both.
+		// expand the selected step, toggle the live-output band, resize
+		// the column. Every arrow also answers to alt+shift+… because
+		// IDEs (Trae) swallow plain alt+arrows. The panel owns these
+		// while it is on; they never reach the input. Selection/band keys
+		// are steps-only (evo panel has neither); resize applies to both.
 		case "alt+up", "alt+shift+up":
 			m.armedQuit = false
 			if m.panelOn() && !m.evoOn {
@@ -2229,6 +2246,17 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.armedQuit = false
 			if m.panelOn() && !m.evoOn {
 				m.stepToggleOpen()
+			}
+			return m, nil
+
+		// alt+o grows/collapses the live-output band (#13) — the middle
+		// segment of the steps-mode column. The chord's hint rides the
+		// band's own header, not the shared footer (#6's footer stays
+		// exactly as the panel contract spells it).
+		case "alt+o", "alt+shift+o":
+			m.armedQuit = false
+			if m.panelOn() && !m.evoOn {
+				m.stepToggleOut()
 			}
 			return m, nil
 
@@ -2814,7 +2842,7 @@ func helpLines() []string {
 			"  /quit    退出",
 			paint(cDim, "输入 / 弹出命令列表 — ↑/↓ 选择，enter 执行 · tab 补全 · esc 关闭"),
 			paint(cDim, "快捷键：pgup/pgdn 或滚轮滚动 · ↑/↓ 提问历史 · ctrl+t 思考折叠 · ctrl+o 展开全部折叠 · shift+tab 模式 · ctrl+c 中断 · esc 关闭 output/弹层 · alt+v 粘贴图片"),
-			paint(cDim, "steps 面板：shift+alt+↑↓ 选步骤 · alt+enter 展开 · alt+←→ 打开/调宽（IDE 吞 alt 时用 shift+alt+方向键，或 ctrl+shift+←/→）"),
+			paint(cDim, "steps 面板：shift+alt+↑↓ 选步骤 · alt+enter 展开 · alt+o 实时输出（展开/折叠）· alt+←→ 打开/调宽（IDE 吞 alt 时用 shift+alt+方向键，或 ctrl+shift+←/→）"),
 			paint(cDim, "进化面板：alt+e（或 /evolve）— 榜单、考试时钟 · 面板开着时评分/考试卡直接进面板"),
 			paint(cDim, "批准卡片（shell/write/edit，默认开启）：y 一次 · a 本会话内放行该工具 · n 拒绝 · ↑↓/tab 选卡片 · enter 确认"),
 			paint(cDim, "附件：输入 @ 弹出工作区文件列表选择插入；@img.png 随提问发送图片（空格路径加引号）"),
@@ -2847,7 +2875,7 @@ func helpLines() []string {
 		"  /quit    exit",
 		paint(cDim, "typing / pops the command list — ↑/↓ choose, enter runs · tab completes · esc closes"),
 		paint(cDim, "keys: pgup/pgdn or wheel scroll · ↑/↓ prompt history · ctrl+t thinking fold · ctrl+o expand all folds · shift+tab mode · ctrl+c interrupt · esc close output/overlays · alt+v paste image"),
-		paint(cDim, "steps panel: shift+alt+↑↓ select · alt+enter expand · alt+←→ opens/widens (if the IDE swallows alt, use shift+alt+arrows or ctrl+shift+←/→)"),
+		paint(cDim, "steps panel: shift+alt+↑↓ select · alt+enter expand · alt+o live output (expand/collapse) · alt+←→ opens/widens (if the IDE swallows alt, use shift+alt+arrows or ctrl+shift+←/→)"),
 		paint(cDim, "evolution panel: alt+e (or /evolve) — leaderboard, exam clock · score/exam cards feed the panel while it is open"),
 		paint(cDim, "approve card (shell/write/edit, on by default): y once · a allow this tool all session · n deny · ↑↓/tab choose · enter"),
 		paint(cDim, "attach: typing @ pops the workspace file list to pick from; @img.png sends an image (quote spaces)"),
@@ -3097,9 +3125,9 @@ func (m *tuiModel) rememberNow() tea.Cmd {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		n, err := sess.Distill(ctx)
+		rep, err := sess.DistillWithReport(ctx)
 		if p := tuiProg.Load(); p != nil {
-			p.Send(rememberDone{n: n, err: err, step: step})
+			p.Send(rememberDone{n: rep.Saved, rep: rep, err: err, step: step})
 		}
 	}()
 	return nil

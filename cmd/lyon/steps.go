@@ -22,8 +22,10 @@ import (
 //
 // Interaction: alt+↑/↓ walk the history (window follows the selection,
 // past the newest returns to live-follow), alt+enter expands the selected
-// step's full operation, alt+←/→ resizes the panel; /steps toggles and
-// /steps open|close|width N mirrors the keys as commands.
+// step's full operation, alt+o grows/collapses the live-output band
+// between the panel and the plan seat (#13), alt+←/→ resizes the panel;
+// /steps toggles and /steps open|close|width N mirrors the keys as
+// commands.
 
 type stepStatus uint8
 
@@ -101,6 +103,11 @@ const (
 	// newest win, so an all-day session cannot grow panel state without
 	// bound. Matches the struct comment on execStep.out.
 	stepOutMax = 8 << 10
+	// stepOutSectionMax caps the live-output band's rows when expanded
+	// (#13): roomier than one inline expand block (expandMaxRows) because
+	// it is a dedicated segment of the column, yet never the whole column
+	// — the steps header and the plan seat keep their rows.
+	stepOutSectionMax = 12
 )
 
 // stepDTO is execStep's persistable shape: the struct's fields are
@@ -181,6 +188,7 @@ func (m *tuiModel) applySteps(raw json.RawMessage) bool {
 	m.stepSeq = steps[len(steps)-1].n
 	m.stepSel = 0
 	m.stepOpen = false
+	m.stepOutOpen = false // the band is view state, not audit state (#13)
 	return true
 }
 
@@ -989,6 +997,132 @@ func wrapPlain(s string, w int) []string {
 	return out
 }
 
+// ── live-output band (#13) ────────────────────────────────────────────
+
+// stepOutTarget picks the step the live-output band reads: the selected
+// step when one is selected (the step the user is inspecting), else the
+// newest running step (the stream actually moving), else the newest step
+// that ever streamed output, else the newest step of all — so the band
+// keeps a meaningful subject mid-session. A selected step trimmed out of
+// the audit tail falls back to the live pick. Read-only view.
+func (m *tuiModel) stepOutTarget() (execStep, bool) {
+	if len(m.steps) == 0 {
+		return execStep{}, false
+	}
+	if m.stepSel > 0 {
+		for i := len(m.steps) - 1; i >= 0; i-- {
+			if m.steps[i].n == m.stepSel {
+				return m.steps[i], true
+			}
+		}
+	}
+	for i := len(m.steps) - 1; i >= 0; i-- {
+		if m.steps[i].status == stepRunning {
+			return m.steps[i], true
+		}
+	}
+	for i := len(m.steps) - 1; i >= 0; i-- {
+		if m.steps[i].out != "" {
+			return m.steps[i], true
+		}
+	}
+	return m.steps[len(m.steps)-1], true
+}
+
+// stepOutSectionH budgets the live-output band (#13) inside the rows the
+// column spares above the plan (mid): one row when collapsed (the
+// summary header alone), header + tail window when expanded — capped at
+// stepOutSectionMax and always leaving the steps panel its header row, so
+// a shrinking column degrades band → panel content and never crowds the
+// shared footer or the resident plan seat. No steps to read, or the
+// evolution board owning the column, means no band at all.
+func (m *tuiModel) stepOutSectionH(w, mid int) int {
+	if mid < 2 {
+		return 0
+	}
+	s, ok := m.stepOutTarget()
+	if !ok {
+		return 0
+	}
+	if !m.stepOutOpen {
+		return 1
+	}
+	h := 1 + len(outputLines(s.out, w))
+	if h > stepOutSectionMax {
+		h = stepOutSectionMax
+	}
+	if h > mid-1 { // the steps panel keeps at least its header row
+		h = mid - 1
+	}
+	return h
+}
+
+// renderStepOut is the right column's live-output band (#13): exactly h
+// rows of at most w cells — a header naming the step it reads (selected
+// one, else the live target) with its display-line count and the alt+o
+// hint spelled out, then the tail of that step's #11 output store when
+// the band is expanded (newest at the bottom, older cut marked on top).
+// Collapsed, the header alone is the one-line summary; with nothing
+// streamed yet it says so instead of showing a blank seat.
+func (m *tuiModel) renderStepOut(w, h int) []string {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	out := make([]string, 0, h)
+	s, ok := m.stepOutTarget()
+	if !ok {
+		for len(out) < h {
+			out = append(out, "")
+		}
+		return out
+	}
+	lines := outputLines(s.out, w)
+	head := paint(cBold, tr("live output", "实时输出"))
+	if m.stepSel > 0 && s.n == m.stepSel {
+		head += paint(cYellow, fmt.Sprintf(" · @#%d", s.n))
+	} else {
+		head += paint(cDim, fmt.Sprintf(" · #%d", s.n))
+	}
+	switch {
+	case len(lines) == 0:
+		head += paint(cDim, " · "+tr("no output yet", "还没有输出"))
+	case len(lines) == 1:
+		head += paint(cDim, " · "+tr("1 line", "1 行"))
+	default:
+		head += paint(cDim, fmt.Sprintf(" · "+tr("%d lines", "%d 行"), len(lines)))
+	}
+	if m.stepOutOpen {
+		head += paint(cDim, " · "+tr("alt+o fold", "alt+o 折叠"))
+	} else {
+		head += paint(cDim, " · "+tr("alt+o expand", "alt+o 展开"))
+	}
+	out = append(out, fitRow(head, w))
+
+	// Expanded: window the tail — newest wins; the cut marker claims the
+	// top row so the freshest line keeps the bottom, and at a single
+	// spare row content beats the marker.
+	if m.stepOutOpen && len(lines) > 0 {
+		room := h - len(out)
+		if len(lines) > room {
+			keep := room
+			if room >= 2 {
+				keep = room - 1
+				more := len(lines) - keep
+				out = append(out, fitRow(paint(cDim,
+					fmt.Sprintf(tr("…(-%d lines)", "…(-%d 行)"), more)), w))
+			}
+			lines = lines[len(lines)-keep:]
+		}
+		for _, ln := range lines {
+			out = append(out, fitRow(ln, w))
+		}
+	}
+	for len(out) < h {
+		out = append(out, "")
+	}
+	return out[:h]
+}
+
 // ── interaction ───────────────────────────────────────────────────────
 
 // stepMove walks the audit history. First alt+up selects the newest step;
@@ -1041,6 +1175,17 @@ func (m *tuiModel) stepToggleOpen() {
 		return
 	}
 	m.stepOpen = !m.stepOpen
+}
+
+// stepToggleOut grows/collapses the live-output band (#13) between the
+// steps panel and the plan seat: alt+o flips the one-line summary to the
+// tail window and back. Like stepToggleOpen it stays a no-op with an
+// empty panel — the chord never lies about state.
+func (m *tuiModel) stepToggleOut() {
+	if len(m.steps) == 0 {
+		return
+	}
+	m.stepOutOpen = !m.stepOutOpen
 }
 
 // stepResize grows/shrinks the panel, clamped; the transcript re-flows
