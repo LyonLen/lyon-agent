@@ -184,6 +184,86 @@ func (s *Shell) Run(ctx context.Context, command string) (string, int, error) {
 	return string(out), code, nil
 }
 
+// streamCoalesce bounds the live-output event rate (#11): pending bytes
+// ship at most this often while a command streams, so a 10k-line/s
+// build becomes ≤25 events/s instead of pushing the event channel into
+// backpressure against the process's own output pipe.
+const streamCoalesce = 40 * time.Millisecond
+
+// streamPendCap bounds a newline-free stream (progress bars): past it,
+// pending bytes flush as-is rather than buffering forever.
+const streamPendCap = 16 << 10
+
+// streamBuf captures command output for the tool result while tee-ing
+// the same bytes to the live output sink (tools.WithOutputSink, #11).
+// Writes come from exec's copier goroutine — one at a time for a shared
+// Stdout/Stderr writer — plus at most one coalescing timer goroutine;
+// the mutex covers both.
+type streamBuf struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	pend   []byte
+	sink   func(string)
+	last   time.Time
+	timer  *time.Timer
+	closed bool
+}
+
+func (w *streamBuf) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Write(p)
+	if w.closed {
+		return len(p), nil // late copier tail: result bytes only
+	}
+	w.pend = append(w.pend, p...)
+	if len(w.pend) >= streamPendCap || time.Since(w.last) >= streamCoalesce {
+		w.flushLocked()
+	} else if w.timer == nil {
+		// Within the window: hold, and wake once to ship the tail even
+		// if the command falls silent (print, then think for seconds).
+		w.timer = time.AfterFunc(streamCoalesce, w.lateFlush)
+	}
+	return len(p), nil
+}
+
+// lateFlush runs on the coalescing timer goroutine.
+func (w *streamBuf) lateFlush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.timer = nil
+	if !w.closed {
+		w.flushLocked()
+	}
+}
+
+// flushLocked ships the pending bytes to the sink (callers hold w.mu).
+// string(w.pend) copies, so recycling the buffer is safe.
+func (w *streamBuf) flushLocked() {
+	if w.timer != nil {
+		w.timer.Stop()
+		w.timer = nil
+	}
+	if len(w.pend) == 0 {
+		return
+	}
+	chunk := string(w.pend)
+	w.pend = w.pend[:0]
+	w.last = time.Now()
+	if w.sink != nil {
+		w.sink(chunk) // must not block long: it runs under w.mu
+	}
+}
+
+// Close ships the final tail BEFORE OnToolEnd can fire downstream, and
+// silences any armed timer — no output event may trail the end event.
+func (w *streamBuf) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closed = true
+	w.flushLocked()
+}
+
 // run is the shared execution body: allowlisted spawn, bounded output.
 func (s *Shell) run(ctx context.Context, command string) ([]byte, int, bool, error) {
 	sh, prefix, err := detectShell()
@@ -206,11 +286,15 @@ func (s *Shell) run(ctx context.Context, command string) ([]byte, int, bool, err
 		cmd.Dir = s.Root
 	}
 
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
+	// One writer for both streams: capture for the result, tee live
+	// chunks to the sink when a session is listening (#11). Nil sink
+	// degrades to plain capture — probes and metrics pay nothing.
+	out := &streamBuf{sink: OutputSink(ctx)}
+	cmd.Stdout = out
+	cmd.Stderr = out
 
 	runErr := cmd.Run()
+	out.Close() // tail flush lands before any OnToolEnd downstream
 
 	code := 0
 	if runErr != nil {
@@ -224,13 +308,13 @@ func (s *Shell) run(ctx context.Context, command string) ([]byte, int, bool, err
 		}
 	}
 
-	out := buf.Bytes()
+	bytesOut := out.buf.Bytes()
 	truncated := false
-	if len(out) > shellOutputLimit {
-		out = out[:shellOutputLimit]
+	if len(bytesOut) > shellOutputLimit {
+		bytesOut = bytesOut[:shellOutputLimit]
 		truncated = true
 	}
-	return out, code, truncated, nil
+	return bytesOut, code, truncated, nil
 }
 
 // checkAllowlist statically screens a command against the allowlist. It

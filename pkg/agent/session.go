@@ -681,10 +681,11 @@ func (s *Session) emit(e Event) {
 	if e.TS.IsZero() {
 		e.TS = time.Now()
 	}
-	// Audit everything except raw stream noise (deltas and message_start):
-	// those would drown the log without adding decisions. Fire never blocks.
+	// Audit everything except raw stream noise (deltas, message_start,
+	// live output chunks): those would drown the log without adding
+	// decisions. Fire never blocks.
 	switch e.Type {
-	case EventTextDelta, EventThinkingDelta, EventMessageStart:
+	case EventTextDelta, EventThinkingDelta, EventMessageStart, EventToolExecOutput:
 	default:
 		var u *hooks.Usage
 		if e.Usage != nil {
@@ -810,6 +811,24 @@ func (s *Session) OnToolEnd(e tools.ExecEvent) {
 	})
 	if s.extObs != nil {
 		s.extObs.OnToolEnd(e)
+	}
+}
+
+// OnToolOutput implements tools.OutputObserver: one coalesced live
+// output chunk rides the event channel to whatever renders the run (the
+// TUI's open step shows it in real time, #11). Stream noise like text
+// deltas — never audited; forwarded only when the external observer
+// opts in too (type-asserted, so plain observers keep compiling).
+func (s *Session) OnToolOutput(e tools.ExecEvent) {
+	s.emit(Event{
+		Type:     EventToolExecOutput,
+		ExecID:   e.ExecID,
+		ToolName: e.Name,
+		Text:     e.Output,
+		Sub:      atomic.LoadInt32(&s.subNest) > 0,
+	})
+	if oo, ok := s.extObs.(tools.OutputObserver); ok {
+		oo.OnToolOutput(e)
 	}
 }
 

@@ -259,8 +259,9 @@ func TestStepInteraction(t *testing.T) {
 	}
 }
 
-// TestExpandRowCap: a huge operation never eats the panel — expansion is
-// capped and the cap row is visibly truncated.
+// TestExpandRowCap: a huge operation never eats the panel — the detail
+// block is capped with a visible … marker, and the pinned meta row still
+// owns the bottom of the block.
 func TestExpandRowCap(t *testing.T) {
 	m := newTestModel(t)
 	s := m.addStep(stepTool, "", "run_shell", strings.Repeat("x", 2000))
@@ -268,9 +269,11 @@ func TestExpandRowCap(t *testing.T) {
 	if len(rows) > expandMaxRows {
 		t.Fatalf("expand rows = %d, cap %d", len(rows), expandMaxRows)
 	}
-	if !strings.HasSuffix(strings.TrimRight(rows[len(rows)-1], " "), "…") &&
-		!strings.Contains(rows[len(rows)-1], "…") {
-		t.Fatalf("capped expansion must end with …: %q", rows[len(rows)-1])
+	if !strings.Contains(strings.Join(rows, "\n"), "…") {
+		t.Fatalf("capped detail must carry …: %q", rows)
+	}
+	if !strings.Contains(stripColor(rows[len(rows)-1]), "started") {
+		t.Fatalf("meta row must stay pinned at the bottom: %q", rows[len(rows)-1])
 	}
 	for _, r := range rows {
 		if ansi.StringWidth(r) > 40 {

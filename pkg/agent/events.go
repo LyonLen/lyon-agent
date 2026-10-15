@@ -18,6 +18,7 @@ const (
 	EventThinkingDelta    EventType = "thinking_delta"
 	EventToolUseStart     EventType = "tool_use_start"     // model emitted a tool call
 	EventToolExecStart    EventType = "tool_exec_start"    // harness began executing it
+	EventToolExecOutput   EventType = "tool_exec_output"   // live output chunk while it runs (#11, coalesced at the source)
 	EventToolExecEnd      EventType = "tool_exec_end"      // execution finished
 	EventServerToolResult EventType = "server_tool_result" // server-side tool (web_search/fetch) returned results
 	EventCompaction       EventType = "compaction"         // context compaction triggered / completed

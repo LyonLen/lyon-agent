@@ -43,6 +43,9 @@ type ExecEvent struct {
 	// not thread the id down to Execute). Empty when unknown — renderers
 	// then fall back to appending at the tail.
 	ToolID string
+	// Output carries one live output chunk — only on OnToolOutput
+	// callbacks (streaming tools, #11); start/end events leave it empty.
+	Output string
 }
 
 // Observer receives tool execution events. Callbacks run on the goroutine
@@ -52,10 +55,40 @@ type Observer interface {
 	OnToolEnd(e ExecEvent)
 }
 
+// OutputObserver is an optional Observer extension: implementors that
+// want live execution output (the TUI's open-step terminal view, #11)
+// receive coalesced chunks WHILE the tool runs. Type-asserted, so plain
+// Observer implementations — and third-party ones — keep compiling.
+type OutputObserver interface {
+	OnToolOutput(e ExecEvent)
+}
+
+// WithOutputSink threads a live-output callback through one tool call's
+// context: the adapter installs it when the session observer opts in via
+// OutputObserver, and streaming tools (shell) publish to it. fn is
+// called from the tool's goroutine and coalescing timer goroutines —
+// implementations must not block. fn == nil returns ctx unchanged.
+func WithOutputSink(ctx context.Context, fn func(string)) context.Context {
+	if fn == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, outputSinkKey{}, fn)
+}
+
+// OutputSink returns the live-output callback the adapter installed, or
+// nil when nobody is listening (probes, metrics-only sessions).
+func OutputSink(ctx context.Context) func(string) {
+	fn, _ := ctx.Value(outputSinkKey{}).(func(string))
+	return fn
+}
+
+type outputSinkKey struct{}
+
 // ObserverFuncs adapts plain functions to the Observer interface.
 type ObserverFuncs struct {
-	Start func(ExecEvent)
-	End   func(ExecEvent)
+	Start  func(ExecEvent)
+	End    func(ExecEvent)
+	Output func(ExecEvent) // optional: live chunks, when set
 }
 
 func (o ObserverFuncs) OnToolStart(e ExecEvent) {
@@ -66,6 +99,11 @@ func (o ObserverFuncs) OnToolStart(e ExecEvent) {
 func (o ObserverFuncs) OnToolEnd(e ExecEvent) {
 	if o.End != nil {
 		o.End(e)
+	}
+}
+func (o ObserverFuncs) OnToolOutput(e ExecEvent) {
+	if o.Output != nil {
+		o.Output(e)
 	}
 }
 
@@ -142,6 +180,14 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 	}
 	if a.cfg.Observer != nil {
 		a.cfg.Observer.OnToolStart(ev)
+	}
+	// Live output (#11): when the observer opts in, stream chunks ride
+	// the ctx down to the tool — no observer plumbing inside tools, and
+	// an observer that doesn't care never gets the sink at all.
+	if oo, ok := a.cfg.Observer.(OutputObserver); ok {
+		ctx = WithOutputSink(ctx, func(text string) {
+			oo.OnToolOutput(ExecEvent{ExecID: ev.ExecID, Name: ev.Name, Output: text})
+		})
 	}
 	defer func() {
 		if r := recover(); r != nil {

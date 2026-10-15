@@ -69,6 +69,11 @@ type execStep struct {
 	// executions carrying the same token nest under this node, so a
 	// run_subagents fan-out never conflates its concurrent runs.
 	sub string
+	// out is the step's live terminal output tail (#11): raw chunks as
+	// they streamed in, capped at stepOutMax — the open view reads the
+	// newest lines. Deliberately outside stepDTO: output is ephemeral,
+	// a snapshot restores the audit row, not the log.
+	out string
 }
 
 const (
@@ -88,6 +93,14 @@ const (
 	// expandMaxRows caps how many rows one expanded step may eat, so a
 	// long command can never swallow the whole panel.
 	expandMaxRows = 6
+	// stepExpandHeadMax caps the operation-text rows inside the expanded
+	// block: a 2000-char command must not crowd the live output and the
+	// pinned meta rows out of view (#11).
+	stepExpandHeadMax = 3
+	// stepOutMax caps the live output tail kept per step, in bytes — the
+	// newest win, so an all-day session cannot grow panel state without
+	// bound. Matches the struct comment on execStep.out.
+	stepOutMax = 8 << 10
 )
 
 // stepDTO is execStep's persistable shape: the struct's fields are
@@ -404,6 +417,11 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 			s.status = stepDone
 		}
 
+	case agent.EventToolExecOutput:
+		// Live terminal output (#11): rate-batched at the source, a plain
+		// tail append here — the open step shows it in real time.
+		m.stepAppendOutput(ev.ExecID, ev.Text)
+
 	case agent.EventServerToolResult:
 		for i := range m.steps {
 			s := &m.steps[i]
@@ -500,6 +518,31 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 				s.err = "unfinished"
 			}
 		}
+	}
+}
+
+// stepAppendOutput folds one live output chunk (#11) into the step the
+// chunk belongs to. Chunks arrive rate-batched at the source, so this is a
+// plain tail append — cap at stepOutMax keeping the newest bytes, trimming
+// the cut edge to the next newline so a partial line never heads the view.
+// Chunks for unknown exec ids (output raced past exec end) drop silently.
+func (m *tuiModel) stepAppendOutput(execID uint64, text string) {
+	if execID == 0 || text == "" {
+		return
+	}
+	for i := len(m.steps) - 1; i >= 0; i-- {
+		s := &m.steps[i]
+		if s.execID != execID {
+			continue
+		}
+		s.out += text
+		if len(s.out) > stepOutMax {
+			s.out = s.out[len(s.out)-stepOutMax:]
+			if cut := strings.IndexByte(s.out, '\n'); cut >= 0 && cut < 512 {
+				s.out = s.out[cut+1:]
+			}
+		}
+		return
 	}
 }
 
@@ -830,27 +873,65 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 }
 
 // stepExpandRows renders the body rows under the selected step's first
-// line: the full operation text, the full error when any, and the start
-// time — capped so a huge command cannot eat the panel.
+// line: the operation text, the live output tail when it has any (#11),
+// the full error when any, and the start time — budgeted so a huge
+// command can never eat the panel and the meta rows stay pinned.
 func (m *tuiModel) stepExpandRows(s execStep, w int) []string {
 	indent := strings.Repeat("  ", m.stepDepth(s)+1)
 	avail := w - len(indent)
 	if avail < 8 {
 		avail = 8
 	}
-	var out []string
-	add := func(text, style string) {
+	wrap := func(text, style string) []string {
+		var rows []string
 		for _, ln := range wrapPlain(text, avail) {
-			out = append(out, indent+paint(style, ln))
+			rows = append(rows, indent+paint(style, ln))
+		}
+		return rows
+	}
+
+	// Head: the operation text, capped — a 2000-char command must not
+	// crowd the output and meta rows out of the block. Empty detail (a
+	// server step, an input-less call) contributes no rows at all.
+	var head []string
+	if d := sanitizeText(s.detail); d != "" {
+		head = wrap(d, cDim)
+	}
+	if len(head) > stepExpandHeadMax {
+		head = head[:stepExpandHeadMax]
+		last := head[stepExpandHeadMax-1]
+		if ansi.StringWidth(last)+2 > w {
+			last = ansi.Truncate(last, w-2, "")
+		}
+		head[stepExpandHeadMax-1] = last + paint(cDim, " …")
+	}
+	// Tail: error and start time are pinned facts, rendered last so the
+	// output window can never push them past the row cap.
+	var tail []string
+	if s.status == stepError && s.err != "" {
+		tail = append(tail, wrap(sanitizeText(s.err), cRed)...)
+	}
+	tail = append(tail, wrap("started "+s.ts.Format("15:04:05"), cDim)...)
+
+	out := head
+	if s.out != "" {
+		if room := expandMaxRows - len(head) - len(tail); room >= 1 {
+			lines := outputLines(s.out, avail)
+			more := 0
+			if len(lines) > room {
+				// Keep the newest; reserve one row for the cut marker.
+				more = len(lines) - (room - 1)
+				lines = lines[more:]
+			}
+			for _, ln := range lines {
+				out = append(out, indent+ln)
+			}
+			if more > 0 {
+				out = append(out, indent+paint(cDim, fmt.Sprintf(tr("…(-%d lines)", "…(-%d 行)"), more)))
+			}
 		}
 	}
-	if d := sanitizeText(s.detail); d != "" {
-		add(d, cDim)
-	}
-	if s.status == stepError && s.err != "" {
-		add(sanitizeText(s.err), cRed)
-	}
-	add("started "+s.ts.Format("15:04:05"), cDim)
+	out = append(out, tail...)
 	if len(out) > expandMaxRows {
 		out = out[:expandMaxRows]
 		last := out[expandMaxRows-1]
@@ -860,6 +941,24 @@ func (m *tuiModel) stepExpandRows(s execStep, w int) []string {
 		out[expandMaxRows-1] = last + paint(cDim, " …")
 	}
 	return out
+}
+
+// outputLines turns the stored output tail into display rows: trailing
+// newlines trimmed, per-line \r progress overwrites collapsed to the
+// final state, ANSI stripped, hard-wrapped at avail. Newest lines kept
+// last — the window reads top-down like the terminal did.
+func outputLines(out string, avail int) []string {
+	var rows []string
+	for _, raw := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		raw = strings.TrimSuffix(raw, "\r") // CRLF: keep the line's text
+		if i := strings.LastIndexByte(raw, '\r'); i >= 0 {
+			raw = raw[i+1:] // lone \r: the overwrite wins
+		}
+		for _, ln := range wrapPlain(sanitizeText(raw), avail) {
+			rows = append(rows, ln)
+		}
+	}
+	return rows
 }
 
 // wrapPlain hard-wraps plain (ANSI-free) text at w columns, honoring

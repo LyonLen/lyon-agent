@@ -177,6 +177,23 @@ func (o subObs) OnToolEnd(e tools.ExecEvent) {
 	}
 }
 
+// OnToolOutput carries a live output chunk out of a dispatched subtask
+// (#11) with the same Sub/SubID stamps as its start/end, so the panel
+// files the lines under the right task node in a concurrent fan-out.
+func (o subObs) OnToolOutput(e tools.ExecEvent) {
+	o.s.emit(Event{
+		Type:     EventToolExecOutput,
+		ExecID:   e.ExecID,
+		ToolName: e.Name,
+		Text:     e.Output,
+		Sub:      true,
+		SubID:    o.id,
+	})
+	if oo, ok := o.s.extObs.(tools.OutputObserver); ok {
+		oo.OnToolOutput(e)
+	}
+}
+
 // runNested runs one nested tool-loop to completion on model. subID == ""
 // is the legacy single-call attribution (subNest counter + session
 // observer); a non-empty subID opens an EventSubagentStart, stamps every
