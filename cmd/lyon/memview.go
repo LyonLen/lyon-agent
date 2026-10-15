@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/memory"
 )
 
@@ -18,10 +19,26 @@ import (
 
 // rememberDone carries an async /remember result back into the UI loop.
 // step is the panel row the run opened (steps.go), resolved on arrival.
+// rep carries the distill report (fact names, hot-tier promotions) for
+// the echo line; senders holding only a count leave it zero.
 type rememberDone struct {
 	n    int
+	rep  agent.DistillReport
 	err  error
 	step int
+}
+
+// echoLine renders the one-line /remember summary for the command
+// panel: the report's fact names and promotions when the pass produced
+// them, else the original count-only wording.
+func (r rememberDone) echoLine() string {
+	if len(r.rep.Names) == 0 {
+		return tr(fmt.Sprintf("%s saved %d fact(s) — /memory to review",
+			paint(cCyan, "🧠 memory"), r.n),
+			fmt.Sprintf("%s 已存 %d 条事实 — /memory 查看",
+				paint(cCyan, "🧠 memory"), r.n))
+	}
+	return paint(cCyan, "🧠 ") + tr(r.rep.EchoLine(), r.rep.EchoLineZH())
 }
 
 // memSyncDone carries an async /memory sync result back into the loop.
