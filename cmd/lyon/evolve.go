@@ -574,6 +574,132 @@ func (m *tuiModel) kickScore(iterations int) {
 	}()
 }
 
+// ── evolution panel facts (#14) ─────────────────────────────────────
+
+// evoSummary is the computed fact sheet behind the panel's overall
+// evolution block: totals from ONE locked Views snapshot plus the
+// routing table's evidence count — statistics only, never a model call.
+// A dimension the ledger does not record (version-over-version deltas —
+// the board keeps no version history) stays absent from the struct, so
+// the renderer can only show what actually exists.
+type evoSummary struct {
+	Classes int // task classes the panel tracks
+	Tested  int // classes with at least one scorecard
+	Cards   int // scorecards on file, all classes
+	Held    int // classes with an on-duty seat
+	Open    int // vacant seats among tested classes (demotion/staleness)
+	Fails   int // classes on a consecutive exam-failure streak
+	Due     int // classes whose exam clock strikes the interval
+	Routed  int // classes whose routing evidence earns steering
+
+	HasScores  bool    // at least one tested class
+	Single     bool    // exactly one scored class — a "range" of one point
+	Best       float64 // strongest class's newest scorecard total
+	BestClass  string
+	BestAgent  string
+	Worst      float64 // weakest class's newest scorecard total
+	WorstClass string
+	WorstAgent string
+
+	RecentClass  string // class owning the newest scorecard anywhere
+	RecentExam   bool   // that card was an exam (else a production grade)
+	RecentTotal  float64
+	RecentPassed bool
+	RecentAt     time.Time // zero = nothing filed yet
+}
+
+// summarizeEvolution folds the panel's Views snapshot and the routing
+// entries into the summary facts. Strongest/weakest rank by each class's
+// NEWEST scorecard total: the on-duty mean only exists for seated
+// classes, and a demoted (failing) class is exactly the weakest seat a
+// summary must not hide.
+func summarizeEvolution(views []eval.View, routes []routing.Entry) evoSummary {
+	s := evoSummary{Classes: len(views)}
+	for _, v := range views {
+		if v.OnDuty != "" {
+			s.Held++
+		}
+		if v.ExamFails > 0 {
+			s.Fails++
+		}
+		if v.Rounds > 0 && v.Rounds%eval.ExamInterval == 0 {
+			s.Due++
+		}
+		if v.Cards == 0 {
+			continue
+		}
+		s.Tested++
+		s.Cards += v.Cards
+		if v.OnDuty == "" {
+			s.Open++
+		}
+		switch {
+		case !s.HasScores:
+			s.HasScores, s.Single = true, true
+			s.Best, s.Worst = v.LastTotal, v.LastTotal
+			s.BestClass, s.WorstClass = v.Class, v.Class
+			s.BestAgent, s.WorstAgent = v.LastAgent, v.LastAgent
+		default:
+			s.Single = false
+			if v.LastTotal > s.Best {
+				s.Best, s.BestClass, s.BestAgent = v.LastTotal, v.Class, v.LastAgent
+			}
+			if v.LastTotal < s.Worst {
+				s.Worst, s.WorstClass, s.WorstAgent = v.LastTotal, v.Class, v.LastAgent
+			}
+		}
+		if s.RecentAt.IsZero() || v.LastAt.After(s.RecentAt) {
+			s.RecentClass, s.RecentExam = v.Class, v.LastSource == "exam"
+			s.RecentTotal, s.RecentPassed, s.RecentAt = v.LastTotal, v.LastPassed, v.LastAt
+		}
+	}
+	for _, e := range routes {
+		// The steering bar routingSwap enforces: a recommendation only
+		// steers traffic once it carries 3+ samples and confidence ≥ 0.35.
+		if e.Samples >= 3 && e.Confidence >= 0.35 {
+			s.Routed++
+		}
+	}
+	return s
+}
+
+// classBank is one task class's exam-set footprint on disk.
+type classBank struct {
+	Class  string
+	Quests int  // questions in the file (0 = not seeded yet)
+	Seeded bool // $LYON_HOME/exams/<class>.json exists
+}
+
+// examSetInfo is the fact sheet behind the panel's exam-set block: what
+// the evaluation set IS — classes, on-disk banks, question counts,
+// candidate field — read straight from pkg/eval's files, no model call.
+type examSetInfo struct {
+	Classes    int
+	Banks      int // exam files present on disk
+	Questions  int // questions across those banks
+	PerClass   []classBank
+	Candidates int // contest field (self included)
+}
+
+// describeExamSet reads the evaluation set's real footprint: one
+// LoadExam per class (an error means the shipped bank has not landed on
+// disk yet) plus the assembled candidate field. The classes come from
+// the panel's Views snapshot so ledger extras are described too.
+func describeExamSet(views []eval.View, selfModel string) examSetInfo {
+	info := examSetInfo{Classes: len(views)}
+	for _, v := range views {
+		b := classBank{Class: v.Class}
+		if ex, err := eval.LoadExam(v.Class); err == nil {
+			b.Seeded, b.Quests = true, len(ex.Questions)
+			info.Banks++
+			info.Questions += b.Quests
+		}
+		info.PerClass = append(info.PerClass, b)
+	}
+	info.Candidates = len(eval.Contestants(selfModel))
+	return info
+}
+
 // ── /flow ─────────────────────────────────────────────────────────
 
 // findFlow looks a slug up in the loaded set.
