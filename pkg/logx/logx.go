@@ -5,8 +5,8 @@
 //
 // # Where
 //
-// $LYON_HOME/logs/lyon-YYYY-MM-DD.log (default ~/.lyon/logs/). Startup —
-// and every day rollover — prunes lyon-*.log files older than
+// $LYON_HOME/logs/lyon-YYYY-MM-DD.log (default ~/.lyon/logs/). The first
+// write per (directory, day) prunes lyon-*.log files older than
 // RetentionDays (30), best-effort. Only the lyon- prefix is touched:
 // sibling logs (timer-*.log) are never pruned by this package.
 //
@@ -35,42 +35,43 @@
 // Wiring an error path: log at the seam where the error is final (the
 // point that returns it to the caller or swallows it), include enough
 // key=value context to identify the subject, and never let a logx call
-// sit on a hot success path. Callers on Engine teardown should call
-// logx.Close (Engine.Close does).
+// sit on a hot success path.
 //
 // # Concurrency model
 //
-// One package-level logger. A mutex serializes in-process goroutines and
-// the file is held open with O_APPEND: each log line is a single Write,
-// which POSIX guarantees lands atomically at end-of-file, and Windows
-// honors via FILE_APPEND_DATA append semantics. So:
+// One package-level logger guarded by a mutex. Every log line is
+// open(O_APPEND) + one Write + close, executed under that mutex:
 //
-//   - goroutine-safe: the mutex orders writers; a line is one Write, so
-//     two goroutines can never interleave inside a line;
+//   - goroutine-safe: one line is one Write, so two goroutines can never
+//     interleave inside a line;
 //   - multi-process-safe: O_APPEND makes every write go to the current
-//     EOF, so N lyon processes sharing one $LYON_HOME append without
-//     corruption (same trick pkg/hooks uses for the audit JSONL);
-//   - unbuffered on purpose: a crash loses at most the line in flight.
-//     A buffer would buy speed at the price of exactly the durability a
-//     run log exists for. Flush() still fsyncs for callers that want a
-//     hard barrier (Engine.Close does via Close).
+//     EOF (POSIX atomic append; Windows honors it via FILE_APPEND_DATA),
+//     so N lyon processes sharing one $LYON_HOME append without
+//     corruption (the same trick pkg/hooks uses for the audit JSONL);
+//   - no file handle is ever held between writes. That is deliberate:
+//     on Windows a file opened by a process cannot be deleted, so a held
+//     handle would block day-old file removal AND break any per-test
+//     LYON_HOME temp-dir cleanup the moment a test that logged anything
+//     ended. One extra open/close per line is cheap for an error-path
+//     log and buys crash-durability: when the call returns, the line is
+//     already in the OS file — there is no buffered handle to lose.
 //
-// Day rollover is detected per write; the old handle is closed before
-// the new day's file opens, which also lets pruners delete yesterday on
-// Windows (open files cannot be removed there).
+// Day rollover is detected per write; expiry pruning runs once per
+// (directory, day), and a day-old file another process still holds open
+// survives pruning (Windows) and is retried on the next day boundary.
 //
 // # Failure policy
 //
 // A broken log file must never break the agent. Every failure degrades:
-// the handle is dropped, and at most ONE stderr notice is printed per
-// process ("logx: ..." once; later failures fully silent). The next log
-// call lazily reopens, so a transient error self-heals.
+// at most ONE stderr notice is printed per process ("logx: ..." once;
+// later failures fully silent), and the next log call retries the open,
+// so a transient error self-heals.
 //
 // # Close/Flush lifecycle
 //
-// Flush syncs the open file (no-op when nothing is open). Close flushes
-// and releases the handle; the next log call reopens, so Close is
-// idempotent and several Engines in one process (tests) may all call it.
+// Nothing is buffered and no handle is held, so Flush and Close are
+// no-ops kept for lifecycle symmetry — Engine.Close calls Close, and
+// several Engines in one process (tests) may all call it safely.
 //
 // # Suspicious concurrent-write audit (repo scan 2026-10-15)
 //
@@ -142,7 +143,7 @@ func (l Level) String() string {
 
 const (
 	// RetentionDays bounds the daily files: dated lyon-*.log older than
-	// this many days is removed at open (best-effort).
+	// this many days is removed at the next day-boundary open (best-effort).
 	RetentionDays = 30
 
 	prefix     = "lyon-"
@@ -152,10 +153,11 @@ const (
 )
 
 var (
-	mu  sync.Mutex
-	f   *os.File // open append handle; nil until first use / after Close
-	day string   // the day f belongs to
-
+	mu     sync.Mutex
+	pruned struct { // last (directory, day) the prune pass ran for
+		dir string
+		day string
+	}
 	minLevel = LevelInfo
 	noticed  bool // at most one stderr notice about logx's own failures
 )
@@ -195,18 +197,35 @@ func log(level Level, component, msg string, kv []any) {
 	}
 	now := time.Now()
 	today := now.Format(dayLayout)
-	if f == nil || day != today {
-		openLocked(now, today)
-		if f == nil {
-			return // degraded; already noticed
-		}
+	root, err := homeDir()
+	if err != nil {
+		notice("logx: cannot resolve log home: " + err.Error())
+		return
 	}
-	if _, err := f.WriteString(formatLine(now, level, component, msg, kv)); err != nil {
-		// Drop the handle so the next call reopens fresh; notice once.
-		path := f.Name()
-		f.Close()
-		f = nil
-		notice(fmt.Sprintf("logx: writing %s failed: %v", path, err))
+	dir := filepath.Join(root, "logs")
+	if pruned.dir != dir || pruned.day != today {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			notice(fmt.Sprintf("logx: cannot create %s: %v", dir, err))
+			return
+		}
+		prune(dir, now)
+		pruned.dir, pruned.day = dir, today
+	}
+	path := filepath.Join(dir, prefix+today+suffix)
+	line := formatLine(now, level, component, msg, kv)
+	// Open-per-write, never a held handle: see the concurrency model in
+	// the package comment. O_APPEND + one Write = one intact line.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		notice(fmt.Sprintf("logx: cannot open %s: %v", path, err))
+		return
+	}
+	_, werr := f.WriteString(line)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		notice(fmt.Sprintf("logx: writing %s failed: %v", path, werr))
 	}
 }
 
@@ -261,37 +280,10 @@ func formatVal(v any) string {
 	return fmt.Sprint(v)
 }
 
-// openLocked (re)opens today's file and prunes expired ones. On failure
-// f stays nil and the caller degrades silently.
-func openLocked(now time.Time, today string) {
-	if f != nil {
-		f.Close()
-		f = nil
-	}
-	root, err := homeDir()
-	if err != nil {
-		notice("logx: cannot resolve log home: " + err.Error())
-		return
-	}
-	dir := filepath.Join(root, "logs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		notice(fmt.Sprintf("logx: cannot create %s: %v", dir, err))
-		return
-	}
-	pruneLocked(dir, now)
-	path := filepath.Join(dir, prefix+today+suffix)
-	nf, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		notice(fmt.Sprintf("logx: cannot open %s: %v", path, err))
-		return
-	}
-	f, day = nf, today
-}
-
-// pruneLocked removes dated lyon-*.log older than RetentionDays.
-// Best-effort: a file another process still holds open survives (Windows
-// refuses to delete open files) and is retried next startup.
-func pruneLocked(dir string, now time.Time) {
+// prune removes dated lyon-*.log older than RetentionDays. Best-effort:
+// a file another process still holds open survives (Windows refuses to
+// delete open files) and is retried at the next day boundary.
+func prune(dir string, now time.Time) {
 	matches, err := filepath.Glob(filepath.Join(dir, prefix+"*"+suffix))
 	if err != nil {
 		return
@@ -321,29 +313,15 @@ func notice(msg string) {
 	fmt.Fprintln(os.Stderr, msg+" (further logx failures silent)")
 }
 
-// Flush syncs the open file to disk. No-op when nothing is open (every
-// line is already an unbuffered append — this is the hard-barrier call).
-func Flush() {
-	mu.Lock()
-	defer mu.Unlock()
-	if f != nil {
-		_ = f.Sync()
-	}
-}
+// Flush is a no-op kept for lifecycle symmetry: every line is written
+// directly (one unbuffered Write per line), so nothing is ever buffered
+// and there is nothing to flush.
+func Flush() {}
 
-// Close flushes and releases the log file handle. The next log call
-// reopens lazily, so Close is idempotent and safe even when several
-// Engines (tests) share one process. Wired from Engine.Close.
-func Close() {
-	mu.Lock()
-	defer mu.Unlock()
-	if f == nil {
-		return
-	}
-	_ = f.Sync()
-	f.Close()
-	f, day = nil, ""
-}
+// Close is a no-op kept for the Engine lifecycle: no file handle is held
+// between writes, so there is nothing to flush or release. Idempotent,
+// and safe even when several Engines (tests) share one process.
+func Close() {}
 
 // homeDir resolves the store root: $LYON_HOME when set (containers, CI,
 // tests), else ~/.lyon — the same convention as hooks/timer/agent.

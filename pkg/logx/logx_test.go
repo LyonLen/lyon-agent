@@ -13,9 +13,9 @@ import (
 )
 
 // useTempHome redirects LYON_HOME to a fresh temp dir and resets logger
-// state. The returned root is where $LYON_HOME/logs must land. Cleanup
-// closes the handle before t.TempDir's own cleanup removes the tree
-// (t.Cleanup is LIFO: ours runs first because it registers later).
+// state. The returned root is where $LYON_HOME/logs must land. No file
+// handle survives a write, so t.TempDir's cleanup can always remove the
+// tree on Windows without any Close ordering games.
 func useTempHome(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -29,11 +29,7 @@ func useTempHome(t *testing.T) string {
 func reset() {
 	mu.Lock()
 	defer mu.Unlock()
-	if f != nil {
-		f.Close()
-		f = nil
-	}
-	day = ""
+	pruned.dir, pruned.day = "", ""
 	noticed = false
 	minLevel = LevelInfo
 }
@@ -48,7 +44,7 @@ func TestBasicWriteAndFormat(t *testing.T) {
 
 	Info("engine", "warmup failed", "err", "connection reset", "attempt", 2)
 
-	Close() // release the handle; every line is already on disk
+	Close() // lifecycle no-op; every line is already on disk
 	data, err := os.ReadFile(todayPath(root))
 	if err != nil {
 		t.Fatalf("read log: %v", err)
@@ -250,5 +246,27 @@ func TestLevelFilter(t *testing.T) {
 	}
 	if !regexp.MustCompile(`^\S+ error c yes after raise$`).MatchString(lines[2]) {
 		t.Fatalf("unexpected third line: %q", lines[2])
+	}
+}
+
+// TestNoHandleHeldBetweenWrites is the regression guard for the design
+// rule: no file handle may stay open between writes. On Windows an open
+// file cannot be deleted, and a held daily-file handle broke per-test
+// LYON_HOME temp-dir cleanup (surfaced as cmd/lyon TestMemoryTablePlain
+// "file is being used by another process"). Removing the live log file
+// mid-process must therefore always succeed.
+func TestNoHandleHeldBetweenWrites(t *testing.T) {
+	root := useTempHome(t)
+	path := todayPath(root)
+
+	Info("c", "line")
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("log file still locked after write (handle leaked?): %v", err)
+	}
+
+	// The logger self-heals: the next write recreates the file.
+	Info("c", "line again")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("log not recreated after removal: %v", err)
 	}
 }
