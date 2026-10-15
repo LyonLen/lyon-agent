@@ -120,7 +120,9 @@ func resolveExisting(path string, budget int) (real string, ok bool) {
 	return joined, true
 }
 
-// ReadFile reads a UTF-8 text file inside the workspace. Parallel-safe.
+// ReadFile reads a UTF-8 text file inside the workspace, optionally a
+// line range (offset/limit) so a large file's segment costs one call
+// instead of whole-file reads plus shell paging. Parallel-safe.
 type ReadFile struct {
 	Root string
 }
@@ -128,13 +130,16 @@ type ReadFile struct {
 func (f *ReadFile) Name() string { return "read_file" }
 
 func (f *ReadFile) Description() string {
-	return "Read a UTF-8 text file from the workspace. Paths are relative to the workspace root; absolute paths and .. traversal are rejected."
+	return "Read a UTF-8 text file from the workspace. Paths are relative to the workspace root; absolute paths and .. traversal are rejected. " +
+		"Optional offset (1-based first line) and limit (max lines) read just a slice of a large file in one call — offset 0 or omitted starts at line 1, limit 0 or omitted runs to the end of the file."
 }
 
 func (f *ReadFile) ParallelSafe() bool { return true }
 
 type readFileInput struct {
-	Path string `json:"path" jsonschema:"required,description=File path relative to the workspace root"`
+	Path   string `json:"path" jsonschema:"required,description=File path relative to the workspace root"`
+	Offset int    `json:"offset" jsonschema:"description=1-based first line to read; 0 or omitted starts at the beginning of the file"`
+	Limit  int    `json:"limit" jsonschema:"description=Maximum number of lines to read; 0 or omitted reads from offset to the end of the file"`
 }
 
 func (f *ReadFile) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -160,7 +165,48 @@ func (f *ReadFile) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 		}
 		return nil, fmt.Errorf("%s is not valid UTF-8 text", in.Path)
 	}
-	return TextResult(string(data)), nil
+	text := string(data)
+	if in.Offset < 0 {
+		return nil, fmt.Errorf("offset must be >= 0 (got %d); line numbers are 1-based", in.Offset)
+	}
+	if in.Limit < 0 {
+		return nil, fmt.Errorf("limit must be >= 0 (got %d); 0 means no limit", in.Limit)
+	}
+	// Offset 0 with limit 0 is the historical call: the whole file, byte
+	// for byte — no splitting, so old callers see no change. The session
+	// adapter's ResultCap then trims an oversized slice, as it always has.
+	if in.Offset > 0 || in.Limit > 0 {
+		lines := splitFileLines(text)
+		start := 0
+		if in.Offset > 0 {
+			start = in.Offset - 1
+			if start >= len(lines) {
+				return nil, fmt.Errorf("offset %d is past the end of %s (%d lines; offsets are 1-based)", in.Offset, in.Path, len(lines))
+			}
+		}
+		end := len(lines)
+		if in.Limit > 0 && start+in.Limit < end {
+			end = start + in.Limit
+		}
+		text = strings.Join(lines[start:end], "\n")
+	}
+	return TextResult(text), nil
+}
+
+// splitFileLines splits text into lines addressed by 1-based offsets: on
+// "\n", with a final newline not counted as an extra line ("a\n" is one
+// line, "a\n\n" is two) — the numbering sed/grep use. \r is kept, so
+// joining a full sweep of slices reproduces the original bytes minus that
+// final newline.
+func splitFileLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	if n := len(lines); lines[n-1] == "" {
+		lines = lines[:n-1]
+	}
+	return lines
 }
 
 // WriteFile writes a UTF-8 text file inside the workspace, creating parent

@@ -91,6 +91,7 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	builtins := []tools.Tool{
 		&tools.Shell{Root: cfg.Workspace, Allow: cfg.ShellAllow},
 		&tools.ReadFile{Root: cfg.Workspace},
+		&tools.SearchFiles{Root: cfg.Workspace},
 		&tools.WriteFile{Root: cfg.Workspace},
 		&tools.EditFile{Root: cfg.Workspace},
 		&tools.ViewImage{Root: cfg.Workspace},
