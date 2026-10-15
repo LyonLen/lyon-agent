@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/config"
 	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/mcp"
@@ -126,6 +127,9 @@ type commonFlags struct {
 	prewarm    *bool
 	openai     *bool
 	openaiBase *string
+	// conf holds the merged lyon.toml (home + workspace layers, explicit
+	// flags applied) once loadFileConfig ran; nil for flag-only callers.
+	conf *config.Config
 }
 
 func registerFlags(fs *flag.FlagSet) commonFlags {
@@ -152,6 +156,90 @@ func registerFlags(fs *flag.FlagSet) commonFlags {
 		prewarm:    fs.Bool("prewarm", false, "warm the prompt cache before the first prompt"),
 		openai:     fs.Bool("openai", false, "speak OpenAI protocol to the gateway at "+openaix.DefaultBase+" (same API key as Bearer auth)"),
 		openaiBase: fs.String("openai-base", "", "OpenAI-compatible base URL, e.g. https://host/v1 (implies -openai; env LYON_OPENAI_BASE)"),
+	}
+}
+
+// loadFileConfig merges the two lyon.toml layers — $LYON_HOME/config.toml
+// (else ~/.lyon/config.toml) beneath <workspace>/.lyon.toml, the workspace
+// file found via the -workspace flag or the launch directory — then layers
+// every explicitly-set flag on top (config.ApplyFlags, Visit-driven) and
+// pushes the winners back into the flag variables buildConfig already
+// reads. The effective precedence becomes flag > workspace toml > home
+// toml > built-in default. With no config file on disk every pushed value
+// is the flag's own zero default, so startup is unchanged; a broken file
+// warns on stderr and degrades — never fatal (the mcp.json contract).
+func (f *commonFlags) loadFileConfig(fs *flag.FlagSet) {
+	ws := "."
+	if f.workspace != nil && *f.workspace != "" {
+		ws = *f.workspace
+	}
+	home := ""
+	if p, err := config.HomePath(); err == nil {
+		home = p
+	} else {
+		fmt.Fprintln(os.Stderr, "config: locate home config:", err)
+	}
+	c, err := config.Load(home, config.WorkspacePath(ws))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+	}
+	for _, w := range c.Warnings {
+		fmt.Fprintln(os.Stderr, "config:", w)
+	}
+	explicit := map[string]bool{}
+	fs.Visit(func(fl *flag.Flag) { explicit[fl.Name] = true })
+	config.ApplyFlags(&c, fs, func(name string) bool { return explicit[name] })
+	f.applyFileConfig(c)
+	f.conf = &c
+}
+
+// applyFileConfig writes the merged config into the flag variables
+// buildConfig reads. c already carries every explicit flag override
+// (ApplyFlags ran first) and an absent config layer leaves the zero values
+// these flags start from — so the unconditional writes preserve both
+// flag-first precedence and the no-config zero behavior.
+func (f commonFlags) applyFileConfig(c config.Config) {
+	set := func(p *string, v string) {
+		if p != nil {
+			*p = v
+		}
+	}
+	set(f.model, c.Model)
+	set(f.effort, c.Effort)
+	set(f.workspace, c.Workspace)
+	set(f.system, c.System)
+	set(f.subagent, c.SubagentModel)
+	set(f.openaiBase, c.OpenAIBase)
+	if f.shellAllow != nil {
+		*f.shellAllow = strings.Join(c.ShellAllowlist, ",")
+	}
+	if f.maxIter != nil {
+		*f.maxIter = c.MaxIter
+	}
+	if f.compactTh != nil {
+		*f.compactTh = c.CompactThreshold
+	}
+	if f.ctxWindow != nil {
+		*f.ctxWindow = c.ContextWindow
+	}
+	if f.maxTurns != nil {
+		*f.maxTurns = c.MaxTurns
+	}
+	if f.prewarm != nil {
+		*f.prewarm = c.Prewarm
+	}
+	if f.approve != nil {
+		switch c.ApprovalMode {
+		case config.ApprovalAsk:
+			*f.approve = true
+		case config.ApprovalNever:
+			*f.approve = false
+		}
+	}
+	// provider = "openai" implies the default OpenAI base; an explicit
+	// openai_base (file or -openai-base) is consumed by buildConfig first.
+	if f.openai != nil && c.Provider == "openai" {
+		*f.openai = true
 	}
 }
 
@@ -266,11 +354,44 @@ func (f commonFlags) buildEngine(cfg agent.Config) (*agent.Engine, *mcp.Manager,
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// E1: ~/.lyon/mcp.json loads beneath the flags — a bad entry or a dead
+	// Three MCP layers, weakest first: ~/.lyon/mcp.json < lyon.toml
+	// mcpServers < -mcp/-mcp-http flags, same-name override at each step.
+	// MergeServers stacks toml under flags, and ConnectFileServers then
+	// stacks mcp.json under that whole layer — one expression carries the
+	// full precedence.
+	var tomlServers []mcp.Config
+	if f.conf != nil {
+		tomlServers = f.conf.MCPServers
+	}
+	layer := mcp.MergeServers(tomlServers, flagServers)
+
+	warn := func(err error) { fmt.Fprintln(os.Stderr, "mcp:", err) }
+
+	// E1: ~/.lyon/mcp.json loads beneath the layer — a bad entry or a dead
 	// file server warns on stderr and is skipped, never fatal.
-	mcp.ConnectFileServers(ctx, mgr, reg, flagServers, func(err error) {
-		fmt.Fprintln(os.Stderr, "mcp:", err)
-	})
+	mcp.ConnectFileServers(ctx, mgr, reg, layer, warn)
+
+	// lyon.toml survivors (entries no flag overrides) connect here with
+	// the same tolerant contract as mcp.json: a bad or dead configured
+	// server warns and skips, it never blocks startup. Only an explicit
+	// -mcp / -mcp-http keeps its fatal contract — the loop below.
+	for _, s := range layer[:len(layer)-len(flagServers)] {
+		conn, err := mgr.Connect(ctx, s)
+		if err != nil {
+			warn(err)
+			continue
+		}
+		mcpTools, err := conn.Tools(ctx)
+		if err != nil {
+			warn(err)
+			continue
+		}
+		for _, t := range mcpTools {
+			if err := reg.Register(t); err != nil {
+				warn(err)
+			}
+		}
+	}
 
 	if len(flagServers) == 0 && len(mgr.Names()) == 0 {
 		return agent.NewEngine(cfg, reg), mgr, nil
@@ -340,6 +461,7 @@ func cmdRun(args []string) int {
 	coverage := fs.Bool("coverage", false, "knowledge-coverage pre-flight on the prompt: inject gaps when the blind quiz misses (design §2)")
 	examClass := fs.String("exam", "", "run a closed-book exam first: class name or 'auto' (classified from the prompt) — §1.4")
 	fs.Parse(args)
+	cf.loadFileConfig(fs)
 
 	cfg, err := cf.buildConfig()
 	if err != nil {
@@ -455,12 +577,18 @@ func cmdChat(args []string) int {
 	fs.BoolVar(&resume, "c", false, "resume this workspace's saved conversation")
 	fs.BoolVar(&resume, "continue", false, "resume this workspace's saved conversation (alias of -c)")
 	fs.Parse(args)
+	cf.loadFileConfig(fs)
 	approveSet := false
 	fs.Visit(func(f *flag.Flag) { // did the user actually type -approve?
 		if f.Name == "approve" {
 			approveSet = true
 		}
 	})
+	if cf.conf != nil && cf.conf.ApprovalExplicit() {
+		// lyon.toml decided the approval mode (ask/never) — that counts as
+		// explicit, so chat skips the TTY-default guess.
+		approveSet = true
+	}
 
 	cfg, err := cf.buildConfig()
 	if err != nil {
@@ -704,6 +832,7 @@ func cmdTools(args []string) int {
 	fs := flag.NewFlagSet("tools", flag.ExitOnError)
 	cf := registerFlags(fs)
 	fs.Parse(args)
+	cf.loadFileConfig(fs)
 	cfg, err := cf.buildConfig()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
