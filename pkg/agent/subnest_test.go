@@ -15,9 +15,15 @@ import (
 // start/end brackets) they stay at depth 0. Renderers rely on this to
 // nest subagent work under its task instead of the main flow.
 func TestSubNestMarksEvents(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	// tempDir gives each dir a delete-with-retry (Windows %TEMP% flake), and
+	// eng.Close runs before those deletes (cleanups are LIFO): the hooks
+	// writer must stop first or it re-creates the audit/stats files
+	// mid-delete and cleanup fails with "directory is not empty".
+	t.Setenv("LYON_HOME", tempDir(t))
+	eng := &Engine{cfg: Config{Workspace: tempDir(t)}, hooks: hooks.New(tempDir(t))}
+	t.Cleanup(eng.Close)
 	s := &Session{
-		eng:    &Engine{cfg: Config{Workspace: t.TempDir()}, hooks: hooks.New(t.TempDir())},
+		eng:    eng,
 		ctx:    context.Background(),
 		events: make(chan Event, 16),
 	}

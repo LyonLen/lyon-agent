@@ -217,8 +217,8 @@ func (f commonFlags) buildConfig() (agent.Config, error) {
 
 // buildEngine connects every -mcp / -mcp-http server, registers their tools
 // (as mcp_<server>_<tool>) plus the built-ins, and returns a live engine.
-// The caller must close the manager (defer mgr.Close()) to stop server
-// subprocesses.
+// The caller must close both: defer mgr.Close() stops server subprocesses,
+// defer eng.Close() retires the hooks writer goroutine.
 func (f commonFlags) buildEngine(cfg agent.Config) (*agent.Engine, *mcp.Manager, error) {
 	// Leader dispatch routes each subtask by class evidence (#53): the
 	// routing table's confident recommendation when one exists, else ""
@@ -367,6 +367,7 @@ func cmdRun(args []string) int {
 		return 2
 	}
 	defer mgr.Close()
+	defer eng.Close()
 	if cf.prewarm != nil && *cf.prewarm {
 		if err := eng.Warmup(context.Background()); err != nil {
 			fmt.Fprintln(os.Stderr, "prewarm:", err)
@@ -474,6 +475,7 @@ func cmdChat(args []string) int {
 		return 2
 	}
 	defer mgr.Close()
+	defer eng.Close()
 	if cf.prewarm != nil && *cf.prewarm {
 		if err := eng.Warmup(context.Background()); err != nil {
 			fmt.Fprintln(os.Stderr, "prewarm:", err)
@@ -696,6 +698,7 @@ func cmdTools(args []string) int {
 		return 2
 	}
 	defer mgr.Close()
+	defer eng.Close()
 	for _, name := range eng.Registry().Names() {
 		t, _ := eng.Registry().Get(name)
 		parallel := "serial"

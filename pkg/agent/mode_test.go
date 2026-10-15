@@ -19,6 +19,7 @@ func modeTestSession(t *testing.T) *Session {
 	cfg.Workspace = t.TempDir()
 	cfg.WebToolMode = "off" // keep the tool set deterministic
 	eng := NewEngine(cfg, nil)
+	t.Cleanup(eng.Close) // retire the hooks writer before TempDir cleanup
 	return &Session{eng: eng}
 }
 
@@ -154,7 +155,7 @@ func TestSystemPromptMode(t *testing.T) {
 // tool blocks land as security_block with blocked_by=mode:plan — the
 // audit must answer "what changed" and "what stopped this call".
 func TestModeAuditTrail(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 	t.Setenv("LYON_HOME", dir) // engine's hooks manager reads this at New
 	s := modeTestSession(t)
 

@@ -18,7 +18,7 @@ import (
 // model receives the block as a tool result, the attempt lands in the
 // audit log with blocked_by set, and the stats counter moves.
 func TestSecurityPolicyBlocksTool(t *testing.T) {
-	home := t.TempDir()
+	home := tempDir(t) // delete-with-retry: the writer and %TEMP% both race RemoveAll
 	t.Setenv("LYON_HOME", home)
 	newCompactMock(t, []mockapi.Turn{
 		{Tool: &mockapi.ToolCall{Name: "noop", Input: "{}"}},
@@ -40,6 +40,10 @@ func TestSecurityPolicyBlocksTool(t *testing.T) {
 	}
 
 	eng := NewEngine(Config{Workspace: tempDir(t), CompactThreshold: 0.9}, reg)
+	// Registered after home := t.TempDir(), so it runs before that
+	// RemoveAll: the hooks writer must stop first or it recreates the
+	// audit/stats files mid-delete ("directory is not empty").
+	t.Cleanup(eng.Close)
 	sess := eng.NewSession(nil)
 	defer sess.Close()
 	if err := sess.Submit("run the denied tool"); err != nil {
@@ -84,7 +88,7 @@ func TestSecurityPolicyBlocksTool(t *testing.T) {
 // TestPolicyAllowsCleanTools: without a policy file the same flow runs the
 // tool normally — the gate defaults to allow-all and stays invisible.
 func TestPolicyAllowsCleanTools(t *testing.T) {
-	home := t.TempDir()
+	home := tempDir(t)
 	t.Setenv("LYON_HOME", home)
 	newCompactMock(t, []mockapi.Turn{
 		{Tool: &mockapi.ToolCall{Name: "noop", Input: "{}"}},
@@ -102,6 +106,10 @@ func TestPolicyAllowsCleanTools(t *testing.T) {
 	}
 
 	eng := NewEngine(Config{Workspace: tempDir(t), CompactThreshold: 0.9}, reg)
+	// Registered after home := t.TempDir(), so it runs before that
+	// RemoveAll: the hooks writer must stop first or it recreates the
+	// audit/stats files mid-delete ("directory is not empty").
+	t.Cleanup(eng.Close)
 	sess := eng.NewSession(nil)
 	defer sess.Close()
 	if err := sess.Submit("run the tool"); err != nil {
