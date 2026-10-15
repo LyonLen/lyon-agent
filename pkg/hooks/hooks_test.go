@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +39,23 @@ func TestHookHelperProcess(t *testing.T) {
 		if p := os.Getenv("LYON_HOOK_TOUCH"); p != "" {
 			os.WriteFile(p, []byte("ok"), 0o644)
 		}
+		os.Exit(0)
+	case "orphan":
+		// Start a grandchild that inherits our stdout pipe, then hang. When
+		// the hook timeout kills us the grandchild keeps the pipe open, so
+		// Wait (without WaitDelay) would block until it exits.
+		child := exec.Command(os.Args[0], "-test.run=^TestHookHelperProcess$")
+		child.Env = append(os.Environ(), "LYON_HOOK_HELPER=grandchild")
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		_ = child.Start()
+		select {} // hang until the hook timeout kills this process
+	case "grandchild":
+		d, err := time.ParseDuration(os.Getenv("LYON_HOOK_GRANDCHILD_SLEEP"))
+		if err != nil {
+			d = 5 * time.Second
+		}
+		time.Sleep(d)
 		os.Exit(0)
 	}
 	os.Exit(0)
@@ -95,6 +113,7 @@ func TestFireAuditsAndStats(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LYON_HOME", dir)
 	m := New(`D:\some\workspace`)
+	t.Cleanup(m.Close) // the writer goroutine must not outlive this TempDir
 
 	yes := true
 	m.Fire(Record{Event: EvPromptStart, Prompt: "hi"})
@@ -172,6 +191,7 @@ func TestBlockingHookDenies(t *testing.T) {
 				t.Fatal(err)
 			}
 			m := New("ws")
+			t.Cleanup(m.Close)
 			err := m.CheckTool(context.Background(), "shell", []byte(`{"command":"ls"}`))
 			if err == nil {
 				t.Fatal("blocking hook must veto the tool")
@@ -199,6 +219,7 @@ func TestPolicyDenyBeatsHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New("ws")
+	t.Cleanup(m.Close)
 	if err := m.CheckTool(context.Background(), "shell", nil); err == nil {
 		t.Error("policy deny must return an error")
 	}
@@ -222,6 +243,7 @@ func TestAsyncHookRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New("ws")
+	t.Cleanup(m.Close)
 	m.Fire(Record{Event: EvPromptStart, Prompt: "hello"})
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -231,6 +253,29 @@ func TestAsyncHookRuns(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("async hook never ran")
+}
+
+// TestRunHookTimeoutDoesNotBlockOnGrandchildren: when a hook hits its
+// timeout the process is killed, but a grandchild it spawned still holds
+// the output pipes — without cmd.WaitDelay, c.Run (and therefore the agent)
+// waits for that grandchild to exit instead of for the timeout.
+func TestRunHookTimeoutDoesNotBlockOnGrandchildren(t *testing.T) {
+	t.Setenv("LYON_HOOK_HELPER", "orphan")
+	grandchildSleep := 8 * time.Second
+	t.Setenv("LYON_HOOK_GRANDCHILD_SLEEP", grandchildSleep.String())
+
+	h := HookCfg{Argv: helperArgv(), TimeoutMS: 300}
+	start := time.Now()
+	_, _, err := runHook(context.Background(), h, Record{Event: EvPromptStart, Prompt: "hi"})
+	elapsed := time.Since(start)
+
+	if elapsed > 4*time.Second {
+		t.Fatalf("runHook returned after %s: it waited for the grandchild's pipe (WaitDelay missing)", elapsed)
+	}
+	if elapsed < 250*time.Millisecond {
+		t.Errorf("runHook returned after %s: the hook timeout never fired", elapsed)
+	}
+	_ = err // timeout surfaces as a killed process / ErrWaitDelay — both acceptable
 }
 
 // TestTruncRunes: byte budget cuts on rune boundaries — audit lines must

@@ -54,8 +54,10 @@ const (
 	EvHookError     = "hook_error"
 	EvMemorySave    = "memory_save"
 	EvRollback      = "rollback"
-	EvMode          = "mode"      // plan/bypass/default switch (audit trail)
-	EvDiagnosis     = "diagnosis" // failure post-mortem (错因归纳) writeback
+	EvMode          = "mode"           // plan/bypass/default switch (audit trail)
+	EvDiagnosis     = "diagnosis"      // failure post-mortem (错因归纳) writeback
+	EvHistoryRepair = "history_repair" // malformed message repaired/dropped (messages[N] guard)
+	EvAPIGuard      = "api_guard"      // preflight / 400-repair decision on the wire
 )
 
 // Record is one audit line and one hook payload — the JSON external hooks
@@ -127,7 +129,11 @@ type Manager struct {
 	lastSave      time.Time
 
 	auditCh    chan auditItem
+	stopCh     chan struct{} // closed by Close to retire the writer
+	doneCh     chan struct{} // closed when the writer has exited
+	closed     bool          // guarded by mu: no new work after Close
 	writerOnce sync.Once
+	closeOnce  sync.Once
 }
 
 // New builds the manager for a workspace. It never fails: unreadable or
@@ -158,6 +164,8 @@ func New(workspace string) *Manager {
 	m.policy = loadPolicy(m.home)
 	m.stats = loadStats(filepath.Join(m.home, "stats.json"))
 	m.auditCh = make(chan auditItem, 4096)
+	m.stopCh = make(chan struct{})
+	m.doneCh = make(chan struct{})
 	m.lastSave = time.Now()
 	return m
 }
@@ -170,8 +178,13 @@ func (m *Manager) Stats() Stats {
 }
 
 // Save persists stats.json if anything changed since the last save.
-// Disk work happens outside the lock; returns after it lands.
+// Disk work happens outside the lock; returns after it lands. A no-op once
+// Close has run: from that point the caller owns the directory (t.TempDir
+// cleanup would fail if we recreated files in it).
 func (m *Manager) Save() {
+	if m.isClosed() {
+		return
+	}
 	b := m.statsSnapshot()
 	if b != nil {
 		m.writeStatsFile(b)
@@ -221,17 +234,63 @@ func (m *Manager) writeStatsFile(b []byte) {
 
 // Flush blocks until every queued audit line is on disk and stats are
 // persisted — call before process exit (Session.Close does). Safe and
-// idempotent; concurrent with the writer goroutine.
+// idempotent; concurrent with the writer goroutine. A no-op once Close has
+// run: Close drains the queue itself, so nothing is left to wait for (and
+// no file may be recreated after the caller tore its directory down).
 func (m *Manager) Flush() {
+	if m.isClosed() {
+		return
+	}
 	m.writerOnce.Do(func() { go m.writeLoop() })
 	// Barrier: the writer is the queue's single consumer, so once it
 	// acknowledges the barrier, everything enqueued earlier is written.
+	// If Close retires the writer while we wait, doneCh unblocks us instead
+	// of hanging forever on a barrier nobody will read.
 	done := make(chan struct{})
-	m.auditCh <- auditItem{done: done} // blocks only if queue is full — writer drains
-	<-done
+	select {
+	case m.auditCh <- auditItem{done: done}:
+	case <-m.doneCh:
+		return
+	}
+	select {
+	case <-done:
+	case <-m.doneCh:
+		return
+	}
+	if m.isClosed() {
+		return
+	}
 	if b := m.statsSnapshot(); b != nil {
 		m.writeStatsFile(b)
 	}
+}
+
+// Close drains what is queued, persists stats, stops the writer goroutine
+// and waits for it to exit — the manager owns exactly one goroutine for
+// the lifetime of an Engine, and this is what gives it back. Idempotent
+// and safe from any goroutine (t.Cleanup, session teardown, shutdown
+// handlers). Fire, Flush and Save after Close only update in-memory
+// counters: no method may write into a home directory the caller is
+// about to delete (t.TempDir cleanup fails otherwise).
+func (m *Manager) Close() {
+	m.closeOnce.Do(func() {
+		m.mu.Lock()
+		m.closed = true
+		m.mu.Unlock()
+		// Start the writer even if nothing was ever recorded: it is the only
+		// way to observe stopCh and close doneCh, and it exits right away.
+		m.writerOnce.Do(func() { go m.writeLoop() })
+		close(m.stopCh)
+		<-m.doneCh
+	})
+}
+
+// isClosed reports whether Close has been entered (writers must not start
+// new work after that point).
+func (m *Manager) isClosed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
 }
 
 // Fire records one observation. Never touches disk and never blocks on
@@ -256,6 +315,7 @@ func (m *Manager) Fire(r Record) {
 		m.saveRequested = true
 	}
 	auditOn := m.auditOn // flipped off under lock if the audit dir breaks
+	closed := m.closed   // no enqueue after Close: the writer is gone
 	var async []HookCfg
 	if m.hooksOn {
 		for _, h := range m.hooks {
@@ -270,7 +330,7 @@ func (m *Manager) Fire(r Record) {
 	m.mu.Unlock()
 
 	m.writerOnce.Do(func() { go m.writeLoop() }) // stats persist even with audit off
-	if auditOn {
+	if auditOn && !closed {
 		select {
 		case m.auditCh <- auditItem{rec: r}:
 		default:
@@ -292,6 +352,7 @@ func (m *Manager) Fire(r Record) {
 func (m *Manager) writeLoop() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	defer close(m.doneCh)
 	auditDay := ""
 	for {
 		select {
@@ -304,6 +365,26 @@ func (m *Manager) writeLoop() {
 			m.saveDue()
 		case <-ticker.C:
 			m.saveDue()
+		case <-m.stopCh:
+			// Retire: write everything already queued (nothing may be lost on
+			// shutdown), persist stats once, then leave. Anything enqueued
+			// after this drain belongs to a caller racing Close and is
+			// dropped by Fire's closed check anyway.
+			for {
+				select {
+				case item := <-m.auditCh:
+					if item.done != nil {
+						close(item.done)
+						continue
+					}
+					m.writeAuditLine(item.rec, &auditDay)
+				default:
+					if b := m.statsSnapshot(); b != nil {
+						m.writeStatsFile(b)
+					}
+					return
+				}
+			}
 		}
 	}
 }
@@ -501,6 +582,11 @@ func runHook(ctx context.Context, h HookCfg, r Record) (stdout string, code int,
 	var out strings.Builder
 	c.Stdout = &out
 	c.Stderr = &out
+	// Without WaitDelay, a hook timeout kills the process but grandchildren
+	// it spawned still hold the output pipes, so c.Run blocks until they
+	// exit — a hung `sleep` would freeze the agent for its whole lifetime.
+	// WaitDelay bounds that wait after cancellation (same fix as shell.go).
+	c.WaitDelay = time.Second
 	runErr := c.Run()
 	code = 0
 	if runErr != nil {
