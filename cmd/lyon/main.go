@@ -22,6 +22,7 @@ import (
 	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/mcp"
+	"lyon-agent/pkg/memory"
 	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/routing"
 	"lyon-agent/pkg/tools"
@@ -215,7 +216,9 @@ func (f commonFlags) buildConfig() (agent.Config, error) {
 	return cfg, nil
 }
 
-// buildEngine connects every -mcp / -mcp-http server, registers their tools
+// buildEngine connects every MCP server — the ~/.lyon/mcp.json config file
+// (tolerant: bad entries warn and skip) plus each -mcp / -mcp-http flag
+// (fatal, flags override same-name file entries), registers their tools
 // (as mcp_<server>_<tool>) plus the built-ins, and returns a live engine.
 // The caller must close both: defer mgr.Close() stops server subprocesses,
 // defer eng.Close() retires the hooks writer goroutine.
@@ -233,25 +236,20 @@ func (f commonFlags) buildEngine(cfg agent.Config) (*agent.Engine, *mcp.Manager,
 	}
 	reg := tools.NewRegistry()
 	mgr := mcp.NewManager()
-	if len(*f.mcpCmds) == 0 && len(*f.mcpURLs) == 0 {
-		return agent.NewEngine(cfg, reg), mgr, nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	// Parse -mcp/-mcp-http into configs up front: flags form the override
+	// layer above ~/.lyon/mcp.json (E1) and keep their fatal contract — a
+	// bad spec aborts startup exactly as before.
+	var flagServers []mcp.Config
 	for _, spec := range *f.mcpCmds {
 		name, cmd, ok := strings.Cut(spec, "=")
 		if !ok || strings.TrimSpace(name) == "" || strings.TrimSpace(cmd) == "" {
 			mgr.Close()
 			return nil, nil, fmt.Errorf("-mcp wants name=command args (got %q)", spec)
 		}
-		if _, err := mgr.Connect(ctx, mcp.Config{
+		flagServers = append(flagServers, mcp.Config{
 			Name:    strings.TrimSpace(name),
 			Command: strings.Fields(cmd),
-		}); err != nil {
-			mgr.Close()
-			return nil, nil, err
-		}
+		})
 	}
 	for _, spec := range *f.mcpURLs {
 		name, url, ok := strings.Cut(spec, "=")
@@ -259,23 +257,40 @@ func (f commonFlags) buildEngine(cfg agent.Config) (*agent.Engine, *mcp.Manager,
 			mgr.Close()
 			return nil, nil, fmt.Errorf("-mcp-http wants name=url (got %q)", spec)
 		}
-		if _, err := mgr.Connect(ctx, mcp.Config{
+		flagServers = append(flagServers, mcp.Config{
 			Name: strings.TrimSpace(name),
 			URL:  strings.TrimSpace(url),
-		}); err != nil {
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// E1: ~/.lyon/mcp.json loads beneath the flags — a bad entry or a dead
+	// file server warns on stderr and is skipped, never fatal.
+	mcp.ConnectFileServers(ctx, mgr, reg, flagServers, func(err error) {
+		fmt.Fprintln(os.Stderr, "mcp:", err)
+	})
+
+	if len(flagServers) == 0 && len(mgr.Names()) == 0 {
+		return agent.NewEngine(cfg, reg), mgr, nil
+	}
+	for _, s := range flagServers {
+		conn, err := mgr.Connect(ctx, s)
+		if err != nil {
 			mgr.Close()
 			return nil, nil, err
 		}
-	}
-	mcpTools, err := mgr.Tools(ctx)
-	if err != nil {
-		mgr.Close()
-		return nil, nil, err
-	}
-	for _, t := range mcpTools {
-		if err := reg.Register(t); err != nil {
+		mcpTools, err := conn.Tools(ctx)
+		if err != nil {
 			mgr.Close()
 			return nil, nil, err
+		}
+		for _, t := range mcpTools {
+			if err := reg.Register(t); err != nil {
+				mgr.Close()
+				return nil, nil, err
+			}
 		}
 	}
 	return agent.NewEngine(cfg, reg), mgr, nil
@@ -376,6 +391,7 @@ func cmdRun(args []string) int {
 	metrics := tools.NewMetrics()
 	sess := eng.NewSession(metrics)
 	defer sess.Close()
+	defer memory.Open(cfg.Workspace).Flush()
 
 	// §1.4 exam first — the score files either way; a miss warns and the
 	// run proceeds (the exam grades the agent, not this prompt).
@@ -484,6 +500,7 @@ func cmdChat(args []string) int {
 	metrics := tools.NewMetrics()
 	sess := eng.NewSession(metrics)
 	defer sess.Close()
+	defer memory.Open(cfg.Workspace).Flush()
 
 	// Session resume + autosave: -c seeds the conversation from the last
 	// exit; every exit (TUI quit, /quit, EOF) persists it back. Defers run

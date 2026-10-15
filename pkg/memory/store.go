@@ -24,6 +24,7 @@ type Store struct {
 	ix        index
 	scanTime  time.Time
 	dirTime   map[string]time.Time
+	dirty     map[string]bool // facts whose hit counter hasn't reached disk
 }
 
 var (
@@ -49,6 +50,7 @@ func Open(workspace string) *Store {
 		dirs:      map[string]string{},
 		facts:     map[string]map[string]*Fact{},
 		dirTime:   map[string]time.Time{},
+		dirty:     map[string]bool{},
 	}
 	if home := homeDir(); home != "" {
 		s.dirs[ScopeTeam] = filepath.Join(home, "memory", "team")
@@ -185,6 +187,10 @@ func (s *Store) Save(f Fact) (Fact, error) {
 		return f, err
 	}
 	s.insertLocked(f)
+	// This write just carried f's hits to disk; Save is also the explicit
+	// persist point for counters Search/Touch parked on other facts.
+	delete(s.dirty, dirtyKey(f.Scope, f.Name))
+	s.flushDirtyLocked()
 	return f, nil
 }
 
@@ -262,8 +268,9 @@ func (s *Store) List(scope string) []Fact {
 }
 
 // Search runs a BM25 query across all scopes and returns the top k hits.
-// A query that finds a fact bumps its hit counter (persisted lazily) —
-// that counter feeds hot-tier promotion decisions.
+// A query that finds a fact bumps its hit counter in memory — the counter
+// reaches disk only at a persist point (Save, ToggleHot, Flush), so a
+// query storm never writes. The counter feeds hot-tier promotion decisions.
 func (s *Store) Search(query string, k int) []Hit {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -273,16 +280,15 @@ func (s *Store) Search(query string, k int) []Hit {
 		if m, ok := s.facts[h.Fact.Scope]; ok {
 			if f := m[strings.ToLower(h.Fact.Name)]; f != nil {
 				f.Hits++
-				// Persist only the touched fact — rewriting the whole store
-				// per search would wear the disk for a counter.
-				_ = atomicWrite(filepath.Join(s.dirs[f.Scope], f.Name+".md"), f.encode())
+				s.markDirtyLocked(f)
 			}
 		}
 	}
 	return hits
 }
 
-// Touch bumps one fact's hit counter and persists it (tool-driven reads).
+// Touch bumps one fact's hit counter (tool-driven reads). Like Search the
+// counter accumulates in memory and lands at the next persist point.
 func (s *Store) Touch(scope, name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -292,8 +298,7 @@ func (s *Store) Touch(scope, name string) {
 		return
 	}
 	f.Hits++
-	path := filepath.Join(s.dirs[scope], f.Name+".md")
-	_ = atomicWrite(path, f.encode())
+	s.markDirtyLocked(f)
 }
 
 // ToggleHot flips the hot flag; hot facts render into the system prompt.
@@ -314,7 +319,51 @@ func (s *Store) ToggleHot(scope, name string) (bool, error) {
 	if err := atomicWrite(path, f.encode()); err != nil {
 		return f.Hot, err
 	}
+	// The write above carried f's hits along; other queued counters land
+	// now too — ToggleHot is a persist point by virtue of writing anyway.
+	delete(s.dirty, dirtyKey(f.Scope, f.Name))
+	s.flushDirtyLocked()
 	return f.Hot, nil
+}
+
+// Flush persists the hit counters Search/Touch accumulated in memory.
+// Save and ToggleHot flush as part of their own writes, so Flush is the
+// process-exit safety net: call it right before the process leaves.
+// No-op when nothing is pending.
+func (s *Store) Flush() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flushDirtyLocked()
+}
+
+// dirtyKey identifies a fact whose hit counter has not reached disk.
+func dirtyKey(scope, name string) string {
+	return scope + "\x00" + strings.ToLower(name)
+}
+
+// markDirtyLocked queues f's hit counter for the next persist point.
+func (s *Store) markDirtyLocked(f *Fact) {
+	if s.dirty == nil {
+		s.dirty = map[string]bool{}
+	}
+	s.dirty[dirtyKey(f.Scope, f.Name)] = true
+}
+
+// flushDirtyLocked writes every queued counter. A fact deleted in the
+// meantime drops out of the set; a failed write keeps its fact queued so
+// the in-memory count survives and the next persist point retries it.
+func (s *Store) flushDirtyLocked() {
+	for key := range s.dirty {
+		scope, lower, _ := strings.Cut(key, "\x00")
+		f := s.facts[scope][lower]
+		if f == nil {
+			delete(s.dirty, key)
+			continue
+		}
+		if err := atomicWrite(filepath.Join(s.dirs[scope], f.Name+".md"), f.encode()); err == nil {
+			delete(s.dirty, key)
+		}
+	}
 }
 
 // HotText renders hot facts for injection into the system prompt, closest
