@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,8 +32,10 @@ import (
 
 func main() {
 	var (
-		addr       = flag.String("addr", ":8080", "listen address")
+		addr       = flag.String("addr", "127.0.0.1:8080", "listen address (non-loopback requires -token or -insecure)")
 		workspace  = flag.String("workspace", ".", "tool confinement root")
+		token      = flag.String("token", "", "bearer token for all routes but /healthz (default: env LYON_TOKEN)")
+		insecure   = flag.Bool("insecure", false, "allow serving on a non-loopback address without a token")
 		model      = flag.String("model", "", "model id (default: engine default / ANTHROPIC_MODEL)")
 		effort     = flag.String("effort", "", "output effort: low|medium|high|xhigh|max")
 		maxIter    = flag.Int("max-iter", 0, "max API iterations per prompt (default unlimited, env LYON_MAX_ITER)")
@@ -46,6 +49,16 @@ func main() {
 		openaiBase = flag.String("openai-base", "", "OpenAI-compatible base URL, e.g. https://host/v1 (implies -openai; env LYON_OPENAI_BASE)")
 	)
 	flag.Parse()
+
+	if *token == "" {
+		*token = os.Getenv("LYON_TOKEN")
+	}
+	// These routes run shell commands and write files inside the workspace:
+	// handing them to the network unauthenticated is remote code execution.
+	if !loopbackOnly(*addr) && *token == "" && !*insecure {
+		fmt.Fprintf(os.Stderr, "lyond: -addr %s is reachable off this machine but no token is set; pass -token/-insecure or bind 127.0.0.1\n", *addr)
+		os.Exit(2)
+	}
 
 	cfg := agent.DefaultConfig()
 	cfg.Workspace = *workspace
@@ -86,6 +99,7 @@ func main() {
 	eng := agent.NewEngine(cfg, nil)
 	store := server.NewStore(*maxSess, *ttl)
 	srv := server.New(eng, store)
+	srv.SetToken(*token)
 	// One shared Metrics collector feeds /metrics with per-tool latency for
 	// every session of this process.
 	metrics := tools.NewMetrics()
@@ -114,8 +128,8 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("lyond listening on %s (model=%s workspace=%s max_sessions=%d max_turns=%d)",
-			*addr, eng.Config().Model, eng.Config().Workspace, *maxSess, *maxTurns)
+		log.Printf("lyond listening on %s (model=%s workspace=%s max_sessions=%d max_turns=%d auth=%s)",
+			*addr, eng.Config().Model, eng.Config().Workspace, *maxSess, *maxTurns, authState(*token))
 		errCh <- httpSrv.ListenAndServe()
 	}()
 
@@ -139,4 +153,31 @@ func main() {
 		fmt.Fprintf(os.Stderr, "shutdown: %v\n", err)
 	}
 	store.CloseAll()
+	eng.Close() // retire the hooks writer goroutine
+}
+
+// loopbackOnly reports whether addr binds solely to the loopback interface.
+// An empty host means "all interfaces"; an unresolvable hostname is treated
+// as reachable so it fails the safe way (require a token).
+func loopbackOnly(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func authState(token string) string {
+	if token == "" {
+		return "off"
+	}
+	return "bearer"
 }

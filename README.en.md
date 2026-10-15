@@ -245,7 +245,7 @@ corresponding to `stop=compaction` turns in `/stats` and the SSE event stream.
 ### Server
 
 ```bash
-go run ./cmd/lyond -addr :8080 -workspace . -prewarm
+go run ./cmd/lyond -addr 127.0.0.1:8080 -workspace . -prewarm   # loopback by default
 bash examples/sse-client.sh http://127.0.0.1:8080   # acceptance client
 ```
 
@@ -261,6 +261,14 @@ bash examples/sse-client.sh http://127.0.0.1:8080   # acceptance client
 Server-side defenses: `-max-sessions` admission cap (429 beyond it), `-session-ttl` idle
 eviction, `-max-turns` global in-flight API turn cap, SSE write timeout 15s +
 `X-Accel-Buffering: no`.
+
+**Auth**: the default bind is `127.0.0.1:8080`. With `-token` (or the `LYON_TOKEN`
+env var) every route **except** the `/healthz` liveness probe requires
+`Authorization: Bearer <token>` (the `X-Lyon-Token` header works too;
+constant-time comparison, 401 otherwise). Binding a non-loopback address
+(`:8080`, `0.0.0.0:8080`, …) without a token **refuses to start** unless you pass
+`-insecure` explicitly — these routes run `run_shell` and write files, so an
+anonymous listener is remote code execution.
 
 ### Embedding as a library
 

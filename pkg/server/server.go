@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ type Server struct {
 	mux   *http.ServeMux
 	obs   tools.Observer // shared across sessions; feeds /metrics
 	start time.Time
+	token string // bearer token; empty = no auth (loopback-only deployments)
 }
 
 // New builds the server and its routes.
@@ -40,8 +42,48 @@ func New(eng *agent.Engine, store *Store) *Server {
 // every session's tool executions. Call before serving.
 func (s *Server) SetObserver(obs tools.Observer) { s.obs = obs }
 
-// Handler returns the root HTTP handler.
-func (s *Server) Handler() http.Handler { return s.mux }
+// SetToken installs the bearer token that every route except GET /healthz
+// will require. Empty disables auth (safe only behind loopback or a proxy).
+// Call before Handler.
+func (s *Server) SetToken(tok string) { s.token = tok }
+
+// Handler returns the root HTTP handler, wrapped in token auth when a
+// token is set. lyond hands out run_shell and file writes through these
+// routes, so an unauthenticated listener is anonymous remote code execution.
+func (s *Server) Handler() http.Handler {
+	if s.token == "" {
+		return s.mux
+	}
+	tok := s.token
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Liveness must stay cheap for probes; it exposes no user data.
+		if r.URL.Path == "/healthz" {
+			s.mux.ServeHTTP(w, r)
+			return
+		}
+		if !authorized(r, tok) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="lyond"`)
+			writeErr(w, http.StatusUnauthorized, errors.New("missing or invalid bearer token"))
+			return
+		}
+		s.mux.ServeHTTP(w, r)
+	})
+}
+
+// authorized reports whether r carries the expected token, comparing in
+// constant time so the header cannot be probed byte by byte.
+func authorized(r *http.Request, want string) bool {
+	got := ""
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		got = strings.TrimPrefix(h, "Bearer ")
+	} else if h := r.Header.Get("X-Lyon-Token"); h != "" {
+		got = h
+	}
+	if got == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
 
 type errorBody struct {
 	Error string `json:"error"`

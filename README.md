@@ -208,7 +208,7 @@ TUI 里显示为 `📦 compaction ... (in=... out=...)`，`/stats` 与 SSE 事�
 ### 服务
 
 ```bash
-go run ./cmd/lyond -addr :8080 -workspace . -prewarm
+go run ./cmd/lyond -addr 127.0.0.1:8080 -workspace . -prewarm   # 默认即回环
 bash examples/sse-client.sh http://127.0.0.1:8080   # 验收客户端
 ```
 
@@ -223,6 +223,12 @@ bash examples/sse-client.sh http://127.0.0.1:8080   # 验收客户端
 
 服务端防御：`-max-sessions` 准入上限（超出 429）、`-session-ttl` 空闲驱逐、
 `-max-turns` 全局在飞 API turn 硬顶、SSE 写超时 15s + `X-Accel-Buffering: no`。
+
+**鉴权**：默认只绑 `127.0.0.1:8080`。设了 `-token`（或环境变量 `LYON_TOKEN`）后，
+除 `/healthz` 存活探针外的**全部**路由都要带 `Authorization: Bearer <token>`
+（也接受 `X-Lyon-Token`，常量时间比较，401 返回）。绑到非回环地址
+（`:8080`、`0.0.0.0:8080` 等）却没给 token 时**拒绝启动**并提示，必须显式
+`-insecure` 才放行——这些路由能跑 `run_shell` 和写文件，匿名暴露等于远程执行。
 
 ### 作为库嵌入
 
