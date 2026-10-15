@@ -11,9 +11,11 @@ import (
 // scratchHome points LYON_HOME at a fresh temp dir and schedules a
 // retrying cleanup: Windows file scanners can hold a just-written file
 // just long enough that the framework's immediate RemoveAll hits a
-// delete-pending entry ("directory not empty"). No parallel tests in
-// this package — env is process-wide.
-func scratchHome(t *testing.T) {
+// delete-pending entry ("directory not empty"), and scanners have been
+// observed dropping their own marker dirs (a bare `001`) into %TEMP%
+// trees mid-test. No parallel tests in this package — env is
+// process-wide. Returns the dir so tests can stat files inside it.
+func scratchHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Cleanup(func() {
@@ -27,6 +29,7 @@ func scratchHome(t *testing.T) {
 		t.Logf("settle cleanup failed: %v", err)
 	})
 	t.Setenv("LYON_HOME", dir)
+	return dir
 }
 
 // lbFor points the ledger at a scratch LYON_HOME.

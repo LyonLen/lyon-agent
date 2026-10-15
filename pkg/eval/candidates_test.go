@@ -11,8 +11,7 @@ import (
 // (a file claiming id "self" cannot shadow it), and the built-in cannot
 // be overwritten or deleted.
 func TestCandidateFieldLifecycle(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("LYON_HOME", home)
+	home := scratchHome(t)
 
 	// Empty field: Contestants is just the incumbent.
 	cands := Contestants("main-model")
@@ -80,7 +79,7 @@ func TestCandidateFieldLifecycle(t *testing.T) {
 // clock — a challenger's flunk must never shorten the sitting agent's
 // leash, and a vacant seat has no clock at all.
 func TestExamStreakBelongsToSittingAgent(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	lb := OpenLeaderboard()
 
 	// Seat the incumbent on a passing production card.
@@ -120,7 +119,7 @@ func TestExamStreakBelongsToSittingAgent(t *testing.T) {
 // one election on the combined recent-window mean. The higher-evidence
 // entrant takes (or retakes) the seat regardless of who filed last.
 func TestElectAfterContest(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	lb := OpenLeaderboard()
 
 	// Two exam-only entrants: hot passed at 0.9, cold at 0.6.
