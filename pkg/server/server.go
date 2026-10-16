@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"lyon-agent/gen/go/lyon/v1/lyonv1connect"
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/tools"
 )
@@ -35,6 +36,10 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.HandleFunc("POST /v1/sessions/{id}/messages", s.handleMessage)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /v1/sessions/{id}/stats", s.handleStats)
+	// Connect RPC (web v1): mounts under /lyon.v1.SessionService/* on the
+	// same mux, so Handler()'s bearer-token wrapper covers it wholesale.
+	sessPath, sessHandler := lyonv1connect.NewSessionServiceHandler(&sessionService{s: s})
+	s.mux.Handle(sessPath, sessHandler)
 	return s
 }
 
@@ -205,8 +210,19 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One-shot: submit then stream. Events queue in the session buffer until
-	// streamPrompt attaches, so nothing is lost between Submit and the pump.
+	// One-shot: submit then stream. The hub is the session's only Events()
+	// consumer now (store.Create started it), so attach the SSE pump to the
+	// hub BEFORE Submit — an anchor taken later would miss the opening
+	// frames (they only ever pass through once).
+	h, err := s.store.Hub(id)
+	if err != nil {
+		s.store.Delete(id)
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	sub := h.subscribeLive()
+	defer h.unsubscribe(sub)
+
 	if err := sess.Submit(req.Message); err != nil {
 		s.store.Delete(id)
 		writeErr(w, http.StatusInternalServerError, err)
@@ -219,7 +235,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// Announce the id as the first frame so the client can follow up.
 	sseFrame(w, "session", map[string]string{"session_id": id})
-	if err := streamPrompt(w, r, sess); err != nil {
+	if err := streamPrompt(w, r, sub); err != nil {
 		// Client gone or write deadline tripped. The driver may be wedged
 		// mid-prompt with nobody reading its bounded buffer — close the
 		// session so it stops. Headers are already out, so the client just
@@ -250,6 +266,16 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Attach to the hub before Submit (see handleCreate): the pump must be
+	// anchored before the first event is stamped.
+	h, err := s.store.Hub(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	sub := h.subscribeLive()
+	defer h.unsubscribe(sub)
+
 	if err := sess.Submit(req.Message); err != nil {
 		if errors.Is(err, agent.ErrPromptInProgress) {
 			writeErr(w, http.StatusConflict, err)
@@ -259,9 +285,9 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// From here the response is an SSE stream. On a broken stream (disconnect
-	// or slow-client kick) the session would wedge mid-prompt with its buffer
-	// unread, so a failure tears the session down.
-	if err := streamPrompt(w, r, sess); err != nil {
+	// or slow-client kick) the session would wedge mid-prompt with nobody
+	// watching, so a failure tears the session down.
+	if err := streamPrompt(w, r, sub); err != nil {
 		s.store.Delete(id)
 		return
 	}

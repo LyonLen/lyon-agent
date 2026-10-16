@@ -259,6 +259,19 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 // is bounded and backpressure pauses the driver.
 func (s *Session) Events() <-chan Event { return s.events }
 
+// Busy reports whether a prompt is currently running — the read-only peek
+// behind the SubmitOn CAS, for status surfaces (web Session.busy) that
+// must not perturb the state machine.
+func (s *Session) Busy() bool { return s.busy.Load() }
+
+// QueueLen reports how many Enqueue'd prompts are parked in the inbox
+// (#2): the count that will join the running conversation at turn gaps.
+func (s *Session) QueueLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.inbox)
+}
+
 // Submit queues a prompt for execution. It returns nil once the prompt is
 // accepted; completion is signaled by EventPromptEnd on Events().
 func (s *Session) Submit(prompt string) error {

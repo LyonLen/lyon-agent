@@ -19,16 +19,23 @@ func writeSSEHeaders(w http.ResponseWriter) {
 	h.Set("X-Accel-Buffering", "no")
 }
 
-// streamPrompt pumps session events to the client as SSE until the prompt
-// ends, the client disconnects, or the write deadline kicks a stalled
-// consumer. Returns when the stream is finished.
+// streamPrompt pumps a pre-attached hub subscription to the client as SSE
+// until the prompt ends, the client disconnects, or the write deadline
+// kicks a stalled consumer. Returns when the stream is finished.
 //
-// Backpressure model: writes to a slow-but-alive client block (TCP window),
-// which blocks reading from the session's bounded event buffer, which blocks
-// the driver — natural, lossless backpressure. A client that stops reading
-// entirely trips the per-event write deadline; we then abandon the stream
-// (the session itself stays alive and can be resumed or deleted).
-func streamPrompt(w http.ResponseWriter, r *http.Request, sess *agent.Session) error {
+// The subscription must be taken (hub.subscribeLive) BEFORE Session.Submit:
+// the hub stamps events from the moment the prompt runs, and an anchor
+// taken later would miss the opening frames — nothing else re-delivers
+// them on this path (the legacy SSE contract is one stream per prompt,
+// from message_start to prompt_end).
+//
+// Backpressure model: writes to a slow-but-alive client block (TCP
+// window), which backs up this one subscriber's bounded channel. A client
+// that stops reading entirely trips the per-event write deadline; we then
+// abandon the stream and the caller tears the session down (the legacy
+// broken-stream contract). A subscriber that outruns hubSubBuffer is
+// kicked by the hub — that surfaces here as a hard error too.
+func streamPrompt(w http.ResponseWriter, r *http.Request, sub *hubSub) error {
 	writeSSEHeaders(w)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -57,14 +64,17 @@ func streamPrompt(w http.ResponseWriter, r *http.Request, sess *agent.Session) e
 		select {
 		case <-r.Context().Done():
 			return r.Context().Err()
-		case ev, ok := <-sess.Events():
+		case it, ok := <-sub.ch:
 			if !ok {
+				if sub.kicked {
+					return fmt.Errorf("event subscriber fell behind (kicked by hub)")
+				}
 				return nil // session closed
 			}
-			if err := emit(ev); err != nil {
+			if err := emit(it.ev); err != nil {
 				return err
 			}
-			if ev.Type == agent.EventPromptEnd {
+			if it.ev.Type == agent.EventPromptEnd {
 				return nil
 			}
 		}

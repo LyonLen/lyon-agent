@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type Store struct {
 
 type entry struct {
 	sess       *agent.Session
+	hub        *hub // fan-out of sess.Events(); the sole consumer
 	created    time.Time
 	lastActive time.Time
 }
@@ -44,7 +46,10 @@ func NewStore(max int, ttl time.Duration) *Store {
 	}
 }
 
-// Create registers a session under a fresh random id.
+// Create registers a session under a fresh random id and starts its event
+// hub — from here the hub is the session's only Events() consumer, so
+// everything that wants the stream (SSE pump, WatchEvents) subscribes to
+// the hub instead (web plan §2).
 func (s *Store) Create(sess *agent.Session) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,7 +61,10 @@ func (s *Store) Create(sess *agent.Session) (string, error) {
 	}
 	id := newID()
 	now := time.Now()
-	s.sessions[id] = &entry{sess: sess, created: now, lastActive: now}
+	e := &entry{sess: sess, created: now, lastActive: now}
+	e.hub = newHub(sess.Events())
+	s.sessions[id] = e
+	go e.hub.run()
 	return id, nil
 }
 
@@ -84,6 +92,55 @@ func (s *Store) Delete(id string) bool {
 		e.sess.Close()
 	}
 	return ok
+}
+
+// Hub returns the session's event hub, refreshing its idle timer.
+func (s *Store) Hub(id string) (*hub, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.sessions[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	e.lastActive = time.Now()
+	return e.hub, nil
+}
+
+// StoreRef pairs a live session with its registration timestamps — the
+// web Session message needs created/last_active, which Get doesn't
+// surface.
+type StoreRef struct {
+	ID         string
+	Session    *agent.Session
+	Created    time.Time
+	LastActive time.Time
+}
+
+// Ref returns the full record for id, refreshing its idle timer.
+func (s *Store) Ref(id string) (StoreRef, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.sessions[id]
+	if !ok {
+		return StoreRef{}, ErrNotFound
+	}
+	e.lastActive = time.Now()
+	return StoreRef{ID: id, Session: e.sess, Created: e.created, LastActive: e.lastActive}, nil
+}
+
+// List snapshots every live session with id and timestamps, most recently
+// active first (web ListSessions). Race-free like Sessions: the snapshot
+// is taken under the lock; per-session reads after use the session's own
+// locks.
+func (s *Store) List() []StoreRef {
+	s.mu.Lock()
+	out := make([]StoreRef, 0, len(s.sessions))
+	for id, e := range s.sessions {
+		out = append(out, StoreRef{ID: id, Session: e.sess, Created: e.created, LastActive: e.lastActive})
+	}
+	s.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].LastActive.After(out[j].LastActive) })
+	return out
 }
 
 // Len reports the current session count.
