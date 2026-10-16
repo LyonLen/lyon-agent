@@ -636,7 +636,7 @@ func TestTUISlashPopup(t *testing.T) {
 	if len(m.sugs) != 0 || m.suggestionRows() != nil {
 		t.Fatalf("esc did not close the popup: %#v", m.sugs)
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")}) // "/t"
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("th")}) // "/th" — unique once /timer joins the /t prefix
 	if len(m.sugs) != 1 || m.sugs[0].cmd != "/think" {
 		t.Fatalf("typing did not re-arm the popup: %#v", m.sugs)
 	}

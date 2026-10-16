@@ -240,8 +240,9 @@ func homeDir() (string, error) {
 // the reverse.
 var saveMu sync.Mutex
 
-// Save writes t to $LYON_HOME/timers/<id>.json atomically (tmp +
-// rename), so a crash mid-write can never corrupt the store.
+// Save writes t to $LYON_HOME/timers/<id>.json atomically (unique
+// temp + rename), so a crash mid-write can never corrupt the store
+// and two writers never share one staged path.
 func Save(t *Task) error {
 	if err := t.Validate(); err != nil {
 		return err
@@ -258,14 +259,25 @@ func Save(t *Task) error {
 		return err
 	}
 	dst := filepath.Join(dir, t.ID+".json")
-	tmp := dst + ".tmp"
 	saveMu.Lock()
 	defer saveMu.Unlock()
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp, err := os.CreateTemp(dir, filepath.Base(dst)+"-*.tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		os.Remove(tmp)
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	_ = tmp.Chmod(0o644) // CreateTemp makes 0600; keep the file's original mode
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, dst); err != nil {
+		os.Remove(name)
 		return err
 	}
 	return nil

@@ -62,6 +62,8 @@ func main() {
 		os.Exit(cmdChat(os.Args[2:]))
 	case "tools":
 		os.Exit(cmdTools(os.Args[2:]))
+	case "timer":
+		os.Exit(cmdTimer(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -82,6 +84,8 @@ Usage:
                                 -plain for a line-based REPL; -c resumes at
                                 startup)
   lyon tools [flags]            list registered tools
+  lyon timer <sub>              manage timers: add/list/enable/disable/rm +
+                                OS scheduling: register/unregister/os-list
 
 Run 'lyon <command> -h' for command flags.
 `, `lyon — 高性能通用 AI Agent 命令行
@@ -94,6 +98,8 @@ Run 'lyon <command> -h' for command flags.
                                 -plain 切到行式 REPL；-c 启动时续上
                                 上次会话）
   lyon tools [flags]            列出已注册工具
+  lyon timer <sub>              管理定时器：add/list/enable/disable/rm +
+                                系统级调度：register/unregister/os-list
 
 运行 'lyon <command> -h' 查看该命令的旗标。
 `))
@@ -629,6 +635,11 @@ func cmdChat(args []string) int {
 	sess := eng.NewSession(metrics)
 	defer sess.Close()
 	defer memory.Open(cfg.Workspace).Flush()
+
+	// In-process timers (#8): the scheduler lives exactly as long as the
+	// chat session — Start loads $LYON_HOME/timers, Stop drains on exit.
+	stopTimers := startTimers()
+	defer stopTimers()
 
 	// Session resume + autosave: -c seeds the conversation from the last
 	// exit; every exit (TUI quit, /quit, EOF) persists it back. Defers run

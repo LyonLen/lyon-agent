@@ -351,9 +351,10 @@ func (m *tuiModel) resetTranscript() {
 	m.stepOutOpen = false // the band collapses with the audit it reads
 	m.cmdOut = nil
 	m.todos = nil // the plan block dies with the lines; restore re-adds it
+	m.dashSeed()  // startup home dashboard under the banner (#10)
 }
 
-func (m *tuiModel) Init() tea.Cmd { return m.ti.Focus() }
+func (m *tuiModel) Init() tea.Cmd { return tea.Batch(m.ti.Focus(), dashTickCmd()) }
 
 // newLine builds one transcript line, tagging thinking lines with the block
 // that is currently streaming.
@@ -1067,6 +1068,8 @@ func buildSlashCommands() []sugItem {
 		{"/sessions", tr("list this workspace's saved sessions", "列出本工作区的已保存会话"), "session"},
 		{"/resume", tr("restore a saved session — bare /resume opens a picker", "恢复已保存会话 — 裸 /resume 打开选择器"), "session"},
 		{"/new", tr("start a fresh session (current one archived)", "开新会话（当前会话归档）"), "session"},
+		{"/home", tr("back to the startup dashboard", "回到启动仪表盘"), "session"},
+		{"/dash", tr("dashboard: /dash on|off [module] toggles a row", "仪表盘：/dash on|off [模块] 开关单项"), "session"},
 		{"/rollback", tr("undo history to a checkpoint — list, or /rollback N", "回退历史到检查点 — 列出或 /rollback N"), "session"},
 		{"/quit", tr("exit", "退出"), "session"},
 		{"/model", tr("model card: context window, official params, pricing", "模型卡：上下文窗口、官方参数、定价"), "model"},
@@ -1084,6 +1087,7 @@ func buildSlashCommands() []sugItem {
 		{"/memory", tr("layered memory store — view, toggle hot, cloud sync", "分层记忆库 — 查看、热词开关、云端同步"), "misc"},
 		{"/remember", tr("distill this session's learnings into memory now", "立即把本会话的收获提炼进记忆"), "misc"},
 		{"/paste", tr("attach the clipboard image to your next prompt (alt+v)", "把剪贴板图片附到下一条提问（alt+v）"), "misc"},
+		{"/timer", tr("timers: list next fire/status/runs · add · enable/disable · rm", "定时器：列出下次触发/状态/次数 · add · enable/disable · rm"), "misc"},
 		{"/lang", tr("interface language: /lang zh|en", "界面语言: /lang zh|en"), "misc"},
 		{"/help", tr("list commands and keys", "列出命令和快捷键"), "misc"},
 	}
@@ -2144,6 +2148,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refresh()
 
+	case dashTickMsg:
+		cmds = append(cmds, m.dashTick())
+
 	case tea.MouseMsg:
 		before := m.vp.YOffset
 		m.vp, _ = m.vp.Update(msg)
@@ -2735,6 +2742,8 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		m.marketCommand(args)
 	case "/flow":
 		return m.flowCommand(args)
+	case "/timer":
+		m.timerCommand(args)
 	case "/steps":
 		// Bare toggles; open/close/width N mirror the alt+ keys.
 		switch sub, rest, _ := strings.Cut(strings.TrimSpace(args), " "); sub {
@@ -2811,6 +2820,10 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		} else {
 			m.status = tr("usage: /lang zh|en", "用法: /lang zh|en")
 		}
+	case "/home":
+		m.dashHome()
+	case "/dash":
+		m.dashCommand(args)
 	case "/help":
 		m.pushCmd(helpLines()...)
 	default:
@@ -2835,6 +2848,8 @@ func helpLines() []string {
 			"  /memory  分层记忆：团队/个人/项目行，/memory N 切换热词，sync 同步",
 			"  /remember 立即提炼本会话的收获进记忆（退出时也会自动跑）",
 			"  /rollback 回退历史：裸命令列检查点，/rollback N 恢复，/rollback save [text] 打标记",
+			"  /dash    仪表盘：/dash on|off [模块] 开关单项，裸命令回到首页并显示配置",
+			"  /home    回到启动仪表盘（会话历史保留）",
 			"  /model   模型卡：/model current · /model list · /model <id>",
 			"  /mode    执行模式：plan（只读）· bypass（自动批准）· default — shift+tab 循环切换",
 			"  /think   展开/折叠思考块",
@@ -2847,6 +2862,7 @@ func helpLines() []string {
 			"  /agents  候选名单：裸命令列出 + 占位，add <id> <model> [effort] 新增，rm <id> 删除",
 			"  /market  任务工时市场：每单完成自动记账，新任务到达时按同类近期均值预估",
 			"  /flow    工作流：list · show <slug> · match <text> · export <slug> · save <slug>（会冻结本会话）",
+			"  /timer   定时器：裸命令列出（下次触发/状态/次数）· add <id> <once|every|cron> <规格> <command|prompt> <内容> · enable/disable/rm <id>",
 			"  /lang    界面语言：zh | en",
 			"  /help    本帮助",
 			"  /quit    退出",
@@ -2868,6 +2884,8 @@ func helpLines() []string {
 		"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
 		"  /remember distill this session's learnings into memory now (auto-runs on exit)",
 		"  /rollback undo history: bare lists checkpoints, /rollback N restores, /rollback save [text] marks one",
+		"  /dash    dashboard: /dash on|off [module] toggles a row, bare returns home",
+		"  /home    back to the startup dashboard (session history kept)",
 		"  /model   model card: /model current · /model list · /model <id>",
 		"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
 		"  /think   expand/collapse thinking blocks",
@@ -2880,6 +2898,7 @@ func helpLines() []string {
 		"  /agents  candidate field: bare lists entrants + seats, add <id> <model> [effort], rm <id>",
 		"  /market  task hour market: every done prompt files its wall time; new tasks get a class-priced estimate",
 		"  /flow    workflows: list · show <slug> · match <text> · export <slug> · save <slug> (freezes this session)",
+		"  /timer   timers: bare lists next fire/status/runs · add <id> <once|every|cron> <spec> <command|prompt> <text> · enable/disable/rm <id>",
 		"  /lang    interface language: zh | en",
 		"  /help    this help",
 		"  /quit    exit",
@@ -3159,6 +3178,7 @@ func runTUI(cfg agent.Config, sess *agent.Session, metrics *tools.Metrics, snap 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	tuiProg.Store(p)
 	defer tuiProg.Store(nil)
+	dashStartRefreshers(m.workspace) // one goroutine per module — never the event loop
 
 	// The pump keeps draining until the event channel closes — even after
 	// the program quits, so a prompt finishing during exit never blocks on

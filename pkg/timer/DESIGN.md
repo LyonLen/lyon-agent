@@ -98,3 +98,72 @@
   Windows 的输出在 schtasks 历史里。
 - log-dev 正在做统一的 `pkg/logx`：当前 log.go 是极简自有实现，
   **全部日志都走 `logLine()` 一个漏斗**，logx 落地后把漏斗体换成转发即可。
+
+
+## 6. cmd/lyon 接线清单（issue #8 接线批次）
+
+af98bcd 的提交信息曾误称本文件已含此清单；接线实际在后续批次落进 cmd/lyon——此节为落定后的真本。
+
+### 6.1 Runner 注入（cmd/lyon/timerctl.go · timerRunner）
+
+- `command` 任务 → 平台 shell 子进程：Windows `cmd /C`（`%COMSPEC%`，缺省 `cmd.exe`）、POSIX `sh -c`；
+- `prompt` 任务 → `lyon run [-workspace <绝对路径>] -- <prompt>` 子进程——argv 与 OS 级注册同形，
+  `--` 保证破折号开头的 prompt 不会被当 flag；
+- 子进程经 `exec.CommandContext` 绑定本次 fire 的超时 ctx：Stop/timeout 直接杀进程，
+  runner 满足「ctx 结束立即返回」的契约，调度循环与 TUI 永不被它阻塞；
+- 输出：成功把尾部（≤1200 rune，按 rune 安全截断）落 INFO 日志；失败把尾部折进返回错误，
+  由调度器落 ERROR 与 `last_status=error` / `last_error`。
+
+### 6.2 Scheduler 生命周期（cmd/lyon/main.go · cmdChat）
+
+- `startTimers()` 挂在 cmdChat：engine/session 建好后 Start（加载 `$LYON_HOME/timers`，
+  加载完才返回），`defer stopTimers()` 在退出时 Stop 排空（包内 2s 宽限；被停机中止的
+  fire 只记 aborted，不改写上一次真实状态）；
+- TUI 与 `-plain` REPL 同生命周期（都走 cmdChat）；
+- `lyon run` / `lyon tools` **不**启动进程内调度：一次性子命令里再开一个 scheduler，每个被
+  OS 拉起的 prompt 任务都会二次加载同一 store 造成重复触发；
+- 单例指针 `timerSched`（互斥保护）由 start/stop 发布/摘除；slash 处理读它走 scheduler-aware
+  路径（Add/Enable/Remove 连堆一起改），会话外 nil 自动退化为纯文件操作。
+
+### 6.3 用户可见面
+
+- **TUI `/timer`**（cmd/lyon/timerpanel.go）：`add` / `list`（裸命令即 list）/ `enable` /
+  `disable` / `rm`。list 是 `timer.LoadAll()` 本地快照 → `id · kind · schedule · next ·
+  status · runs · payload` 表格（next 为相对时窗，远期给绝对时刻）——全程零 OS 调用，
+  渲染与 slash 循环不被 schtasks/crontab 阻塞。
+- **CLI `lyon timer`**（cmd/lyon/timercli.go）：与 TUI 同一条 add 行、同一组 store helper
+  （退出码 0 成功 / 1 操作失败 / 2 用法错），外加 OS 面 `register` / `unregister` /
+  `os-list`（`timer.NewBackend()`：Windows schtasks、POSIX crontab）。`rm` 对仍注册的 OS 任务
+  best-effort 提醒；`register` 对仍 enabled 的任务提示「进程内也会打，disable 可只走 OS」；
+  `enable/disable` 提示运行中的 chat 只在启动时装载（见 6.4-2）。
+- **add 行语法（两面共用一个 parser）**：`<id> <once|every|cron> <spec…> <command|prompt>
+  <payload…> [k=v…]`，k=v ∈ {ws=, overlap=, miss=, timeout=}。once 支持 `+duration` 与
+  RFC3339（带/不带时区，必须在未来）；every 为 Go duration；cron 简式 5 段。prompt 缺省
+  workspace：TUI 取会话 cfg.Workspace，CLI 取启动目录——存绝对路径，OS 拉起时同源。
+
+### 6.4 已知边界（接线批次如实记录）
+
+1. **跨进程互斥缺失**：saveMu 只护单进程；两个并发 `lyon chat` 会对同一 store 双重触发。
+   进程内调度的诚实前提 = 恰好一个交互会话。
+2. **`lyon timer disable` 对运行中的 chat 不生效、还可能被回写**：运行中的 scheduler 只在
+   Start 时装载，fire 后按内存态（enabled=true）回写文件。live 状态一律用 `/timer` 管；
+   CLI 面向离线/单进程（输出已带提示）。后续工作：mtime 感知或跨进程心跳。
+3. **Windows `command` 载荷的 OS 注册动作有上游缺陷（已实测）**：`SchtasksTaskRun` 生成
+   `<lyon.exe> /C "<cmd>"`，而 lyon 没有 `/C` 动词——注册成功、触发必败。应改为
+   `%COMSPEC% /C`（或让 lyon 认 `/C`）；osreg_test.go 目前把该形态钉死，需一并改。
+4. **中文 Windows 的 schtasks 输出是 GBK**：osreg.go 里 `找不到` / `拒绝访问` 的 UTF-8 字节
+   匹配永不命中——「删除不存在任务视为成功」与 access-denied 识别在本地化系统上失效
+   （实测二次 unregister 报 rc=1）。需按 ANSI 代码页解码或做双编码匹配。
+5. **进程树与回灌**：CommandContext 只杀直接子进程；prompt/command 的输出只落
+   `$LYON_HOME/logs/timer-*.log`，不回灌 TUI（fire 时的 TUI 提示列为后续工作）。
+6. **`-plain` REPL 没有 `/timer`**（调度器照常跑）：管理走 `lyon timer` 或全屏 TUI。
+
+### 6.5 测试
+
+- `cmd/lyon/timers_test.go`：parse 全表（含拒绝路径）、/timer slash 生命周期（无 scheduler
+  的 store 退化 + 有 scheduler 的 live 路径，均 `t.Setenv("LYON_HOME", …)`）、`lyon timer`
+  CLI 退出码与落盘、Runner 的 shell 成功/失败与日志落盘、`lyon run` argv、popup/help 发现性、
+  任务文件 JSON 形态；
+- OS 级：pkg/timer 的集成测试仍以 `LYON_TIMER_ITEST=1` 门控；接线批次另做了 Windows 实测
+  （`lyon timer register → schtasks /Query 证实 → unregister → /Query 证实已删`，
+  全程 scratch LYON_HOME，结束时系统内零 `lyon-` 任务残留）。
