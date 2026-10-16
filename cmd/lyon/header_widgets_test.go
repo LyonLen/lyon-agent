@@ -1,31 +1,29 @@
 package main
 
-// Tests for the header's four status cells (#16): grid geometry (six
-// rows, exact region width, three separators), the compact line and the
-// blank fallbacks when data is missing, plus one fact check per cell.
-// Evolution facts are seeded into a temp LYON_HOME so the assertions
-// never depend on — or leak into — the real ~/.lyon ledger.
+// Tests for the header's four status cells (#16, machine/time/weather/
+// brief): grid geometry (six rows, exact region width, three
+// separators), the compact line and the blank fallbacks when data is
+// missing, plus one fact check per cell. Machine/weather/brief facts are
+// seeded straight into the dashboard cell store (the same store the
+// refresher goroutines write), so the assertions never depend on — or
+// leak into — the real ~/.lyon or any network.
 
 import (
-	"path/filepath"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-
-	"lyon-agent/pkg/agent"
-	"lyon-agent/pkg/eval"
-	"lyon-agent/pkg/routing"
 )
 
-// widgetTestModel isolates LYON_HOME (leaderboard/routing files) and
-// drops any evoSnapshot another test cached, then builds the standard
-// 100×30 model.
+// widgetTestModel isolates LYON_HOME, drops any cells another test
+// cached, then builds the standard 100×30 model.
 func widgetTestModel(t *testing.T) *tuiModel {
 	t.Helper()
 	t.Setenv("LYON_HOME", tempDir(t))
-	resetEvoSnapshot()
+	dashCellsReset()
 	return newTestModel(t)
 }
 
@@ -48,8 +46,8 @@ func TestWidgetColumnsGrid(t *testing.T) {
 	}
 	all := stripColor(strings.Join(cols, "\n"))
 	for _, title := range []string{
-		tr("model", "模型"), tr("usage", "用量"),
-		tr("evolution", "进化"), tr("activity", "动态"),
+		tr("machine", "机器"), tr("time", "时间"),
+		tr("weather", "天气"), tr("brief", "简报"),
 	} {
 		if !strings.Contains(all, title) {
 			t.Fatalf("cell title %q missing:\n%s", title, all)
@@ -130,148 +128,90 @@ func TestHeaderRowsCarryWidgets(t *testing.T) {
 	checkView(t, m, "header widgets narrow")
 }
 
-// TestWidgetModelCell: model, effort, the all-states mode badge and the
-// workspace basename.
-func TestWidgetModelCell(t *testing.T) {
+// TestWidgetMachineCell: a seeded sysinfo snap reads back as the four
+// fact rows; before the first refresh the cell stays honest with "—".
+func TestWidgetMachineCell(t *testing.T) {
 	m := widgetTestModel(t)
-	m.workspace = filepath.Join("home", "dev", "lyon-ws")
-	lines := stripColor(strings.Join(m.widgetModelCell().lines, "\n"))
+	if s := stripColor(strings.Join(m.widgetMachineCell().lines, "\n")); s != "—" {
+		t.Fatalf("empty store should read —:\n%s", s)
+	}
+
+	dashPutCell("sysinfo", sysSnap{
+		CPUPct: 85, MemPct: 72, MemUsed: 23 << 30, MemTotal: 32 << 30,
+		DiskFree: 10 << 30, DiskTotal: 240 << 30,
+		NetUpBps: 319 << 10, NetDownBps: 126 << 10, NetOK: true,
+	}, time.Now(), false)
+	lines := stripColor(strings.Join(m.widgetMachineCell().lines, "\n"))
 	for _, want := range []string{
-		shortModel(m.cfg.Model),
-		tr("effort ", "档位 "),
-		"[default]",
-		"ws lyon-ws",
+		"85%",
+		tr("mem ", "内存 ") + "23G/32G 72%",
+		"96%", // disk used share
+		"↑319K ↓126K",
 	} {
 		if !strings.Contains(lines, want) {
-			t.Fatalf("model cell missing %q:\n%s", want, lines)
+			t.Fatalf("machine cell missing %q:\n%s", want, lines)
 		}
-	}
-	if _, err := m.sess.SetMode(agent.ModePlan); err != nil {
-		t.Fatal(err)
-	}
-	if lines = stripColor(strings.Join(m.widgetModelCell().lines, "\n")); !strings.Contains(lines, "[plan]") {
-		t.Fatalf("plan mode badge missing:\n%s", lines)
 	}
 }
 
-// TestWidgetUsageFacts: fresh sessions say so with a dim "—" instead of
-// invented numbers; restored turn stats turn into the turn/total/cache
-// rows (one turn: in 1000 + out 500 + cache read 9000 + write 1000 =
-// 11.5k, hit 9000/11000 = 82%).
-func TestWidgetUsageFacts(t *testing.T) {
+// TestWidgetTimeCell: the clock always has its two rows — date line and
+// ISO week — because it reads the instant, not a fetch.
+func TestWidgetTimeCell(t *testing.T) {
 	m := widgetTestModel(t)
-	m.hist = []string{"one", "two"}
-	fresh := stripColor(strings.Join(m.widgetUsageCell().lines, "\n"))
-	if !strings.Contains(fresh, tr("prompts ", "提问 ")+"2") {
-		t.Fatalf("prompts row missing:\n%s", fresh)
+	c := m.widgetTimeCell()
+	if len(c.lines) != 2 {
+		t.Fatalf("time cell rows: %d, want 2 (%q)", len(c.lines), c.lines)
 	}
-	if !strings.Contains(fresh, "—") {
-		t.Fatalf("fresh usage should fall back to —:\n%s", fresh)
+	week, _ := time.Now().ISOWeek()
+	if !strings.Contains(stripColor(c.lines[1]), fmt.Sprint(week)) {
+		t.Fatalf("week row %q should carry week %d", c.lines[1], week)
+	}
+	if strings.Contains(stripColor(strings.Join(c.lines, "\n")), "—") {
+		t.Fatalf("clock never degrades:\n%v", c.lines)
+	}
+}
+
+// TestWidgetWeatherCell: seeded weather+geo cells read as temperature,
+// hi/lo and the city line; an empty store shows the wait copy (no coords
+// anywhere → waiting for location).
+func TestWidgetWeatherCell(t *testing.T) {
+	m := widgetTestModel(t)
+	empty := stripColor(strings.Join(m.widgetWeatherCell().lines, "\n"))
+	if !strings.Contains(empty, tr("waiting for location", "等待位置")) &&
+		!strings.Contains(empty, tr("waiting for weather", "等待天气")) {
+		t.Fatalf("fresh weather cell should wait, got:\n%s", empty)
 	}
 
-	m.sess.Restore(agent.Snapshot{Turns: []agent.TurnStat{{
-		Turn: 1, StopReason: "end_turn",
-		Usage: agent.Usage{Input: 1000, Output: 500, CacheRead: 9000, CacheCreation: 1000},
-	}}})
-	lines := stripColor(strings.Join(m.widgetUsageCell().lines, "\n"))
-	for _, want := range []string{
-		tr("turn ", "本轮 ") + "11.5k",
-		tr("all ", "累计 ") + "11.5k",
-		"82%",
-	} {
+	dashPutCell("weather", &weatherData{Temp: 28, Code: 3, Wind: 18, Hi: 29, Lo: 25}, time.Now(), false)
+	dashPutCell("geo", &geoData{City: "Hong Kong", IP: "203.198.239.124"}, time.Now(), false)
+	lines := stripColor(strings.Join(m.widgetWeatherCell().lines, "\n"))
+	for _, want := range []string{"28°C", tr("overcast", "阴"), "18km/h", "29/25°", "Hong Kong"} {
 		if !strings.Contains(lines, want) {
-			t.Fatalf("usage cell missing %q:\n%s", want, lines)
+			t.Fatalf("weather cell missing %q:\n%s", want, lines)
 		}
 	}
 }
 
-// TestWidgetEvolutionFacts: three booked rounds read back as the exam
-// clock 3/10, the single scored class wins "top", and the routing
-// table's stored model shows as the recommendation against the config
-// model actually running.
-func TestWidgetEvolutionFacts(t *testing.T) {
+// TestWidgetBriefCell: ranked headlines render newest-first, clipped to
+// the three-line budget; nothing fetched reads as "—".
+func TestWidgetBriefCell(t *testing.T) {
 	m := widgetTestModel(t)
-	prompt := "fix the rollback bug"
-	class := string(routing.Classify(prompt))
-	lb := eval.OpenLeaderboard()
-	for i := 0; i < 3; i++ {
-		lb.CountRound(class)
+	if s := stripColor(strings.Join(m.widgetBriefCell().lines, "\n")); s != "—" {
+		t.Fatalf("fresh brief cell should read —:\n%s", s)
 	}
-	lb.Record(class, eval.Scorecard{Agent: "a1", Total: 0.9, Passed: true})
-	routing.Open().Record(class, "a1", "test-model-5", 0.9)
-	m.hist = append(m.hist, prompt)
-	resetEvoSnapshot() // the seed landed after the first cached read
 
-	lines := stripColor(strings.Join(m.widgetEvolutionCell().lines, "\n"))
-	for _, want := range []string{
-		"exam 3/10",
-		tr("top ", "最强 ") + class,
-		tr("score ", "分 ") + "0.90",
-		tr("rec ", "推荐 ") + "test-model-5",
-		tr("run ", "实际 ") + shortModel(m.cfg.Model),
-	} {
+	items := make([]rssItem, 5)
+	for i := range items {
+		items[i].Title = fmt.Sprintf("headline-%d", i)
+	}
+	dashPutCell("brief", &briefData{Items: items, FeedsOK: 2}, time.Now(), false)
+	lines := stripColor(strings.Join(m.widgetBriefCell().lines, "\n"))
+	for _, want := range []string{"headline-0", "headline-1", "headline-2"} {
 		if !strings.Contains(lines, want) {
-			t.Fatalf("evolution cell missing %q:\n%s", want, lines)
+			t.Fatalf("brief cell missing %q:\n%s", want, lines)
 		}
 	}
-}
-
-// TestWidgetEvolutionFresh: with no prompts and no scorecards the cell
-// stays honest — dim "—" rows, no invented exam clock, but the running
-// model is still a fact worth showing.
-func TestWidgetEvolutionFresh(t *testing.T) {
-	m := widgetTestModel(t)
-	lines := stripColor(strings.Join(m.widgetEvolutionCell().lines, "\n"))
-	for _, want := range []string{
-		"—",
-		tr("run ", "实际 ") + shortModel(m.cfg.Model),
-	} {
-		if !strings.Contains(lines, want) {
-			t.Fatalf("fresh evolution cell missing %q:\n%s", want, lines)
-		}
-	}
-	if strings.Contains(lines, "exam 0/10") {
-		t.Fatalf("no prompt means no class clock:\n%s", lines)
-	}
-}
-
-// TestWidgetActivityCell: idle when nothing is up; queue depth, live
-// subagent count and the newest running step once work starts.
-func TestWidgetActivityCell(t *testing.T) {
-	m := widgetTestModel(t)
-	if s := stripColor(strings.Join(m.widgetActivityCell().lines, "\n")); !strings.Contains(s, tr("idle", "空闲")) {
-		t.Fatalf("quiet session should read idle:\n%s", s)
-	}
-
-	m.queued = []string{"parked one", "parked two"}
-	m.steps = append(m.steps,
-		execStep{n: 1, kind: stepTool, name: "run_subagent", status: stepRunning},
-		execStep{n: 2, kind: stepTool, name: "run_shell", status: stepRunning},
-		execStep{n: 3, kind: stepPrompt, detail: "the prompt group", status: stepRunning},
-	)
-	s := stripColor(strings.Join(m.widgetActivityCell().lines, "\n"))
-	for _, want := range []string{
-		tr("queue ", "排队 ") + "2",
-		tr("subs ", "子代理 ") + "1",
-		"run_shell", // newest execution, not the prompt container
-	} {
-		if !strings.Contains(s, want) {
-			t.Fatalf("activity cell missing %q:\n%s", want, s)
-		}
-	}
-}
-
-// TestFmtTokens: badge-sized compression — exact small, k, then M.
-func TestFmtTokens(t *testing.T) {
-	for n, want := range map[int64]string{
-		0:           "0",
-		999:         "999",
-		11_500:      "11.5k",
-		2_500_000:   "2.5M",
-		123_456_789: "123.5M",
-	} {
-		if got := fmtTokens(n); got != want {
-			t.Fatalf("fmtTokens(%d) = %q, want %q", n, got, want)
-		}
+	if strings.Contains(lines, "headline-3") {
+		t.Fatalf("brief cell must clip to %d lines:\n%s", widgetBriefLines, lines)
 	}
 }

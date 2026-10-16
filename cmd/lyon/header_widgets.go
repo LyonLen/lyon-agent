@@ -1,21 +1,26 @@
 package main
 
-// Header widgets (#16): the four status cells riding to the right of the
-// LYON wordmark. The header block's shape is frozen — identity line, six
-// logo rows, rule (view_geom_test.go pins the frame math) — so the cells
-// live INSIDE the logo rows: each wordmark row becomes the 36-cell
-// wordmark plus one row of a four-cell region (model / usage / evolution
-// / activity) spread across the remaining width, │-separated, one space
-// of padding inside each cell edge. Cells whose share has no text pad
+// Header widgets (#16, content revised): the four status cells riding to
+// the right of the LYON wordmark now carry machine/time/weather/brief —
+// the glance the user asked to live at the TOP of the screen, fed by the
+// dashboard's background cell store (zero extra network: the refresher
+// goroutines already write every cell this reads). The header block's
+// shape is frozen — identity line, six logo rows, rule (view_geom_test.go
+// pins the frame math) — so the cells live INSIDE the logo rows: each
+// wordmark row becomes the 36-cell wordmark plus one row of a four-cell
+// region spread across the remaining width, │-separated, one space of
+// padding inside each cell edge. Cells whose share has no text pad
 // blank, so every logo row measures exactly the terminal width.
 //
-// Everything is local and read-only: model/session state straight off
-// tuiModel, the exam clock and leaderboard through eval's locked Views
-// snapshot, the routing table through routing.Open — the two files are
-// TTL-cached (evoSnapshot) because unlike the evolution panel (read only
-// while open) the header paints on every frame. A datum that does not
-// exist renders as a dim "—" on its line, in its own cell only; nothing
-// is guessed, and one cell's missing data never takes the header down.
+// Data sources, all local reads: machine reads the sysinfo cell (sysSnap
+// from the OS probes, refreshed every 5s), time reads the clock directly
+// (a fact, not a fetch), weather reads the weather cell plus the geo cell
+// for the city line, brief reads the RSS cell's ranked headlines. The
+// startup dashboard block (/home) shares the same store — the two views
+// can never disagree. A module turned off in dashboard.json, or not yet
+// refreshed (startup, -plain, tests), renders a dim "—" or its wait
+// placeholder on its own line, in its own cell only; nothing is guessed,
+// and one cell's missing data never takes the header down.
 //
 // Degradation, two bands under the full grid:
 //   - no-logo terminals (width < 46 or height < 26) get no cells at all —
@@ -28,13 +33,8 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"lyon-agent/pkg/agent"
-	"lyon-agent/pkg/eval"
-	"lyon-agent/pkg/routing"
 )
 
 const (
@@ -42,8 +42,8 @@ const (
 	// "LYON" (pinned by view_geom_test.go).
 	logoCells = 36
 	// widgetCellMin is the smallest grid cell that still reads (its two
-	// padding spaces included): below it titles like "evolution" truncate
-	// mid-word and the grid folds to the compact line instead.
+	// padding spaces included): below it titles truncate mid-word and the
+	// grid folds to the compact line instead.
 	widgetCellMin = 12
 	// widgetGridMin is the narrowest region hosting four cells + the
 	// three │ separators between them.
@@ -51,10 +51,9 @@ const (
 	// widgetMin is the narrowest region that can show anything — below it
 	// the region stays blank (headerRows drops the widgets).
 	widgetMin = 10
-	// evoSnapshotTTL bounds how often the header re-reads leaderboard.json
-	// and routing.json: every frame would hammer the disk for a glance
-	// that changes at most as fast as prompts land.
-	evoSnapshotTTL = 2 * time.Second
+	// widgetBriefLines bounds the brief cell: the three newest ranked
+	// headlines fit the six-row grid with room to spare.
+	widgetBriefLines = 3
 )
 
 // widgetCell is one header cell: a title row plus up to five content
@@ -87,10 +86,10 @@ func widgetColumns(m *tuiModel, width int) []string {
 		return nil
 	}
 	cells := [4]widgetCell{
-		m.widgetModelCell(),
-		m.widgetUsageCell(),
-		m.widgetEvolutionCell(),
-		m.widgetActivityCell(),
+		m.widgetMachineCell(),
+		m.widgetTimeCell(),
+		m.widgetWeatherCell(),
+		m.widgetBriefCell(),
 	}
 	if width < widgetGridMin {
 		cols := make([]string, 6)
@@ -131,232 +130,121 @@ func widgetColumns(m *tuiModel, width int) []string {
 	return cols
 }
 
-// widgetModelCell: the configured model and where this session operates —
-// identity facts, never "—" unless the config itself is empty.
-func (m *tuiModel) widgetModelCell() widgetCell {
-	c := widgetCell{title: paint(cBold, tr("model", "模型"))}
-	model := "—"
-	if m.cfg.Model != "" {
-		model = shortModel(m.cfg.Model)
+// widgetMachineCell: CPU / memory / disk / network from the sysinfo cell
+// — the OS probes' numbers, never invented; an unmeasurable value shows
+// its "…" the same way the dashboard block does.
+func (m *tuiModel) widgetMachineCell() widgetCell {
+	c := widgetCell{title: paint(cBold, tr("machine", "机器"))}
+	cell, ok := dashGetCell("sysinfo")
+	s, isSnap := sysSnap{}, false
+	if ok {
+		s, isSnap = cell.data.(sysSnap)
 	}
-	effort := "—"
-	if m.cfg.Effort != "" {
-		effort = m.cfg.Effort
+	if !ok || !isSnap {
+		c.lines = []string{paint(cDim, "—")}
+		return c
 	}
-	// The mode badge spells all three states — unlike headerLine's badge,
-	// "default" is a state worth seeing too (it is the one that asks).
-	badge := paint(cGreen, "[default]")
-	if m.sess != nil {
-		switch m.sess.Mode() {
-		case agent.ModePlan:
-			badge = paint(cYellow, "[plan]")
-		case agent.ModeBypass:
-			badge = paint(cRed, "[bypass]")
+	cpu := tr("cpu ", "CPU ") + "…"
+	if s.CPUPct >= 0 {
+		cpu = tr("cpu ", "CPU ") + fmt.Sprintf("%.0f%%", s.CPUPct)
+	}
+	mem := tr("mem ", "内存 ") + "…"
+	if s.MemTotal > 0 {
+		pct := s.MemPct
+		if pct < 0 {
+			pct = float64(s.MemUsed) / float64(s.MemTotal) * 100
 		}
-	} else {
-		badge = paint(cDim, "—")
+		mem = tr("mem ", "内存 ") + fmt.Sprintf("%s/%s %.0f%%",
+			dashBytes(s.MemUsed), dashBytes(s.MemTotal), pct)
 	}
-	ws := "—"
-	if m.workspace != "" {
-		ws = filepath.Base(filepath.Clean(m.workspace))
+	disk := tr("disk ", "磁盘 ") + "…"
+	if s.DiskTotal > 0 {
+		used := s.DiskTotal - s.DiskFree
+		disk = tr("disk ", "磁盘 ") + fmt.Sprintf("%.0f%%",
+			float64(used)/float64(s.DiskTotal)*100)
 	}
-	c.lines = []string{
-		model,
-		paint(cDim, tr("effort ", "档位 ")) + effort,
-		badge,
-		paint(cDim, "ws ") + ws,
+	net := tr("net ", "网络 ") + "…"
+	if s.NetOK {
+		net = tr("net ", "网络 ") + fmt.Sprintf("↑%s ↓%s",
+			dashBytes(uint64(s.NetUpBps)), dashBytes(uint64(s.NetDownBps)))
 	}
+	c.lines = []string{cpu, mem, disk, net}
 	return c
 }
 
-// widgetUsageCell: this session's prompt count and token accounting.
-// Prompts count the TUI's own input history (what was asked here);
-// tokens come from the engine's turn stats plus per-model subagent usage
-// — the same accumulation /stats and the corner gauge read. The cache
-// row is the hit share of everything that carried a prompt (reads +
-// writes + fresh input), matching /stats' share.
-func (m *tuiModel) widgetUsageCell() widgetCell {
-	c := widgetCell{title: paint(cBold, tr("usage", "用量"))}
-	c.lines = []string{
-		paint(cDim, tr("prompts ", "提问 ")) + fmt.Sprintf("%d", len(m.hist)),
+// widgetTimeCell: the clock — a fact, not a fetch, so it reads the
+// instant directly (the header repaints anyway) and never degrades.
+func (m *tuiModel) widgetTimeCell() widgetCell {
+	now := time.Now()
+	week, _ := now.ISOWeek()
+	date := now.Format("01-02") + " " + zhWeekdays[int(now.Weekday())] +
+		" " + now.Format("15:04:05")
+	if uiLang != "zh" {
+		date = now.Format("Mon Jan 02 15:04:05")
 	}
-	if m.sess == nil {
-		c.lines = append(c.lines, paint(cDim, "—"))
-		return c
+	return widgetCell{
+		title: paint(cBold, tr("time", "时间")),
+		lines: []string{
+			date,
+			paint(cDim, tr(fmt.Sprintf("week %d", week), fmt.Sprintf("第%d周", week))),
+		},
 	}
-	turns := m.sess.Stats()
-	if len(turns) == 0 {
-		c.lines = append(c.lines, paint(cDim, "—")) // fresh session: no usage yet
-		return c
-	}
-	last := turns[len(turns)-1].Usage
-	var total agent.Usage
-	for _, t := range turns {
-		total.Input += t.Usage.Input
-		total.Output += t.Usage.Output
-		total.CacheRead += t.Usage.CacheRead
-		total.CacheCreation += t.Usage.CacheCreation
-	}
-	for _, u := range m.sess.SubUsage() {
-		total.Input += u.Input
-		total.Output += u.Output
-		total.CacheRead += u.CacheRead
-		total.CacheCreation += u.CacheCreation
-	}
-	hitRow := paint(cDim, tr("cache ", "缓存 ")) + paint(cDim, "—")
-	if den := total.CacheRead + total.CacheCreation + total.Input; den > 0 {
-		hit := float64(total.CacheRead) / float64(den) * 100
-		hitRow = paint(cDim, tr("cache ", "缓存 ")) +
-			paint(pctColor(hit), fmt.Sprintf("%.0f%%", hit))
-	}
-	c.lines = append(c.lines,
-		paint(cDim, tr("turn ", "本轮 "))+fmtTokens(last.Input+last.Output+last.CacheRead+last.CacheCreation),
-		paint(cDim, tr("all ", "累计 "))+fmtTokens(total.Input+total.Output+total.CacheRead+total.CacheCreation),
-		hitRow)
-	return c
 }
 
-// widgetEvolutionCell: the exam clock for the class this session's last
-// prompt books rounds into (the same counter countRound ticks), the
-// leaderboard's strongest class by newest scorecard, and routing's
-// stored recommendation against the model actually running. Reads the
-// TTL snapshot — never the maps or files directly.
-func (m *tuiModel) widgetEvolutionCell() widgetCell {
-	c := widgetCell{title: paint(cBold, tr("evolution", "进化"))}
-	snap := loadEvoSnapshot()
-
-	examRow, recRow := paint(cDim, "—"), paint(cDim, "—")
-	if len(m.hist) > 0 {
-		class := string(routing.Classify(m.hist[len(m.hist)-1]))
-		for _, v := range snap.views {
-			if v.Class != class {
-				continue
-			}
-			exam := fmt.Sprintf("%d/%d", v.Rounds, eval.ExamInterval)
-			if v.Rounds > 0 && v.Rounds%eval.ExamInterval == 0 {
-				examRow = paint(cYellow, exam) // clock struck — same flag as the panel
-			} else {
-				examRow = exam
-			}
-			break
-		}
-		for _, e := range snap.routes {
-			if e.Class == class && e.Model != "" {
-				recRow = shortModel(e.Model)
-				break
+// widgetWeatherCell: temperature and wind from the weather cell, city
+// from the geo cell — both fed by the dashboard refreshers, so the header
+// adds no network of its own. Before the first refresh the wait copy
+// matches the dashboard's own placeholders.
+func (m *tuiModel) widgetWeatherCell() widgetCell {
+	c := widgetCell{title: paint(cBold, tr("weather", "天气"))}
+	if cell, ok := dashGetCell("weather"); ok {
+		if w, ok := cell.data.(*weatherData); ok {
+			en, zh := weatherDesc(w.Code)
+			c.lines = []string{
+				fmt.Sprintf("%.0f°C %s · %s %.0fkm/h",
+					w.Temp, tr(en, zh), tr("wind", "风"), w.Wind),
+				paint(cDim, fmt.Sprintf("%.0f/%.0f°", w.Hi, w.Lo)),
 			}
 		}
 	}
-	run := "—"
-	if m.runModel != "" {
-		run = shortModel(m.runModel)
-	} else if m.cfg.Model != "" {
-		run = shortModel(m.cfg.Model)
+	if cell, ok := dashGetCell("geo"); ok {
+		if g, ok := cell.data.(*geoData); ok && g.City != "" {
+			c.lines = append(c.lines, paint(cDim, g.City))
+		}
 	}
-	c.lines = []string{
-		paint(cDim, tr("exam ", "考试 ")) + examRow,
+	if len(c.lines) == 0 {
+		_, _, located := dashWeatherCoords()
+		msg := tr("waiting for weather", "等待天气")
+		if !located {
+			msg = tr("waiting for location", "等待位置")
+		}
+		c.lines = []string{paint(cDim, msg)}
 	}
-	if snap.sum.HasScores {
-		c.lines = append(c.lines,
-			paint(cDim, tr("top ", "最强 "))+snap.sum.BestClass,
-			paint(cDim, tr("score ", "分 "))+fmt.Sprintf("%.2f", snap.sum.Best))
-	} else {
-		c.lines = append(c.lines, paint(cDim, "—")) // no scorecards yet: one line, not two blanks
-	}
-	c.lines = append(c.lines,
-		paint(cDim, tr("rec ", "推荐 "))+recRow,
-		paint(cDim, tr("run ", "实际 "))+run)
 	return c
 }
 
-// widgetActivityCell: what the session is doing right now — parked
-// prompts, live subagent runs, and the newest executing step (or the
-// spinner between steps). Nothing active reads as a plain idle.
-func (m *tuiModel) widgetActivityCell() widgetCell {
-	c := widgetCell{title: paint(cBold, tr("activity", "动态"))}
-	queue := len(m.queued)
-	subs := 0
-	step := ""
-	// Backwards: the first (newest) running execution names the step row,
-	// while every run_subagent node counts toward the subagent tally. The
-	// prompt group is a container, not an action; unnamed rows carry
-	// nothing to show.
-	for i := len(m.steps) - 1; i >= 0; i-- {
-		s := &m.steps[i]
-		if s.status != stepRunning {
-			continue
-		}
-		if s.name == "run_subagent" {
-			subs++
-		}
-		if step == "" && s.kind != stepPrompt && s.name != "" {
-			step = s.name
-		}
-	}
-	if queue == 0 && subs == 0 && step == "" && !m.busy {
-		c.lines = []string{paint(cDim, tr("idle", "空闲"))}
+// widgetBriefCell: the newest ranked headlines from the RSS cell — one
+// line each, ellipsized by the composer to the cell's share. Offline or
+// not-yet-fetched reads as a plain "—"; the dashboard block keeps the
+// fuller fallback copy (its job to expand, the header's to glance).
+func (m *tuiModel) widgetBriefCell() widgetCell {
+	c := widgetCell{title: paint(cBold, tr("brief", "简报"))}
+	cell, ok := dashGetCell("brief")
+	if !ok {
+		c.lines = []string{paint(cDim, "—")}
 		return c
 	}
-	c.lines = []string{
-		paint(cDim, tr("queue ", "排队 ")) + fmt.Sprintf("%d", queue),
-		paint(cDim, tr("subs ", "子代理 ")) + fmt.Sprintf("%d", subs),
+	b, ok := cell.data.(*briefData)
+	if !ok || len(b.Items) == 0 {
+		c.lines = []string{paint(cDim, "—")}
+		return c
 	}
-	switch {
-	case step != "":
-		c.lines = append(c.lines, paint(cGreen, "▸ ")+step)
-	case m.busy:
-		c.lines = append(c.lines, m.spin.View()+paint(cDim, tr(" working", " 运行中")))
+	n := len(b.Items)
+	if n > widgetBriefLines {
+		n = widgetBriefLines
+	}
+	for _, it := range b.Items[:n] {
+		c.lines = append(c.lines, it.Title)
 	}
 	return c
 }
-
-// fmtTokens compresses a token count the way a glance reads it: exact
-// under a thousand, then k, then M — badge-sized cells must not drown in
-// digits.
-func fmtTokens(n int64) string {
-	switch {
-	case n < 1000:
-		return fmt.Sprintf("%d", n)
-	case n < 1_000_000:
-		return fmt.Sprintf("%.1fk", float64(n)/1000)
-	default:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	}
-}
-
-// evoSnapshot is one TTL'd copy of the two file-backed evolution
-// sources: eval's locked Views snapshot plus the routing table's entries
-// and the summary both panels derive (summarizeEvolution — same facts as
-// the evolution panel's block, so the header never disagrees with it).
-type evoSnapshot struct {
-	at     time.Time
-	views  []eval.View
-	routes []routing.Entry
-	sum    evoSummary
-}
-
-var evoSnap evoSnapshot
-
-// loadEvoSnapshot reads leaderboard.json + routing.json at most once per
-// evoSnapshotTTL. Files are read once (subsequent rows work off the
-// copy), and a missing or corrupt file yields an empty board — pkg/eval
-// and pkg/routing's Open contract, so this can render forever without a
-// ledger and never fatal.
-func loadEvoSnapshot() evoSnapshot {
-	if !evoSnap.at.IsZero() && time.Since(evoSnap.at) < evoSnapshotTTL {
-		return evoSnap
-	}
-	views := eval.OpenLeaderboard().Views(evoClassOrder)
-	routes := routing.Open().All()
-	evoSnap = evoSnapshot{
-		at:     time.Now(),
-		views:  views,
-		routes: routes,
-		sum:    summarizeEvolution(views, routes),
-	}
-	return evoSnap
-}
-
-// resetEvoSnapshot drops the TTL cache — tests point LYON_HOME at a temp
-// dir and need the next render to see that dir's files.
-func resetEvoSnapshot() { evoSnap = evoSnapshot{} }
