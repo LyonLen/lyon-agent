@@ -171,7 +171,7 @@ export default function App() {
   };
 
   // Restore a saved snapshot into the live store; the new session id
-  // becomes the selection and ChatView's from_seq=-1 replay draws the
+  // becomes the selection and ChatView's GetHistory batch draws the
   // whole history (plan Phase A — the "点不进来" fix).
   const restore = async (path: string) => {
     if (restoring) return;

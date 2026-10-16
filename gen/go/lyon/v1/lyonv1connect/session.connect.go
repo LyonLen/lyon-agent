@@ -61,6 +61,9 @@ const (
 	// SessionServiceWatchEventsProcedure is the fully-qualified name of the SessionService's
 	// WatchEvents RPC.
 	SessionServiceWatchEventsProcedure = "/lyon.v1.SessionService/WatchEvents"
+	// SessionServiceGetHistoryProcedure is the fully-qualified name of the SessionService's GetHistory
+	// RPC.
+	SessionServiceGetHistoryProcedure = "/lyon.v1.SessionService/GetHistory"
 	// SessionServiceRestoreSessionProcedure is the fully-qualified name of the SessionService's
 	// RestoreSession RPC.
 	SessionServiceRestoreSessionProcedure = "/lyon.v1.SessionService/RestoreSession"
@@ -91,6 +94,14 @@ type SessionServiceClient interface {
 	// WatchEvents is the server-streaming event feed: replay from the hub
 	// ring then go live. Multiple concurrent watchers per session are fine.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest]) (*connect.ServerStreamForClient[v1.WatchEventsResponse], error)
+	// GetHistory is the unary twin of WatchEvents(from_seq=-1): the whole
+	// replayable history as one content-length batch (seq-ascending).
+	// Web transcripts render from this — streaming responses over the dev
+	// proxy can stall before their first byte, and a stalled stream must
+	// cost live deltas only, never the initial render. The client anchors
+	// its WatchEvents at last_seq so the tail starts exactly where the
+	// batch ended; last_seq 0 (empty history) means "replay with -1".
+	GetHistory(context.Context, *connect.Request[v1.GetHistoryRequest]) (*connect.Response[v1.GetHistoryResponse], error)
 	// RestoreSession re-opens a saved snapshot (a path exactly as
 	// DashboardService.ListSnapshots returned it) as a live session: the
 	// stored history is synthesized into the hub ring, so an ordinary
@@ -179,6 +190,12 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		getHistory: connect.NewClient[v1.GetHistoryRequest, v1.GetHistoryResponse](
+			httpClient,
+			baseURL+SessionServiceGetHistoryProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("GetHistory")),
+			connect.WithClientOptions(opts...),
+		),
 		restoreSession: connect.NewClient[v1.RestoreSessionRequest, v1.RestoreSessionResponse](
 			httpClient,
 			baseURL+SessionServiceRestoreSessionProcedure,
@@ -212,6 +229,7 @@ type sessionServiceClient struct {
 	getStats        *connect.Client[v1.GetStatsRequest, v1.GetStatsResponse]
 	setMode         *connect.Client[v1.SetModeRequest, v1.SetModeResponse]
 	watchEvents     *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
+	getHistory      *connect.Client[v1.GetHistoryRequest, v1.GetHistoryResponse]
 	restoreSession  *connect.Client[v1.RestoreSessionRequest, v1.RestoreSessionResponse]
 	listCheckpoints *connect.Client[v1.ListCheckpointsRequest, v1.ListCheckpointsResponse]
 	rollbackSession *connect.Client[v1.RollbackSessionRequest, v1.RollbackSessionResponse]
@@ -267,6 +285,11 @@ func (c *sessionServiceClient) WatchEvents(ctx context.Context, req *connect.Req
 	return c.watchEvents.CallServerStream(ctx, req)
 }
 
+// GetHistory calls lyon.v1.SessionService.GetHistory.
+func (c *sessionServiceClient) GetHistory(ctx context.Context, req *connect.Request[v1.GetHistoryRequest]) (*connect.Response[v1.GetHistoryResponse], error) {
+	return c.getHistory.CallUnary(ctx, req)
+}
+
 // RestoreSession calls lyon.v1.SessionService.RestoreSession.
 func (c *sessionServiceClient) RestoreSession(ctx context.Context, req *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error) {
 	return c.restoreSession.CallUnary(ctx, req)
@@ -301,6 +324,14 @@ type SessionServiceHandler interface {
 	// WatchEvents is the server-streaming event feed: replay from the hub
 	// ring then go live. Multiple concurrent watchers per session are fine.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error
+	// GetHistory is the unary twin of WatchEvents(from_seq=-1): the whole
+	// replayable history as one content-length batch (seq-ascending).
+	// Web transcripts render from this — streaming responses over the dev
+	// proxy can stall before their first byte, and a stalled stream must
+	// cost live deltas only, never the initial render. The client anchors
+	// its WatchEvents at last_seq so the tail starts exactly where the
+	// batch ended; last_seq 0 (empty history) means "replay with -1".
+	GetHistory(context.Context, *connect.Request[v1.GetHistoryRequest]) (*connect.Response[v1.GetHistoryResponse], error)
 	// RestoreSession re-opens a saved snapshot (a path exactly as
 	// DashboardService.ListSnapshots returned it) as a live session: the
 	// stored history is synthesized into the hub ring, so an ordinary
@@ -385,6 +416,12 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceGetHistoryHandler := connect.NewUnaryHandler(
+		SessionServiceGetHistoryProcedure,
+		svc.GetHistory,
+		connect.WithSchema(sessionServiceMethods.ByName("GetHistory")),
+		connect.WithHandlerOptions(opts...),
+	)
 	sessionServiceRestoreSessionHandler := connect.NewUnaryHandler(
 		SessionServiceRestoreSessionProcedure,
 		svc.RestoreSession,
@@ -425,6 +462,8 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceSetModeHandler.ServeHTTP(w, r)
 		case SessionServiceWatchEventsProcedure:
 			sessionServiceWatchEventsHandler.ServeHTTP(w, r)
+		case SessionServiceGetHistoryProcedure:
+			sessionServiceGetHistoryHandler.ServeHTTP(w, r)
 		case SessionServiceRestoreSessionProcedure:
 			sessionServiceRestoreSessionHandler.ServeHTTP(w, r)
 		case SessionServiceListCheckpointsProcedure:
@@ -478,6 +517,10 @@ func (UnimplementedSessionServiceHandler) SetMode(context.Context, *connect.Requ
 
 func (UnimplementedSessionServiceHandler) WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.WatchEvents is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) GetHistory(context.Context, *connect.Request[v1.GetHistoryRequest]) (*connect.Response[v1.GetHistoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.GetHistory is not implemented"))
 }
 
 func (UnimplementedSessionServiceHandler) RestoreSession(context.Context, *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error) {

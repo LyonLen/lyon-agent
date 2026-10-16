@@ -94,6 +94,33 @@ func (c *sessionService) GetSession(_ context.Context, req *connect.Request[lyon
 	return connect.NewResponse(&lyonv1.GetSessionResponse{Session: protoSession(c.s, ref)}), nil
 }
 
+// GetHistory is the unary twin of WatchEvents(from_seq=-1) — the web
+// transcript's initial render rides this batch instead of the stream
+// (a proxied streaming response can sit un-read past any watchdog; a
+// content-length response arrives like every other unary call). Same
+// data, same order: hub ring snapshot through the shared protoEvent.
+// last_seq anchors the client's live WatchEvents so the tail starts
+// exactly where the batch ended; 0 (empty ring) tells it to fall back
+// to -1 and let the full replay cover the snapshot-to-subscribe gap.
+func (c *sessionService) GetHistory(_ context.Context, req *connect.Request[lyonv1.GetHistoryRequest]) (*connect.Response[lyonv1.GetHistoryResponse], error) {
+	h, err := c.s.store.Hub(req.Msg.SessionId)
+	if err != nil {
+		return nil, rpcErr(err)
+	}
+	items := h.dump()
+	evs := make([]*lyonv1.SessionEvent, 0, len(items))
+	var last int64
+	for _, it := range items {
+		se := protoEvent(it)
+		last = se.Seq
+		evs = append(evs, se)
+	}
+	return connect.NewResponse(&lyonv1.GetHistoryResponse{
+		Events:  evs,
+		LastSeq: last,
+	}), nil
+}
+
 func (c *sessionService) DeleteSession(_ context.Context, req *connect.Request[lyonv1.DeleteSessionRequest]) (*connect.Response[lyonv1.DeleteSessionResponse], error) {
 	if !c.s.store.Delete(req.Msg.SessionId) {
 		return nil, rpcErr(ErrNotFound)

@@ -326,48 +326,46 @@ export default function ChatView(props: {
     return () => document.removeEventListener("keydown", onKey);
   }, [pendings, sel, props]);
 
-  // One WatchEvents stream per selected session: from_seq=-1 replays the
-  // hub ring (whatever the previous prompt left) then goes live. Cleanup
-  // aborts on unmount / session switch. Busy seeds from the session
-  // record so opening a mid-run session doesn't render it idle. reloadKey
-  // re-anchors the same seat after a rollback rewrote the ring — the
-  // replay below re-derives todos/steps from the surviving events; streamKey
-  // is the local retry bump (dropped stream → the err row's retry button).
+  // One WatchEvents stream per selected session — but the transcript
+  // renders from the unary GetHistory batch first: history no longer
+  // rides the stream, so a stalled streaming socket costs live deltas
+  // only, never the initial render (the "点旧会话不渲染，提问才渲染"
+  // bug). The tail opens at last_seq, exactly where the batch ended.
+  // Busy/model seed from the session record so opening a mid-run session
+  // doesn't render it idle. reloadKey re-anchors the same seat after a
+  // rollback rewrote the ring — the batch below re-derives todos/steps
+  // from the surviving events; streamKey is the local retry bump (dropped
+  // stream → the err row's retry button). Inside, a first-byte watchdog
+  // reopens a stalled connection (see below).
   const [streamKey, setStreamKey] = useState(0);
   useEffect(() => {
-    const ac = new AbortController();
+    let ac: AbortController | null = null;
     let live = true;
     setBlocks([]);
     setErr("");
     setTodos([]);
     setCtxTokens(0);
     void (async () => {
-      try {
-        const res = await sessionClient.getSession({ sessionId: props.sessionId });
-        if (live && res.session) {
-          setBusy(res.session.busy);
-          setModel(res.session.model);
-        }
-      } catch {
-        // The stream below surfaces auth/connect problems; busy just
-        // falls back to idle until then.
-      }
-      try {
-        const stream = sessionClient.watchEvents(
-          { sessionId: props.sessionId, fromSeq: -1n },
-          { signal: ac.signal },
-        );
-        for await (const msg of stream) {
-          if (!live) return;
-          const ev = msg.event;
-          if (!ev) continue;
-          if (ev.typeName === "prompt_end") {
-            setBusy(false);
-          }
-          // todo_write: exec_start (not sub) carries the COMPLETE list —
-          // replace the whole plan (cmd/lyon/todos.go semantics). On the
-          // replay path the same exec_start re-delivers it, so the plan
-          // survives rollbacks and reconnects without extra plumbing.
+      // Both reads are unary (content-length) responses — they arrive
+      // even while a streaming socket would sit unread. Parallel:
+      // independent RPCs, and each failure degrades on its own (no
+      // history → the stream's full replay below; no record → idle).
+      const [hist, sres] = await Promise.all([
+        sessionClient.getHistory({ sessionId: props.sessionId }).catch(() => null),
+        sessionClient.getSession({ sessionId: props.sessionId }).catch(() => null),
+      ]);
+      if (!live) return;
+      // anchor = where the live tail starts. -1 (no usable batch: reaped
+      // seat, empty ring) keeps the old full-replay path — replaying at
+      // subscribe time also covers events stamped between an empty batch
+      // and the stream opening.
+      let anchor = -1n;
+      if (hist && hist.events.length > 0) {
+        let seeded: Block[] = [];
+        for (const ev of hist.events) {
+          // Same fold as the stream below, minus busy: the session
+          // record is authoritative there (history holds prompt_end
+          // rows from earlier turns of a mid-run seat).
           if (ev.typeName === "tool_exec_start" && !ev.sub && ev.toolName === "todo_write") {
             const t = parseTodos(ev.inputJson);
             if (t) {
@@ -375,24 +373,104 @@ export default function ChatView(props: {
               props.onTodos(t);
             }
           }
-          // turn_end carries the turn's usage — the TUI ctx gauge reads
-          // prompt load (input + cache read + cache creation).
           if (ev.typeName === "turn_end" && ev.usage) {
             const u = ev.usage;
             setCtxTokens(Number(u.input + u.cacheRead + u.cacheCreation));
           }
-          setBlocks((b) => reduce(b, ev));
+          seeded = reduce(seeded, ev);
         }
-      } catch (e) {
-        const ce = ConnectError.from(e);
-        if (live && ce.code !== Code.Canceled) {
-          setErr(errText(e));
+        setBlocks(seeded);
+        anchor = hist.lastSeq;
+      }
+      if (sres?.session) {
+        setBusy(sres.session.busy);
+        setModel(sres.session.model);
+      }
+      // First-byte watchdog (the stream sitting on a connection that
+      // never delivers): during the observed hang every other request
+      // (curl probes, bare fetch, SubmitPrompt, GetHistory above)
+      // returned instantly — only the stream POST sat un-read. Zero
+      // events within the window ⇒ abort and reopen; fresh connections
+      // are empirically always healthy. Retries fire only while the
+      // stream has said nothing, so live seats are untouched, and the
+      // final attempt is left open (not aborted) so an idle seat keeps
+      // waiting for its first prompt in peace. History already rendered
+      // above, so these attempts only ever cost the live tail.
+      const WATCHDOG_MS = 1500;
+      const MAX_ATTEMPTS = 4;
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      for (let attempt = 1; live && attempt <= MAX_ATTEMPTS; attempt++) {
+        setErr("");
+        const controller = new AbortController();
+        ac = controller;
+        let timedOut = false;
+        let timer: ReturnType<typeof setTimeout> | null =
+          attempt < MAX_ATTEMPTS
+            ? setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+              }, WATCHDOG_MS)
+            : null;
+        try {
+          const stream = sessionClient.watchEvents(
+            { sessionId: props.sessionId, fromSeq: anchor },
+            { signal: controller.signal },
+          );
+          for await (const msg of stream) {
+            if (!live) return;
+            if (timer) {
+              clearTimeout(timer);
+              timer = null;
+            }
+            const ev = msg.event;
+            if (!ev) continue;
+            if (ev.typeName === "prompt_end") {
+              setBusy(false);
+            }
+            // todo_write: exec_start (not sub) carries the COMPLETE list —
+            // replace the whole plan (cmd/lyon/todos.go semantics). On the
+            // replay path the same exec_start re-delivers it, so the plan
+            // survives rollbacks and reconnects without extra plumbing.
+            if (ev.typeName === "tool_exec_start" && !ev.sub && ev.toolName === "todo_write") {
+              const t = parseTodos(ev.inputJson);
+              if (t) {
+                setTodos(t);
+                props.onTodos(t);
+              }
+            }
+            // turn_end carries the turn's usage — the TUI ctx gauge reads
+            // prompt load (input + cache read + cache creation).
+            if (ev.typeName === "turn_end" && ev.usage) {
+              const u = ev.usage;
+              setCtxTokens(Number(u.input + u.cacheRead + u.cacheCreation));
+            }
+            setBlocks((b) => reduce(b, ev));
+            // Advance the retry anchor with every processed event: a
+            // reopen replays seq > anchor, so blocks fold once per event
+            // across attempts — no per-attempt reset, and a stray event
+            // flushed mid-abort can't double.
+            if (ev.seq > anchor) anchor = ev.seq;
+          }
+          if (timer) clearTimeout(timer);
+          return; // server closed the stream — nothing to retry here
+        } catch (e) {
+          if (timer) clearTimeout(timer);
+          if (!live) return;
+          if (timedOut) {
+            await sleep(300); // let the aborted socket actually die
+            continue; // reopen on a fresh connection
+          }
+          const ce = ConnectError.from(e);
+          if (ce.code !== Code.Canceled) {
+            setErr(errText(e));
+          }
+          return;
         }
       }
     })();
     return () => {
       live = false;
-      ac.abort();
+      ac?.abort();
     };
   }, [props.sessionId, props.reloadKey, streamKey]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -35,6 +35,15 @@ service SessionService {
   // ring then go live. Multiple concurrent watchers per session are fine.
   rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
 
+  // GetHistory is the unary twin of WatchEvents(from_seq=-1): the whole
+  // replayable history as one content-length batch (seq-ascending).
+  // Web transcripts render from this — streaming responses over the dev
+  // proxy can stall before their first byte, and a stalled stream must
+  // cost live deltas only, never the initial render. The client anchors
+  // its WatchEvents at last_seq so the tail starts exactly where the
+  // batch ended; last_seq 0 (empty history) means "replay with -1".
+  rpc GetHistory(GetHistoryRequest) returns (GetHistoryResponse);
+
   // RestoreSession re-opens a saved snapshot (a path exactly as
   // DashboardService.ListSnapshots returned it) as a live session: the
   // stored history is synthesized into the hub ring, so an ordinary
@@ -138,6 +147,12 @@ message WatchEventsRequest {
   // longer holds n+1 the server fails with codes.FailedPrecondition and the
   // client should re-anchor (snapshot list / run dump) and retry with -1.
   int64 from_seq = 2;
+}
+
+message GetHistoryRequest { string session_id = 1; }
+message GetHistoryResponse {
+  repeated SessionEvent events = 1;  // seq-ascending; [] = nothing to replay
+  int64 last_seq = 2;                // last event's seq (0 = empty) — open WatchEvents from here
 }
 
 message RestoreSessionRequest {

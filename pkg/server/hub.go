@@ -184,6 +184,22 @@ func (h *hub) subscribe(fromSeq int64) (*hubSub, []hubItem, error) {
 	return sub, replay, nil
 }
 
+// dump snapshots the replay ring seq-ascending without registering a
+// subscriber — GetHistory's unary twin of subscribe(-1). A caller that
+// wants the live tail afterwards anchors at the last returned seq (0 when
+// empty → the client falls back to -1): everything stamped before the
+// snapshot is inside, everything stamped after replays off the anchor.
+func (h *hub) dump() []hubItem {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.ring) == 0 {
+		return nil
+	}
+	out := make([]hubItem, len(h.ring))
+	copy(out, h.ring)
+	return out
+}
+
 // subscribeLive subscribes at the current seq with no replay — the SSE
 // attach point. Cannot fail: the current seq is by definition still
 // in-ring, and events stamped concurrently land in the new subscriber

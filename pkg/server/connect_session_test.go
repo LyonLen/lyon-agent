@@ -216,6 +216,151 @@ loop:
 	}
 }
 
+// TestConnectGetHistory pins the unary history batch the web transcript
+// renders from (instead of a from_seq=-1 replay): empty with last_seq 0
+// on a fresh seat, a seq-ascending snapshot of what a live watcher saw
+// after a turn, and a WatchEvents anchored at last_seq that resumes at
+// last_seq+1 — no overlap, no gap across the two paths.
+func TestConnectGetHistory(t *testing.T) {
+	client := newConnectFixture(t)
+	ctx := context.Background()
+
+	cres, err := client.CreateSession(ctx, connect.NewRequest(&lyonv1.CreateSessionRequest{}))
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	sess := cres.Msg.Session
+
+	// Fresh seat: nothing to replay; last_seq 0 is the client's cue to
+	// fall back to from_seq=-1 (full replay covers the batch-to-subscribe
+	// gap on an empty ring).
+	hres, err := client.GetHistory(ctx, connect.NewRequest(&lyonv1.GetHistoryRequest{SessionId: sess.Id}))
+	if err != nil {
+		t.Fatalf("GetHistory(fresh): %v", err)
+	}
+	if len(hres.Msg.Events) != 0 || hres.Msg.LastSeq != 0 {
+		t.Fatalf("GetHistory(fresh) = %d events, last_seq %d; want empty and 0",
+			len(hres.Msg.Events), hres.Msg.LastSeq)
+	}
+
+	// Unknown seat answers NotFound like every other per-session read.
+	_, err = client.GetHistory(ctx, connect.NewRequest(&lyonv1.GetHistoryRequest{SessionId: "ghost"}))
+	if got := connectCode(err); got != connect.CodeNotFound {
+		t.Fatalf("GetHistory(ghost) code = %v, want NotFound", got)
+	}
+
+	// Live watcher (from_seq=0, live only) attached before the prompt…
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	events := make(chan *lyonv1.SessionEvent, 256)
+	watchDone := make(chan error, 1)
+	go func() {
+		stream, err := client.WatchEvents(wctx, connect.NewRequest(&lyonv1.WatchEventsRequest{
+			SessionId: sess.Id,
+			FromSeq:   0,
+		}))
+		if err != nil {
+			watchDone <- err
+			return
+		}
+		for stream.Receive() {
+			events <- stream.Msg().Event
+		}
+		watchDone <- stream.Err()
+	}()
+
+	if _, err := client.SubmitPrompt(ctx, connect.NewRequest(&lyonv1.SubmitPromptRequest{
+		SessionId: sess.Id, Prompt: "connect history: one turn.",
+	})); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	var watched []*lyonv1.SessionEvent
+	deadline := time.After(30 * time.Second)
+loop:
+	for {
+		select {
+		case ev := <-events:
+			watched = append(watched, ev)
+			if ev.Type == lyonv1.EventType_EVENT_TYPE_PROMPT_END {
+				break loop
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for prompt_end; got %d events", len(watched))
+		}
+	}
+
+	// …then the unary batch carries the same ring: ascending seqs,
+	// closing at last_seq with the prompt_end the watcher saw.
+	hres, err = client.GetHistory(ctx, connect.NewRequest(&lyonv1.GetHistoryRequest{SessionId: sess.Id}))
+	if err != nil {
+		t.Fatalf("GetHistory(after turn): %v", err)
+	}
+	got := hres.Msg.Events
+	if len(got) < len(watched) {
+		t.Fatalf("GetHistory has %d events, watcher saw %d", len(got), len(watched))
+	}
+	for i, ev := range got {
+		if i > 0 && ev.Seq != got[i-1].Seq+1 {
+			t.Fatalf("seq discontinuity at %d: %d -> %d", i, got[i-1].Seq, ev.Seq)
+		}
+	}
+	if last := got[len(got)-1]; hres.Msg.LastSeq != last.Seq || last.Type != lyonv1.EventType_EVENT_TYPE_PROMPT_END {
+		t.Fatalf("last_seq = %d, last event = seq %d %s; want matching prompt_end",
+			hres.Msg.LastSeq, last.Seq, last.Type)
+	}
+
+	// The anchor handshake: WatchEvents(from_seq=last_seq) must be
+	// accepted (not FailedPrecondition) and deliver the next turn
+	// starting exactly at last_seq+1.
+	anchor := hres.Msg.LastSeq
+	actx, acancel := context.WithCancel(ctx)
+	defer acancel()
+	resumed := make(chan *lyonv1.SessionEvent, 16)
+	resumeDone := make(chan error, 1)
+	go func() {
+		stream, err := client.WatchEvents(actx, connect.NewRequest(&lyonv1.WatchEventsRequest{
+			SessionId: sess.Id,
+			FromSeq:   anchor,
+		}))
+		if err != nil {
+			resumeDone <- err
+			return
+		}
+		for stream.Receive() {
+			select {
+			case resumed <- stream.Msg().Event:
+			default:
+			}
+		}
+		resumeDone <- stream.Err()
+	}()
+
+	// The seat settles asynchronously after prompt_end — retry the submit
+	// until the busy gate clears (the mock gateway repeats its last turn,
+	// so turn two runs). The anchored stream's replay covers an echo that
+	// stamps before its subscribe lands, so first-delivered seq is stable
+	// either way.
+	for i := 0; i < 40; i++ {
+		if _, err = client.SubmitPrompt(ctx, connect.NewRequest(&lyonv1.SubmitPromptRequest{
+			SessionId: sess.Id, Prompt: "connect history: resume.",
+		})); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("SubmitPrompt(resume): %v", err)
+	}
+	select {
+	case ev := <-resumed:
+		if ev.Seq != anchor+1 {
+			t.Fatalf("resumed at seq %d, want last_seq+1 = %d", ev.Seq, anchor+1)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("anchored stream delivered nothing after resume submit")
+	}
+}
+
 // TestConnectAuthRequired pins the token wrapper over the Connect routes:
 // no token → 401; with token → the RPC layer answers (bad body is fine,
 // it proves auth passed).
