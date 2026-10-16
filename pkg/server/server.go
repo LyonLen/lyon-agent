@@ -44,6 +44,13 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(filePath, fileHandler)
 	dashPath, dashHandler := lyonv1connect.NewDashboardServiceHandler(&dashboardService{s: s})
 	s.mux.Handle(dashPath, dashHandler)
+	// Approval/Plan are v1 stubs (Unimplemented) — mounted anyway so the
+	// web client can call them, get a stable code, and degrade, instead
+	// of falling through to 404 (plan web Phase 5).
+	apprPath, apprHandler := lyonv1connect.NewApprovalServiceHandler(&approvalService{})
+	s.mux.Handle(apprPath, apprHandler)
+	planPath, planHandler := lyonv1connect.NewPlanServiceHandler(&planService{})
+	s.mux.Handle(planPath, planHandler)
 	return s
 }
 

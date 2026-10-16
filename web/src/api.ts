@@ -50,5 +50,10 @@ export function errText(err: unknown): string {
   if (ce.code === Code.Unauthenticated) {
     return "unauthenticated — set the lyond token in the header";
   }
+  if (ce.code === Code.Unimplemented) {
+    // approval/plan are mounted v1 stubs — degrade to a readable note
+    // instead of surfacing the raw connect error (plan Phase 5).
+    return "not available in this build — " + ce.message;
+  }
   return ce.message;
 }
