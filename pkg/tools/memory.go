@@ -36,6 +36,38 @@ func MemoryFacts(workspace string) string {
 	return b.String()
 }
 
+// MemoryChange reports one successful store mutation to whoever is
+// driving the session: Action is "save" or "forget", Name the fact's slug
+// name (what forget_memory matches on), Scope the layer it landed in.
+// The session attaches a listener through WithMemoryChange so a mid-run
+// save/forget can be acknowledged at the next turn boundary (D1 hot-tier
+// refresh); outside a session nobody listens and notify is a no-op.
+type MemoryChange struct {
+	Action string // "save" or "forget"
+	Name   string // fact slug, e.g. "deploy-gate"
+	Scope  string // team / personal / project
+}
+
+type memoryChangeKey struct{}
+
+// WithMemoryChange attaches the mutation callback to ctx — the same seam
+// shape as WithOutputSink: fn runs on the tool's own goroutine, must not
+// block, and a nil fn returns ctx unchanged.
+func WithMemoryChange(ctx context.Context, fn func(MemoryChange)) context.Context {
+	if fn == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, memoryChangeKey{}, fn)
+}
+
+// notifyMemoryChange delivers a successful mutation to the listener
+// installed on ctx, silently doing nothing when none is attached.
+func notifyMemoryChange(ctx context.Context, c MemoryChange) {
+	if fn, _ := ctx.Value(memoryChangeKey{}).(func(MemoryChange)); fn != nil {
+		fn(c)
+	}
+}
+
 // clipFact keeps a single fact within the per-entry size budget.
 func clipRunes(s string, n int) string {
 	r := []rune(s)
@@ -121,6 +153,9 @@ func RegisterMemory(r *Registry, workspace string) error {
 				}
 				hotNote = ", hot tier"
 			}
+			// D1: tell the driving session the store changed — it queues
+			// the one-line acknowledgment for the next turn boundary.
+			notifyMemoryChange(ctx, MemoryChange{Action: "save", Name: name, Scope: scope})
 			return fmt.Sprintf("saved memory %q (%s scope)%s", title, scope, hotNote), nil
 		}); err != nil {
 		return err
@@ -214,6 +249,9 @@ func RegisterMemory(r *Registry, workspace string) error {
 					if err := st.Delete(sc, name); err != nil {
 						return "", err
 					}
+					// D1: same seam as save — the session acknowledges
+					// the deletion at the next turn boundary.
+					notifyMemoryChange(ctx, MemoryChange{Action: "forget", Name: name, Scope: sc})
 					return fmt.Sprintf("forgot memory %q (%s scope)", name, sc), nil
 				}
 			}

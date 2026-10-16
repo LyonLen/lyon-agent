@@ -112,10 +112,14 @@ type Session struct {
 	lastCompactInput float64
 
 	// memoryText is the workspace memory block injected into this session's
-	// first prompt, exactly once (memoryInjected). memEcho asks the drive
-	// goroutine to announce that injection on the event stream — set inside
-	// buildHistory (which tests call without a consumer), fired by drive
-	// right after, so a direct assembly test never blocks on the channel.
+	// prompts (memoryInjected): a creation-time snapshot that buildHistory
+	// re-reads against the store on every prompt (D1 — a mid-session
+	// save/forget or distill write re-arms injection with the changed text;
+	// the containment check inside buildHistory still spares a restored
+	// history that already carries it). memEcho asks the drive goroutine to
+	// announce an injection on the event stream — set inside buildHistory
+	// (which tests call without a consumer), fired by drive right after, so
+	// a direct assembly test never blocks on the channel.
 	memoryText     string
 	memoryInjected bool
 	memEcho        bool
@@ -217,6 +221,10 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		skillsText: skillsSection(),
 	}
 	s.streamCtx = context.WithValue(ctx, sessionCtxKey{}, s)
+	// D1: save_memory/forget_memory report successes through this seam
+	// (tools.WithMemoryChange) so the session can acknowledge them at the
+	// next turn boundary — tool handlers reach it via their ctx.
+	s.streamCtx = tools.WithMemoryChange(s.streamCtx, s.onMemoryChange)
 	adaptCfg := tools.AdapterConfig{
 		SerialMu:  &s.serialMu,
 		Timeout:   e.cfg.ToolTimeout,
@@ -988,6 +996,22 @@ func (s *Session) takePendingNote() string {
 	return note
 }
 
+// onMemoryChange is the memory tools' success callback (D1), reached
+// through tools.WithMemoryChange on the driving context: it queues the
+// one-line acknowledgment for the next turn boundary — 内容可见 via
+// buildHistory's re-read, 感知可见 via this note. The callback runs on a
+// tool goroutine while drive holds histMu for the whole prompt, so it
+// deliberately does NOT write memoryText: taking histMu here would
+// deadlock, and a lock-free write would race the next buildHistory.
+func (s *Session) onMemoryChange(c tools.MemoryChange) {
+	switch c.Action {
+	case "save":
+		s.PushSystemNote("新记忆已存：" + c.Name)
+	case "forget":
+		s.PushSystemNote("已忘：" + c.Name)
+	}
+}
+
 // buildHistory assembles the message list for one prompt: previous runner
 // history (or a restored seed), the workspace memory block on first use, an
 // optional system note at the turn boundary, any queued tool_results from an
@@ -997,6 +1021,20 @@ func (s *Session) takePendingNote() string {
 // second consecutive user message, so role alternation stays intact.
 // Split out so assembly is testable without an API call.
 func (s *Session) buildHistory(note, prompt string) []anthropic.BetaMessageParam {
+	// D1 hot-tier refresh: memoryText starts as a creation-time snapshot;
+	// re-read the store on every prompt (the rollback.go re-read pattern)
+	// so a mid-session save_memory / forget_memory — or a distill
+	// promotion, which has no callback seam of its own — lands in this
+	// round's injected block. Changed text re-arms injection; the
+	// containment check below still spares a restored history that
+	// already carries the current text. Runs on the drive goroutine with
+	// histMu held (tests call it single-threaded), so the field keeps its
+	// existing single-writer discipline: no atomics, no extra lock, no
+	// serialization of any concurrent path.
+	if fresh := tools.MemoryFacts(s.eng.cfg.Workspace); fresh != s.memoryText {
+		s.memoryText = fresh
+		s.memoryInjected = false
+	}
 	var hist []anthropic.BetaMessageParam
 	switch {
 	case s.runner != nil:

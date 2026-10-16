@@ -11,6 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 
 	"lyon-agent/internal/mockapi"
+	"lyon-agent/pkg/memory"
 	"lyon-agent/pkg/tools"
 )
 
@@ -264,10 +265,22 @@ func TestBuildHistoryTrailingUserMerge(t *testing.T) {
 
 // TestBuildHistoryMemoryInjection: the workspace memory block enters the
 // first prompt exactly once, and never when the restored history already
-// carries it.
+// carries it. The block is seeded through the store because buildHistory
+// re-reads the hot tier itself (D1) — stubbing memoryText no longer sticks.
 func TestBuildHistoryMemoryInjection(t *testing.T) {
-	sess := newTestSessionForRunner(t, Config{Workspace: tempDir(t)})
-	sess.memoryText = "[persistent-memory]\n## codename\nproject: lychee"
+	ws := tempDir(t)
+	st := memory.Open(ws)
+	if _, err := st.Save(memory.Fact{
+		Name:        "codename",
+		Description: "codename",
+		Scope:       memory.ScopeProject,
+		Body:        "project: lychee",
+		Hot:         true, // new facts carry the flag through Save
+	}); err != nil {
+		t.Fatalf("seed hot fact: %v", err)
+	}
+
+	sess := newTestSessionForRunner(t, Config{Workspace: ws})
 
 	hist := sess.buildHistory("", "hi")
 	if len(hist) != 1 {
@@ -284,10 +297,10 @@ func TestBuildHistoryMemoryInjection(t *testing.T) {
 		t.Fatalf("memory duplicated: %d copies", n)
 	}
 
-	// Fresh session whose restored history already carries the current
-	// memory: skip injection entirely.
-	sess2 := newTestSessionForRunner(t, Config{Workspace: tempDir(t)})
-	sess2.memoryText = "[persistent-memory]\n## codename\nproject: lychee"
+	// Fresh session on the same workspace whose restored history already
+	// carries the current memory: skip injection entirely (containment),
+	// not merely "nothing new to inject".
+	sess2 := newTestSessionForRunner(t, Config{Workspace: ws})
 	sess2.runner = nil
 	sess2.seed = hist
 	hist3 := sess2.buildHistory("", "fresh")

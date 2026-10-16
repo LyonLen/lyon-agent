@@ -282,3 +282,63 @@ func TestMemoryLegacyMigrationSanity(t *testing.T) {
 		t.Fatalf("legacy import not searchable: %q", got)
 	}
 }
+
+// TestMemoryChangeSeam: save/forget successes notify the listener attached
+// to the handler ctx (the session's D1 acknowledgment seam), failures stay
+// silent, and handlers with no listener run unchanged — probes and direct
+// calls must neither panic nor fabricate notifications.
+func TestMemoryChangeSeam(t *testing.T) {
+	reg := NewRegistry()
+	if err := RegisterMemory(reg, memWorkspace(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []MemoryChange
+	ctx := WithMemoryChange(context.Background(), func(c MemoryChange) {
+		got = append(got, c)
+	})
+	save, ok := reg.Get("save_memory")
+	if !ok {
+		t.Fatal("save_memory not registered")
+	}
+	if _, err := save.Execute(ctx, []byte(`{"title":"Deploy Gate","content":"gates every deploy"}`)); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	forget, ok := reg.Get("forget_memory")
+	if !ok {
+		t.Fatal("forget_memory not registered")
+	}
+	if _, err := forget.Execute(ctx, []byte(`{"title":"Deploy Gate"}`)); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("notified %d times, want 2: %+v", len(got), got)
+	}
+	if got[0].Action != "save" || got[0].Name != "deploy-gate" || got[0].Scope != "project" {
+		t.Fatalf("save change = %+v", got[0])
+	}
+	if got[1].Action != "forget" || got[1].Name != "deploy-gate" || got[1].Scope != "project" {
+		t.Fatalf("forget change = %+v", got[1])
+	}
+
+	// A failed save writes nothing — it must not notify either.
+	if _, err := save.Execute(ctx, []byte(`{"title":" ","content":"x"}`)); err == nil {
+		t.Fatal("empty title must error")
+	}
+	if len(got) != 2 {
+		t.Fatalf("failed save notified: %+v", got)
+	}
+
+	// No listener: nil fn returns ctx unchanged; the handler still works
+	// and the attached listener never fires.
+	plain := context.Background()
+	if WithMemoryChange(plain, nil) != plain {
+		t.Fatal("nil fn must return ctx unchanged")
+	}
+	if _, err := save.Execute(plain, []byte(`{"title":"Solo","content":"body"}`)); err != nil {
+		t.Fatalf("save without listener: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("listener fired without attachment: %+v", got)
+	}
+}
