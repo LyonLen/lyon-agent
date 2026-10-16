@@ -42,6 +42,8 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(sessPath, sessHandler)
 	filePath, fileHandler := lyonv1connect.NewFileServiceHandler(&fileService{s: s})
 	s.mux.Handle(filePath, fileHandler)
+	dashPath, dashHandler := lyonv1connect.NewDashboardServiceHandler(&dashboardService{s: s})
+	s.mux.Handle(dashPath, dashHandler)
 	return s
 }
 
@@ -114,40 +116,55 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// usageRollup is the process-wide sessions→usage aggregation shared by
+// /metrics and DashboardService.GetOverview — one rollup, two transports
+// (web plan Phase 4). Sessions and CacheShare ride along for the RPC
+// caller but are tagged out of the embedded "turns" object whose key set
+// /metrics consumers see.
+type usageRollup struct {
+	Sessions      int     `json:"-"`
+	Turns         int     `json:"turns"`
+	Input         int64   `json:"input"`
+	Output        int64   `json:"output"`
+	CacheRead     int64   `json:"cache_read"`
+	CacheCreation int64   `json:"cache_creation"`
+	CacheShare    float64 `json:"-"`
+}
+
+// usageRollup walks every live session's per-turn stats — the same
+// accounting /v1/sessions/{id}/stats reports per session.
+func (s *Server) usageRollup() usageRollup {
+	var r usageRollup
+	sessions := s.store.Sessions()
+	r.Sessions = len(sessions)
+	for _, sess := range sessions {
+		for _, t := range sess.Stats() {
+			r.Turns++
+			r.Input += t.Usage.Input
+			r.Output += t.Usage.Output
+			r.CacheRead += t.Usage.CacheRead
+			r.CacheCreation += t.Usage.CacheCreation
+		}
+	}
+	totalIn := float64(r.Input + r.CacheRead + r.CacheCreation)
+	if totalIn > 0 {
+		r.CacheShare = float64(r.CacheRead+r.CacheCreation) / totalIn
+	}
+	return r
+}
+
 // handleMetrics aggregates process, session, and tool metrics in one JSON
 // document: turn usage totals (with cache share), per-tool latency
 // percentiles, and live session/turn counts.
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
-	type turnAgg struct {
-		Turns         int   `json:"turns"`
-		Input         int64 `json:"input"`
-		Output        int64 `json:"output"`
-		CacheRead     int64 `json:"cache_read"`
-		CacheCreation int64 `json:"cache_creation"`
-	}
-	var agg turnAgg
-	sessions := s.store.Sessions()
-	for _, sess := range sessions {
-		for _, t := range sess.Stats() {
-			agg.Turns++
-			agg.Input += t.Usage.Input
-			agg.Output += t.Usage.Output
-			agg.CacheRead += t.Usage.CacheRead
-			agg.CacheCreation += t.Usage.CacheCreation
-		}
-	}
-	totalIn := float64(agg.Input + agg.CacheRead + agg.CacheCreation)
-	cacheShare := 0.0
-	if totalIn > 0 {
-		cacheShare = float64(agg.CacheRead+agg.CacheCreation) / totalIn
-	}
+	agg := s.usageRollup()
 
 	body := map[string]any{
 		"uptime_seconds": int(time.Since(s.start).Seconds()),
-		"sessions":       len(sessions),
+		"sessions":       agg.Sessions,
 		"model":          s.eng.Config().Model,
 		"turns":          agg,
-		"cache_share":    cacheShare,
+		"cache_share":    agg.CacheShare,
 		"goroutines":     runtime.NumGoroutine(),
 	}
 	if m, ok := s.obs.(*tools.Metrics); ok && m != nil {

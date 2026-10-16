@@ -4,12 +4,14 @@ import { errText, getToken, sessionClient, setToken } from "./api";
 import SessionList from "./components/SessionList";
 import ChatView from "./components/ChatView";
 import FilePanel from "./components/FilePanel";
+import DashboardPanel from "./components/DashboardPanel";
 
 export default function App() {
   const [tokenInput, setTokenInput] = useState(getToken());
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [listErr, setListErr] = useState("");
+  const [view, setView] = useState<"chat" | "dashboard">("chat");
 
   const refresh = useCallback(async () => {
     try {
@@ -44,6 +46,18 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <span className="brand">lyon</span>
+        <button
+          className={"ghost nav" + (view === "chat" ? " active" : "")}
+          onClick={() => setView("chat")}
+        >
+          sessions
+        </button>
+        <button
+          className={"ghost nav" + (view === "dashboard" ? " active" : "")}
+          onClick={() => setView("dashboard")}
+        >
+          dashboard
+        </button>
         <input
           className="token"
           type="password"
@@ -55,7 +69,10 @@ export default function App() {
         />
         {listErr && <span className="err">{listErr}</span>}
       </header>
-      <div className="cols">
+      {view === "dashboard" ? (
+        <DashboardPanel />
+      ) : (
+        <div className="cols">
         <aside className="col-sessions">
           <SessionList
             sessions={sessions}
@@ -79,7 +96,8 @@ export default function App() {
         <aside className="col-files">
           <FilePanel />
         </aside>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
