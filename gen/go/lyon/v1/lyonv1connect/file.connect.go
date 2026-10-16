@@ -42,6 +42,18 @@ const (
 	// FileServiceReadBinaryFileProcedure is the fully-qualified name of the FileService's
 	// ReadBinaryFile RPC.
 	FileServiceReadBinaryFileProcedure = "/lyon.v1.FileService/ReadBinaryFile"
+	// FileServiceWriteFileProcedure is the fully-qualified name of the FileService's WriteFile RPC.
+	FileServiceWriteFileProcedure = "/lyon.v1.FileService/WriteFile"
+	// FileServiceMkdirProcedure is the fully-qualified name of the FileService's Mkdir RPC.
+	FileServiceMkdirProcedure = "/lyon.v1.FileService/Mkdir"
+	// FileServiceRenameProcedure is the fully-qualified name of the FileService's Rename RPC.
+	FileServiceRenameProcedure = "/lyon.v1.FileService/Rename"
+	// FileServiceMoveProcedure is the fully-qualified name of the FileService's Move RPC.
+	FileServiceMoveProcedure = "/lyon.v1.FileService/Move"
+	// FileServiceDeleteProcedure is the fully-qualified name of the FileService's Delete RPC.
+	FileServiceDeleteProcedure = "/lyon.v1.FileService/Delete"
+	// FileServiceUploadFileProcedure is the fully-qualified name of the FileService's UploadFile RPC.
+	FileServiceUploadFileProcedure = "/lyon.v1.FileService/UploadFile"
 )
 
 // FileServiceClient is a client for the lyon.v1.FileService service.
@@ -49,6 +61,12 @@ type FileServiceClient interface {
 	ListDirectory(context.Context, *connect.Request[v1.ListDirectoryRequest]) (*connect.Response[v1.ListDirectoryResponse], error)
 	ReadTextFile(context.Context, *connect.Request[v1.ReadTextFileRequest]) (*connect.Response[v1.ReadTextFileResponse], error)
 	ReadBinaryFile(context.Context, *connect.Request[v1.ReadBinaryFileRequest]) (*connect.Response[v1.ReadBinaryFileResponse], error)
+	WriteFile(context.Context, *connect.Request[v1.WriteFileRequest]) (*connect.Response[v1.WriteFileResponse], error)
+	Mkdir(context.Context, *connect.Request[v1.MkdirRequest]) (*connect.Response[v1.MkdirResponse], error)
+	Rename(context.Context, *connect.Request[v1.RenameRequest]) (*connect.Response[v1.RenameResponse], error)
+	Move(context.Context, *connect.Request[v1.MoveRequest]) (*connect.Response[v1.MoveResponse], error)
+	Delete(context.Context, *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error)
+	UploadFile(context.Context, *connect.Request[v1.UploadFileRequest]) (*connect.Response[v1.UploadFileResponse], error)
 }
 
 // NewFileServiceClient constructs a client for the lyon.v1.FileService service. By default, it uses
@@ -80,6 +98,42 @@ func NewFileServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(fileServiceMethods.ByName("ReadBinaryFile")),
 			connect.WithClientOptions(opts...),
 		),
+		writeFile: connect.NewClient[v1.WriteFileRequest, v1.WriteFileResponse](
+			httpClient,
+			baseURL+FileServiceWriteFileProcedure,
+			connect.WithSchema(fileServiceMethods.ByName("WriteFile")),
+			connect.WithClientOptions(opts...),
+		),
+		mkdir: connect.NewClient[v1.MkdirRequest, v1.MkdirResponse](
+			httpClient,
+			baseURL+FileServiceMkdirProcedure,
+			connect.WithSchema(fileServiceMethods.ByName("Mkdir")),
+			connect.WithClientOptions(opts...),
+		),
+		rename: connect.NewClient[v1.RenameRequest, v1.RenameResponse](
+			httpClient,
+			baseURL+FileServiceRenameProcedure,
+			connect.WithSchema(fileServiceMethods.ByName("Rename")),
+			connect.WithClientOptions(opts...),
+		),
+		move: connect.NewClient[v1.MoveRequest, v1.MoveResponse](
+			httpClient,
+			baseURL+FileServiceMoveProcedure,
+			connect.WithSchema(fileServiceMethods.ByName("Move")),
+			connect.WithClientOptions(opts...),
+		),
+		delete: connect.NewClient[v1.DeleteRequest, v1.DeleteResponse](
+			httpClient,
+			baseURL+FileServiceDeleteProcedure,
+			connect.WithSchema(fileServiceMethods.ByName("Delete")),
+			connect.WithClientOptions(opts...),
+		),
+		uploadFile: connect.NewClient[v1.UploadFileRequest, v1.UploadFileResponse](
+			httpClient,
+			baseURL+FileServiceUploadFileProcedure,
+			connect.WithSchema(fileServiceMethods.ByName("UploadFile")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -88,6 +142,12 @@ type fileServiceClient struct {
 	listDirectory  *connect.Client[v1.ListDirectoryRequest, v1.ListDirectoryResponse]
 	readTextFile   *connect.Client[v1.ReadTextFileRequest, v1.ReadTextFileResponse]
 	readBinaryFile *connect.Client[v1.ReadBinaryFileRequest, v1.ReadBinaryFileResponse]
+	writeFile      *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
+	mkdir          *connect.Client[v1.MkdirRequest, v1.MkdirResponse]
+	rename         *connect.Client[v1.RenameRequest, v1.RenameResponse]
+	move           *connect.Client[v1.MoveRequest, v1.MoveResponse]
+	delete         *connect.Client[v1.DeleteRequest, v1.DeleteResponse]
+	uploadFile     *connect.Client[v1.UploadFileRequest, v1.UploadFileResponse]
 }
 
 // ListDirectory calls lyon.v1.FileService.ListDirectory.
@@ -105,11 +165,47 @@ func (c *fileServiceClient) ReadBinaryFile(ctx context.Context, req *connect.Req
 	return c.readBinaryFile.CallUnary(ctx, req)
 }
 
+// WriteFile calls lyon.v1.FileService.WriteFile.
+func (c *fileServiceClient) WriteFile(ctx context.Context, req *connect.Request[v1.WriteFileRequest]) (*connect.Response[v1.WriteFileResponse], error) {
+	return c.writeFile.CallUnary(ctx, req)
+}
+
+// Mkdir calls lyon.v1.FileService.Mkdir.
+func (c *fileServiceClient) Mkdir(ctx context.Context, req *connect.Request[v1.MkdirRequest]) (*connect.Response[v1.MkdirResponse], error) {
+	return c.mkdir.CallUnary(ctx, req)
+}
+
+// Rename calls lyon.v1.FileService.Rename.
+func (c *fileServiceClient) Rename(ctx context.Context, req *connect.Request[v1.RenameRequest]) (*connect.Response[v1.RenameResponse], error) {
+	return c.rename.CallUnary(ctx, req)
+}
+
+// Move calls lyon.v1.FileService.Move.
+func (c *fileServiceClient) Move(ctx context.Context, req *connect.Request[v1.MoveRequest]) (*connect.Response[v1.MoveResponse], error) {
+	return c.move.CallUnary(ctx, req)
+}
+
+// Delete calls lyon.v1.FileService.Delete.
+func (c *fileServiceClient) Delete(ctx context.Context, req *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error) {
+	return c.delete.CallUnary(ctx, req)
+}
+
+// UploadFile calls lyon.v1.FileService.UploadFile.
+func (c *fileServiceClient) UploadFile(ctx context.Context, req *connect.Request[v1.UploadFileRequest]) (*connect.Response[v1.UploadFileResponse], error) {
+	return c.uploadFile.CallUnary(ctx, req)
+}
+
 // FileServiceHandler is an implementation of the lyon.v1.FileService service.
 type FileServiceHandler interface {
 	ListDirectory(context.Context, *connect.Request[v1.ListDirectoryRequest]) (*connect.Response[v1.ListDirectoryResponse], error)
 	ReadTextFile(context.Context, *connect.Request[v1.ReadTextFileRequest]) (*connect.Response[v1.ReadTextFileResponse], error)
 	ReadBinaryFile(context.Context, *connect.Request[v1.ReadBinaryFileRequest]) (*connect.Response[v1.ReadBinaryFileResponse], error)
+	WriteFile(context.Context, *connect.Request[v1.WriteFileRequest]) (*connect.Response[v1.WriteFileResponse], error)
+	Mkdir(context.Context, *connect.Request[v1.MkdirRequest]) (*connect.Response[v1.MkdirResponse], error)
+	Rename(context.Context, *connect.Request[v1.RenameRequest]) (*connect.Response[v1.RenameResponse], error)
+	Move(context.Context, *connect.Request[v1.MoveRequest]) (*connect.Response[v1.MoveResponse], error)
+	Delete(context.Context, *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error)
+	UploadFile(context.Context, *connect.Request[v1.UploadFileRequest]) (*connect.Response[v1.UploadFileResponse], error)
 }
 
 // NewFileServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -137,6 +233,42 @@ func NewFileServiceHandler(svc FileServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(fileServiceMethods.ByName("ReadBinaryFile")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fileServiceWriteFileHandler := connect.NewUnaryHandler(
+		FileServiceWriteFileProcedure,
+		svc.WriteFile,
+		connect.WithSchema(fileServiceMethods.ByName("WriteFile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fileServiceMkdirHandler := connect.NewUnaryHandler(
+		FileServiceMkdirProcedure,
+		svc.Mkdir,
+		connect.WithSchema(fileServiceMethods.ByName("Mkdir")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fileServiceRenameHandler := connect.NewUnaryHandler(
+		FileServiceRenameProcedure,
+		svc.Rename,
+		connect.WithSchema(fileServiceMethods.ByName("Rename")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fileServiceMoveHandler := connect.NewUnaryHandler(
+		FileServiceMoveProcedure,
+		svc.Move,
+		connect.WithSchema(fileServiceMethods.ByName("Move")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fileServiceDeleteHandler := connect.NewUnaryHandler(
+		FileServiceDeleteProcedure,
+		svc.Delete,
+		connect.WithSchema(fileServiceMethods.ByName("Delete")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fileServiceUploadFileHandler := connect.NewUnaryHandler(
+		FileServiceUploadFileProcedure,
+		svc.UploadFile,
+		connect.WithSchema(fileServiceMethods.ByName("UploadFile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/lyon.v1.FileService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FileServiceListDirectoryProcedure:
@@ -145,6 +277,18 @@ func NewFileServiceHandler(svc FileServiceHandler, opts ...connect.HandlerOption
 			fileServiceReadTextFileHandler.ServeHTTP(w, r)
 		case FileServiceReadBinaryFileProcedure:
 			fileServiceReadBinaryFileHandler.ServeHTTP(w, r)
+		case FileServiceWriteFileProcedure:
+			fileServiceWriteFileHandler.ServeHTTP(w, r)
+		case FileServiceMkdirProcedure:
+			fileServiceMkdirHandler.ServeHTTP(w, r)
+		case FileServiceRenameProcedure:
+			fileServiceRenameHandler.ServeHTTP(w, r)
+		case FileServiceMoveProcedure:
+			fileServiceMoveHandler.ServeHTTP(w, r)
+		case FileServiceDeleteProcedure:
+			fileServiceDeleteHandler.ServeHTTP(w, r)
+		case FileServiceUploadFileProcedure:
+			fileServiceUploadFileHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -164,4 +308,28 @@ func (UnimplementedFileServiceHandler) ReadTextFile(context.Context, *connect.Re
 
 func (UnimplementedFileServiceHandler) ReadBinaryFile(context.Context, *connect.Request[v1.ReadBinaryFileRequest]) (*connect.Response[v1.ReadBinaryFileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.FileService.ReadBinaryFile is not implemented"))
+}
+
+func (UnimplementedFileServiceHandler) WriteFile(context.Context, *connect.Request[v1.WriteFileRequest]) (*connect.Response[v1.WriteFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.FileService.WriteFile is not implemented"))
+}
+
+func (UnimplementedFileServiceHandler) Mkdir(context.Context, *connect.Request[v1.MkdirRequest]) (*connect.Response[v1.MkdirResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.FileService.Mkdir is not implemented"))
+}
+
+func (UnimplementedFileServiceHandler) Rename(context.Context, *connect.Request[v1.RenameRequest]) (*connect.Response[v1.RenameResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.FileService.Rename is not implemented"))
+}
+
+func (UnimplementedFileServiceHandler) Move(context.Context, *connect.Request[v1.MoveRequest]) (*connect.Response[v1.MoveResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.FileService.Move is not implemented"))
+}
+
+func (UnimplementedFileServiceHandler) Delete(context.Context, *connect.Request[v1.DeleteRequest]) (*connect.Response[v1.DeleteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.FileService.Delete is not implemented"))
+}
+
+func (UnimplementedFileServiceHandler) UploadFile(context.Context, *connect.Request[v1.UploadFileRequest]) (*connect.Response[v1.UploadFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.FileService.UploadFile is not implemented"))
 }

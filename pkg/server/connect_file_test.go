@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -141,6 +142,166 @@ func TestFileServiceReadTextFile(t *testing.T) {
 	}
 	if _, err := client.ReadTextFile(ctx, connect.NewRequest(&lyonv1.ReadTextFileRequest{Path: "../secret"})); connectCode(err) != connect.CodeInvalidArgument {
 		t.Fatalf("escape code = %v, want InvalidArgument", connectCode(err))
+	}
+}
+
+// TestFileServiceWrites walks the whole v2 write surface: create vs
+// overwrite, conflict codes, containment, the workspace-root guard, and
+// the upload cap.
+func TestFileServiceWrites(t *testing.T) {
+	client, root := newFileFixture(t)
+	ctx := context.Background()
+
+	// --- WriteFile: create-only then overwrite.
+	if _, err := client.WriteFile(ctx, connect.NewRequest(&lyonv1.WriteFileRequest{
+		Path: "new.txt", Content: "hello", CreateOnly: true,
+	})); err != nil {
+		t.Fatalf("WriteFile create: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "new.txt")); err != nil || string(got) != "hello" {
+		t.Fatalf("on disk = %q err=%v", got, err)
+	}
+	if _, err := client.WriteFile(ctx, connect.NewRequest(&lyonv1.WriteFileRequest{
+		Path: "new.txt", Content: "x", CreateOnly: true,
+	})); connectCode(err) != connect.CodeAlreadyExists {
+		t.Fatalf("create over existing code = %v, want AlreadyExists (err=%v)", connectCode(err), err)
+	}
+	if _, err := client.WriteFile(ctx, connect.NewRequest(&lyonv1.WriteFileRequest{
+		Path: "new.txt", Content: "replaced",
+	})); err != nil {
+		t.Fatalf("WriteFile overwrite: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(root, "new.txt")); string(got) != "replaced" {
+		t.Fatalf("after overwrite = %q", got)
+	}
+	// Over a directory, and out of the workspace.
+	if _, err := client.WriteFile(ctx, connect.NewRequest(&lyonv1.WriteFileRequest{Path: "sub"})); connectCode(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("write-on-dir code = %v, want FailedPrecondition", connectCode(err))
+	}
+	if _, err := client.WriteFile(ctx, connect.NewRequest(&lyonv1.WriteFileRequest{Path: "../evil.txt"})); connectCode(err) != connect.CodeInvalidArgument {
+		t.Fatalf("escape write code = %v, want InvalidArgument", connectCode(err))
+	}
+
+	// --- Mkdir: plain create, conflict, mkdir -p idempotence.
+	if _, err := client.Mkdir(ctx, connect.NewRequest(&lyonv1.MkdirRequest{Path: "fresh"})); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	if _, err := client.Mkdir(ctx, connect.NewRequest(&lyonv1.MkdirRequest{Path: "fresh"})); connectCode(err) != connect.CodeAlreadyExists {
+		t.Fatalf("re-mkdir code = %v, want AlreadyExists", connectCode(err))
+	}
+	if _, err := client.Mkdir(ctx, connect.NewRequest(&lyonv1.MkdirRequest{Path: "a/b/c", CreateParents: true})); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(root, "a", "b", "c")); err != nil || !fi.IsDir() {
+		t.Fatalf("a/b/c missing: %v", err)
+	}
+
+	// --- Rename: happy path, separator rejection, conflict, missing source.
+	if _, err := client.Rename(ctx, connect.NewRequest(&lyonv1.RenameRequest{
+		Path: "new.txt", NewName: "renamed.txt",
+	})); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(root, "renamed.txt")); string(got) != "replaced" {
+		t.Fatalf("renamed content = %q", got)
+	}
+	for _, bad := range []string{"sub/x.txt", `sub\x.txt`, ".."} {
+		if _, err := client.Rename(ctx, connect.NewRequest(&lyonv1.RenameRequest{
+			Path: "renamed.txt", NewName: bad,
+		})); connectCode(err) != connect.CodeInvalidArgument {
+			t.Errorf("Rename(new_name=%q) code = %v, want InvalidArgument", bad, connectCode(err))
+		}
+	}
+	if _, err := client.Rename(ctx, connect.NewRequest(&lyonv1.RenameRequest{
+		Path: "renamed.txt", NewName: "a.txt",
+	})); connectCode(err) != connect.CodeAlreadyExists {
+		t.Fatalf("rename onto a.txt code = %v, want AlreadyExists", connectCode(err))
+	}
+	if _, err := client.Rename(ctx, connect.NewRequest(&lyonv1.RenameRequest{
+		Path: "ghost.txt", NewName: "x.txt",
+	})); connectCode(err) != connect.CodeNotFound {
+		t.Fatalf("rename missing code = %v, want NotFound", connectCode(err))
+	}
+
+	// --- Move: file into a dir, conflicts, dir into its own subtree.
+	os.Mkdir(filepath.Join(root, "fresh", "inner"), 0o755)
+	if _, err := client.Move(ctx, connect.NewRequest(&lyonv1.MoveRequest{
+		Path: "renamed.txt", ToDir: "fresh",
+	})); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "fresh", "renamed.txt")); err != nil {
+		t.Fatalf("moved file missing: %v", err)
+	}
+	if _, err := client.Move(ctx, connect.NewRequest(&lyonv1.MoveRequest{
+		Path: "a", ToDir: "fresh",
+	})); err != nil {
+		t.Fatalf("Move dir: %v", err)
+	}
+	// a → fresh/a; moving fresh into fresh/a is subtree + already-exists.
+	if _, err := client.Move(ctx, connect.NewRequest(&lyonv1.MoveRequest{
+		Path: "fresh", ToDir: "fresh",
+	})); connectCode(err) != connect.CodeInvalidArgument && connectCode(err) != connect.CodeAlreadyExists {
+		t.Fatalf("move-into-self code = %v, want InvalidArgument/AlreadyExists (err=%v)", connectCode(err), err)
+	}
+	if _, err := client.Move(ctx, connect.NewRequest(&lyonv1.MoveRequest{
+		Path: "note.md", ToDir: "nowhere",
+	})); connectCode(err) != connect.CodeNotFound {
+		t.Fatalf("move to missing dir code = %v, want NotFound", connectCode(err))
+	}
+
+	// --- Delete: empty dir bare, non-empty requires recursive, root guard.
+	// (a moved to fresh/a above — seed a fresh empty dir instead.)
+	if _, err := client.Mkdir(ctx, connect.NewRequest(&lyonv1.MkdirRequest{Path: "emptydir"})); err != nil {
+		t.Fatalf("Mkdir emptydir: %v", err)
+	}
+	if _, err := client.Delete(ctx, connect.NewRequest(&lyonv1.DeleteRequest{Path: "emptydir"})); err != nil {
+		t.Fatalf("Delete empty dir: %v", err)
+	}
+	if _, err := client.Delete(ctx, connect.NewRequest(&lyonv1.DeleteRequest{Path: "fresh"})); connectCode(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("Delete non-empty code = %v, want FailedPrecondition", connectCode(err))
+	}
+	if _, err := client.Delete(ctx, connect.NewRequest(&lyonv1.DeleteRequest{Path: "fresh", Recursive: true})); err != nil {
+		t.Fatalf("Delete recursive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "fresh")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fresh still there: %v", err)
+	}
+	if _, err := client.Delete(ctx, connect.NewRequest(&lyonv1.DeleteRequest{Path: ".", Recursive: true})); connectCode(err) != connect.CodeInvalidArgument {
+		t.Fatalf("Delete root code = %v, want InvalidArgument", connectCode(err))
+	}
+	if _, err := client.Delete(ctx, connect.NewRequest(&lyonv1.DeleteRequest{Path: "ghost.txt"})); connectCode(err) != connect.CodeNotFound {
+		t.Fatalf("Delete missing code = %v, want NotFound", connectCode(err))
+	}
+
+	// --- UploadFile: create, conflict, overwrite, over-cap.
+	data := []byte{0x89, 'P', 'N', 'G', 1, 2, 3}
+	if _, err := client.UploadFile(ctx, connect.NewRequest(&lyonv1.UploadFileRequest{
+		Path: "up.png", Data: data,
+	})); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	if _, err := client.UploadFile(ctx, connect.NewRequest(&lyonv1.UploadFileRequest{
+		Path: "up.png", Data: data,
+	})); connectCode(err) != connect.CodeAlreadyExists {
+		t.Fatalf("re-upload code = %v, want AlreadyExists", connectCode(err))
+	}
+	if _, err := client.UploadFile(ctx, connect.NewRequest(&lyonv1.UploadFileRequest{
+		Path: "up.png", Data: data, Overwrite: true,
+	})); err != nil {
+		t.Fatalf("overwrite upload: %v", err)
+	}
+	big := make([]byte, fileWriteCap+1)
+	if _, err := client.UploadFile(ctx, connect.NewRequest(&lyonv1.UploadFileRequest{
+		Path: "big.bin", Data: big,
+	})); connectCode(err) != connect.CodeResourceExhausted {
+		t.Fatalf("over-cap upload code = %v, want ResourceExhausted", connectCode(err))
+	}
+	// Parent must pre-exist.
+	if _, err := client.UploadFile(ctx, connect.NewRequest(&lyonv1.UploadFileRequest{
+		Path: "missing-dir/f.bin", Data: data,
+	})); connectCode(err) != connect.CodeNotFound {
+		t.Fatalf("upload to missing parent code = %v, want NotFound", connectCode(err))
 	}
 }
 

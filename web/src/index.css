@@ -189,6 +189,92 @@ button:disabled { opacity: 0.5; cursor: default; }
 .files-preview-img { max-width: 100%; }
 .files-preview-frame { width: 100%; height: 320px; border: 0; background: #fff; }
 
+/* --- file panel write ops (Phase E) ------------------------------------ */
+.files-actions {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 12px;
+}
+.files-actions button { font-size: 12px; padding: 2px 8px; }
+.files-hint { color: var(--dim); font-size: 11px; margin-left: auto; }
+.move-banner { display: flex; align-items: center; gap: 6px; color: var(--accent); margin-left: auto; }
+.move-banner b { color: var(--fg); }
+
+.file-row { display: flex; align-items: center; gap: 2px; }
+.file-row .file-entry { flex: 1; min-width: 0; margin: 0; border-radius: 3px; }
+.file-row.moving .file-entry { opacity: 0.5; }
+.file-ops { display: none; gap: 2px; padding-right: 4px; }
+.file-row:hover .file-ops, .file-row:focus-within .file-ops { display: flex; }
+.file-ops button { padding: 1px 6px; font-size: 12px; border-color: transparent; }
+.file-row:hover .file-ops button { border-color: var(--line); }
+
+.file-inline { display: flex; gap: 6px; padding: 4px 8px; }
+.file-inline input {
+  flex: 1; min-width: 0; padding: 3px 8px;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--accent);
+  border-radius: 4px; font: inherit; font-size: 13px;
+}
+.file-inline input:focus { outline: none; }
+.file-inline button { font-size: 12px; padding: 2px 8px; }
+
+.files-list.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; background: #16202c; }
+.file-err { display: flex; align-items: center; gap: 8px; padding: 4px 8px; }
+.file-err .err { padding: 0; flex: 1; word-break: break-word; }
+.file-err button { font-size: 12px; padding: 1px 8px; flex-shrink: 0; }
+.file-empty { padding: 8px; font-size: 12px; }
+
+/* root ErrorBoundary: page-level crash → message + remount */
+.boundary {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; height: 100vh; padding: 24px; text-align: center;
+}
+.boundary-title { color: var(--danger); font-weight: 700; font-size: 16px; }
+.boundary-detail { color: var(--dim); font-size: 13px; word-break: break-word; max-width: 560px; }
+
+/* skeleton rows: loading reads as structure, not an empty panel */
+.skeleton-rows { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.skeleton-row {
+  height: 13px; border-radius: 4px;
+  background: linear-gradient(90deg, #1b232d 25%, #232d3a 50%, #1b232d 75%);
+  background-size: 200% 100%; animation: shimmer 1.2s linear infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* confirm sheet: backdrop click / Esc cancel, danger button fires */
+.dlg-backdrop {
+  position: fixed; inset: 0; z-index: 60; background: #000000aa;
+  display: flex; align-items: center; justify-content: center;
+  animation: toast-in 0.15s ease;
+}
+.dlg {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; min-width: 300px; max-width: 420px;
+  box-shadow: 0 12px 40px #000000cc;
+}
+.dlg-title { font-weight: 700; color: var(--danger); margin-bottom: 6px; }
+.dlg-detail { color: var(--dim); font-size: 13px; word-break: break-all; margin-bottom: 12px; }
+.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* markdown preview renders with the transcript's md styles */
+.files-md { font-size: 13px; }
+.file-dl { color: var(--accent); font-size: 13px; }
+
+/* image zoom: ctrl+wheel / pan / dbl-click reset */
+.img-zoom {
+  position: relative; border-top: 1px solid var(--line); max-height: 45%;
+  overflow: hidden; background: #0c1014; display: flex;
+  align-items: center; justify-content: center; min-height: 120px;
+  touch-action: none; cursor: grab;
+}
+.img-zoom:active { cursor: grabbing; }
+.img-zoom .zoomable {
+  max-width: 92%; max-height: 380px; transform-origin: center;
+  transition: transform 0.05s ease-out; user-select: none; -webkit-user-drag: none;
+}
+.img-zoom-hint {
+  position: absolute; right: 8px; bottom: 6px; font-size: 11px; color: var(--dim);
+  background: #101418cc; border: 1px solid var(--line); border-radius: 4px; padding: 2px 7px;
+}
+
 /* topbar nav */
 .nav.active { border-color: var(--accent); color: var(--accent); }
 

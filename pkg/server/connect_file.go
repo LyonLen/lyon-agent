@@ -18,12 +18,14 @@ import (
 )
 
 // fileService is the Connect implementation of lyon.v1.FileService —
-// read-only workspace preview. Every path goes through tools.Confine, the
-// same containment as the agent's read_file (symlink-expanded, judged on
-// the real location, fail-closed), so the web surface can never reach
-// outside the workspace the engine was launched with. v1 is read-only by
-// construction; write/upload RPCs are TODO(v2) and will ride the tool
-// approval gate.
+// workspace preview plus user-initiated write ops. Every path goes through
+// tools.Confine, the same containment as the agent's read_file
+// (symlink-expanded, judged on the real location, fail-closed), so the web
+// surface can never reach outside the workspace the engine was launched
+// with. Writes are panel gestures, not agent tool calls — no ExecEvent
+// exists for them, so they confirm client-side (file.proto) instead of
+// entering the tool approval gate; the server fail-closes on containment,
+// conflicts, the workspace root, and the size cap.
 type fileService struct {
 	s *Server
 }
@@ -35,6 +37,7 @@ const (
 	fileTextPreview = 512 << 10 // 512KB text preview cap (mirrors the session adapter's ResultCap)
 	fileBinaryCap   = 2 << 20   // 2MB binary preview cap
 	fileSniffBytes  = 4 << 10   // head window for text/binary classification of unknown extensions
+	fileWriteCap    = 2 << 20   // 2MB write/upload cap — same order as the binary preview cap
 )
 
 func (f *fileService) ListDirectory(_ context.Context, req *connect.Request[lyonv1.ListDirectoryRequest]) (*connect.Response[lyonv1.ListDirectoryResponse], error) {
@@ -164,6 +167,235 @@ func (f *fileService) ReadBinaryFile(_ context.Context, req *connect.Request[lyo
 		Truncated:   truncated,
 		SizeBytes:   sizeBytes,
 	}), nil
+}
+
+// --- write ops (v2) ------------------------------------------------------
+
+func (f *fileService) WriteFile(_ context.Context, req *connect.Request[lyonv1.WriteFileRequest]) (*connect.Response[lyonv1.WriteFileResponse], error) {
+	msg := req.Msg
+	if len(msg.Content) > fileWriteCap {
+		return nil, connect.NewError(connect.CodeResourceExhausted,
+			fmt.Errorf("content is %d bytes; the panel write cap is %d", len(msg.Content), fileWriteCap))
+	}
+	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if fi, err := os.Stat(abs); err == nil {
+		if fi.IsDir() {
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("%s is a directory", msg.Path))
+		}
+		if msg.CreateOnly {
+			return nil, connect.NewError(connect.CodeAlreadyExists,
+				fmt.Errorf("%s already exists", msg.Path))
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	// O_EXCL when the op is a pure create — the stat above is only the
+	// friendly message; the flag is the actual race-free fail-close.
+	flag := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if msg.CreateOnly {
+		flag |= os.O_EXCL
+	}
+	fh, err := os.OpenFile(abs, flag, 0o644)
+	if err != nil {
+		if msg.CreateOnly && errors.Is(err, os.ErrExist) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("%s already exists", msg.Path))
+		}
+		return nil, fileOSErr(err, msg.Path)
+	}
+	if _, err := fh.Write([]byte(msg.Content)); err != nil {
+		fh.Close()
+		return nil, fileOSErr(err, msg.Path)
+	}
+	if err := fh.Close(); err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	return connect.NewResponse(&lyonv1.WriteFileResponse{SizeBytes: int64(len(msg.Content))}), nil
+}
+
+func (f *fileService) Mkdir(_ context.Context, req *connect.Request[lyonv1.MkdirRequest]) (*connect.Response[lyonv1.MkdirResponse], error) {
+	msg := req.Msg
+	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if msg.CreateParents {
+		// mkdir -p: idempotent when the path is already the wanted dir;
+		// a file squatting on the path still fails below.
+		if err := os.MkdirAll(abs, 0o755); err != nil {
+			return nil, fileOSErr(err, msg.Path)
+		}
+		if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+			return nil, connect.NewError(connect.CodeAlreadyExists,
+				fmt.Errorf("%s exists and is not a directory", msg.Path))
+		}
+		return connect.NewResponse(&lyonv1.MkdirResponse{}), nil
+	}
+	if err := os.Mkdir(abs, 0o755); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("%s already exists", msg.Path))
+		}
+		return nil, fileOSErr(err, msg.Path)
+	}
+	return connect.NewResponse(&lyonv1.MkdirResponse{}), nil
+}
+
+func (f *fileService) Rename(_ context.Context, req *connect.Request[lyonv1.RenameRequest]) (*connect.Response[lyonv1.RenameResponse], error) {
+	msg := req.Msg
+	// Single path segment only — new_name with a separator would silently
+	// become a move; the client has a dedicated Move for that.
+	n := msg.NewName
+	if n == "" || n == "." || n == ".." || filepath.Base(n) != n ||
+		strings.ContainsAny(n, `/\`) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("new_name must be a single name (no path separators)"))
+	}
+	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	dst := filepath.Join(filepath.Dir(abs), n)
+	if dst2, err := tools.Confine(f.s.eng.Config().Workspace, dst); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	} else {
+		dst = dst2
+	}
+	if _, err := os.Lstat(abs); err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("%s already exists", n))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fileOSErr(err, n)
+	}
+	if err := os.Rename(abs, dst); err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	return connect.NewResponse(&lyonv1.RenameResponse{}), nil
+}
+
+func (f *fileService) Move(_ context.Context, req *connect.Request[lyonv1.MoveRequest]) (*connect.Response[lyonv1.MoveResponse], error) {
+	msg := req.Msg
+	src, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	dirP := msg.ToDir
+	if strings.TrimSpace(dirP) == "" {
+		dirP = "."
+	}
+	dstDir, err := tools.Confine(f.s.eng.Config().Workspace, dirP)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	fi, err := os.Stat(dstDir)
+	if err != nil {
+		return nil, fileOSErr(err, msg.ToDir)
+	}
+	if !fi.IsDir() {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("%s is not a directory", msg.ToDir))
+	}
+	dst := filepath.Join(dstDir, filepath.Base(src))
+	if dst == src {
+		return connect.NewResponse(&lyonv1.MoveResponse{}), nil // no-op
+	}
+	// Moving a directory into its own subtree is EINVAL on every OS —
+	// catch it before the rename for a readable error.
+	if fi, err := os.Stat(src); err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	} else if fi.IsDir() {
+		rel, rerr := filepath.Rel(src, dst)
+		if rerr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("cannot move %s into its own subtree", msg.Path))
+		}
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		return nil, connect.NewError(connect.CodeAlreadyExists,
+			fmt.Errorf("%s already exists in %s", filepath.Base(src), msg.ToDir))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fileOSErr(err, filepath.Base(src))
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	return connect.NewResponse(&lyonv1.MoveResponse{}), nil
+}
+
+func (f *fileService) Delete(_ context.Context, req *connect.Request[lyonv1.DeleteRequest]) (*connect.Response[lyonv1.DeleteResponse], error) {
+	msg := req.Msg
+	ws := f.s.eng.Config().Workspace
+	abs, err := tools.Confine(ws, msg.Path)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// The workspace root itself is never deletable, no matter the flags —
+	// Confine(".") is the root, and a recursive rm there would take the
+	// whole session workspace with it.
+	if root, err := tools.Confine(ws, "."); err == nil && abs == root {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("refusing to delete the workspace root"))
+	}
+	fi, err := os.Lstat(abs)
+	if err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	if fi.IsDir() {
+		if msg.Recursive {
+			if err := os.RemoveAll(abs); err != nil {
+				return nil, fileOSErr(err, msg.Path)
+			}
+			return connect.NewResponse(&lyonv1.DeleteResponse{}), nil
+		}
+		des, err := os.ReadDir(abs)
+		if err != nil {
+			return nil, fileOSErr(err, msg.Path)
+		}
+		if len(des) > 0 {
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("%s is not empty (pass recursive)", msg.Path))
+		}
+	}
+	if err := os.Remove(abs); err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	return connect.NewResponse(&lyonv1.DeleteResponse{}), nil
+}
+
+func (f *fileService) UploadFile(_ context.Context, req *connect.Request[lyonv1.UploadFileRequest]) (*connect.Response[lyonv1.UploadFileResponse], error) {
+	msg := req.Msg
+	if len(msg.Data) > fileWriteCap {
+		return nil, connect.NewError(connect.CodeResourceExhausted,
+			fmt.Errorf("upload is %d bytes; the cap is %d", len(msg.Data), fileWriteCap))
+	}
+	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if fi, err := os.Stat(abs); err == nil {
+		if fi.IsDir() {
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("%s is a directory", msg.Path))
+		}
+		if !msg.Overwrite {
+			return nil, connect.NewError(connect.CodeAlreadyExists,
+				fmt.Errorf("%s already exists (pass overwrite)", msg.Path))
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	// Parent must already exist — uploads don't implicitly mkdir -p.
+	if _, err := os.Stat(filepath.Dir(abs)); err != nil {
+		return nil, fileOSErr(err, filepath.Dir(msg.Path))
+	}
+	if err := os.WriteFile(abs, msg.Data, 0o644); err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	return connect.NewResponse(&lyonv1.UploadFileResponse{SizeBytes: int64(len(msg.Data))}), nil
 }
 
 // fileOSErr maps filesystem failures onto Connect codes: missing is

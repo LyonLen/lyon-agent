@@ -4,15 +4,26 @@ package lyon.v1;
 
 option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
 
-// FileService: read-only workspace preview. Every path is workspace-relative
-// and passed through the same containment as the agent's read_file
-// (confine(), pkg/tools/files.go:49) — absolute paths, "..", and symlink
-// escapes are rejected fail-closed. v1 is read-only; write/upload RPCs are
-// TODO(v2) and will ride the existing tool-approval gate.
+// FileService: workspace file access for the web panel. Every path is
+// workspace-relative and passed through the same containment as the agent's
+// read_file (confine(), pkg/tools/files.go:49) — absolute paths, "..", and
+// symlink escapes are rejected fail-closed.
+//
+// Read RPCs serve the preview. Write RPCs (v2) are user-initiated panel
+// operations, not agent tool calls: they never enter the agent approval
+// gate (no ExecEvent exists for them) — destructive intent is confirmed by
+// the client before the call (portal precedent), and the server still
+// fail-closes on containment, existing-target conflicts, and size caps.
 service FileService {
   rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
   rpc ReadTextFile(ReadTextFileRequest) returns (ReadTextFileResponse);
   rpc ReadBinaryFile(ReadBinaryFileRequest) returns (ReadBinaryFileResponse);
+  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  rpc Mkdir(MkdirRequest) returns (MkdirResponse);
+  rpc Rename(RenameRequest) returns (RenameResponse);
+  rpc Move(MoveRequest) returns (MoveResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
   // TODO(v2): stream download for large files.
 }
 
@@ -67,4 +78,53 @@ message ReadBinaryFileResponse {
   bytes data = 3;           // capped; truncated=true when the cap trimmed it
   bool truncated = 4;
   int64 size_bytes = 5;     // full file size
+}
+
+// --- write ops (v2, user-initiated) -------------------------------------
+
+message WriteFileRequest {
+  string path = 1;
+  string content = 2;      // full replacement, utf-8 ("" creates an empty file)
+  bool create_only = 3;    // new-file op: AlreadyExists when the path is taken
+}
+message WriteFileResponse {
+  int64 size_bytes = 1;
+}
+
+message MkdirRequest {
+  string path = 1;
+  bool create_parents = 2; // mkdir -p; otherwise the parent must exist
+}
+message MkdirResponse {}
+
+// Rename keeps the file inside its directory: new_name is a single path
+// segment (no separators) — use Move to change directories.
+message RenameRequest {
+  string path = 1;
+  string new_name = 2;
+}
+message RenameResponse {}
+
+// Move relocates path into to_dir (also workspace-confined); name is kept.
+message MoveRequest {
+  string path = 1;
+  string to_dir = 2;
+}
+message MoveResponse {}
+
+// Delete removes a file, or a directory only when recursive=true (empty
+// dirs go through with recursive=false — rm -r semantics).
+message DeleteRequest {
+  string path = 1;
+  bool recursive = 2;
+}
+message DeleteResponse {}
+
+message UploadFileRequest {
+  string path = 1;
+  bytes data = 2;          // capped server-side at the binary preview cap
+  bool overwrite = 3;      // default fail-closes on an existing target
+}
+message UploadFileResponse {
+  int64 size_bytes = 1;
 }

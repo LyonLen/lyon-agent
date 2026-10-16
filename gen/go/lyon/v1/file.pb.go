@@ -529,6 +529,571 @@ func (x *ReadBinaryFileResponse) GetSizeBytes() int64 {
 	return 0
 }
 
+type WriteFileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`                          // full replacement, utf-8 ("" creates an empty file)
+	CreateOnly    bool                   `protobuf:"varint,3,opt,name=create_only,json=createOnly,proto3" json:"create_only,omitempty"` // new-file op: AlreadyExists when the path is taken
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteFileRequest) Reset() {
+	*x = WriteFileRequest{}
+	mi := &file_lyon_v1_file_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteFileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteFileRequest) ProtoMessage() {}
+
+func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteFileRequest.ProtoReflect.Descriptor instead.
+func (*WriteFileRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WriteFileRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *WriteFileRequest) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *WriteFileRequest) GetCreateOnly() bool {
+	if x != nil {
+		return x.CreateOnly
+	}
+	return false
+}
+
+type WriteFileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SizeBytes     int64                  `protobuf:"varint,1,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteFileResponse) Reset() {
+	*x = WriteFileResponse{}
+	mi := &file_lyon_v1_file_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteFileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteFileResponse) ProtoMessage() {}
+
+func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteFileResponse.ProtoReflect.Descriptor instead.
+func (*WriteFileResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *WriteFileResponse) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+type MkdirRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	CreateParents bool                   `protobuf:"varint,2,opt,name=create_parents,json=createParents,proto3" json:"create_parents,omitempty"` // mkdir -p; otherwise the parent must exist
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MkdirRequest) Reset() {
+	*x = MkdirRequest{}
+	mi := &file_lyon_v1_file_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MkdirRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MkdirRequest) ProtoMessage() {}
+
+func (x *MkdirRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MkdirRequest.ProtoReflect.Descriptor instead.
+func (*MkdirRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *MkdirRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *MkdirRequest) GetCreateParents() bool {
+	if x != nil {
+		return x.CreateParents
+	}
+	return false
+}
+
+type MkdirResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MkdirResponse) Reset() {
+	*x = MkdirResponse{}
+	mi := &file_lyon_v1_file_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MkdirResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MkdirResponse) ProtoMessage() {}
+
+func (x *MkdirResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MkdirResponse.ProtoReflect.Descriptor instead.
+func (*MkdirResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{10}
+}
+
+// Rename keeps the file inside its directory: new_name is a single path
+// segment (no separators) — use Move to change directories.
+type RenameRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	NewName       string                 `protobuf:"bytes,2,opt,name=new_name,json=newName,proto3" json:"new_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenameRequest) Reset() {
+	*x = RenameRequest{}
+	mi := &file_lyon_v1_file_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenameRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenameRequest) ProtoMessage() {}
+
+func (x *RenameRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenameRequest.ProtoReflect.Descriptor instead.
+func (*RenameRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RenameRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *RenameRequest) GetNewName() string {
+	if x != nil {
+		return x.NewName
+	}
+	return ""
+}
+
+type RenameResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenameResponse) Reset() {
+	*x = RenameResponse{}
+	mi := &file_lyon_v1_file_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenameResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenameResponse) ProtoMessage() {}
+
+func (x *RenameResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenameResponse.ProtoReflect.Descriptor instead.
+func (*RenameResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{12}
+}
+
+// Move relocates path into to_dir (also workspace-confined); name is kept.
+type MoveRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	ToDir         string                 `protobuf:"bytes,2,opt,name=to_dir,json=toDir,proto3" json:"to_dir,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MoveRequest) Reset() {
+	*x = MoveRequest{}
+	mi := &file_lyon_v1_file_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MoveRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MoveRequest) ProtoMessage() {}
+
+func (x *MoveRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MoveRequest.ProtoReflect.Descriptor instead.
+func (*MoveRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *MoveRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *MoveRequest) GetToDir() string {
+	if x != nil {
+		return x.ToDir
+	}
+	return ""
+}
+
+type MoveResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MoveResponse) Reset() {
+	*x = MoveResponse{}
+	mi := &file_lyon_v1_file_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MoveResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MoveResponse) ProtoMessage() {}
+
+func (x *MoveResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MoveResponse.ProtoReflect.Descriptor instead.
+func (*MoveResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{14}
+}
+
+// Delete removes a file, or a directory only when recursive=true (empty
+// dirs go through with recursive=false — rm -r semantics).
+type DeleteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Recursive     bool                   `protobuf:"varint,2,opt,name=recursive,proto3" json:"recursive,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteRequest) Reset() {
+	*x = DeleteRequest{}
+	mi := &file_lyon_v1_file_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRequest) ProtoMessage() {}
+
+func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRequest.ProtoReflect.Descriptor instead.
+func (*DeleteRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *DeleteRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *DeleteRequest) GetRecursive() bool {
+	if x != nil {
+		return x.Recursive
+	}
+	return false
+}
+
+type DeleteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteResponse) Reset() {
+	*x = DeleteResponse{}
+	mi := &file_lyon_v1_file_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteResponse) ProtoMessage() {}
+
+func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
+func (*DeleteResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{16}
+}
+
+type UploadFileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`            // capped server-side at the binary preview cap
+	Overwrite     bool                   `protobuf:"varint,3,opt,name=overwrite,proto3" json:"overwrite,omitempty"` // default fail-closes on an existing target
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadFileRequest) Reset() {
+	*x = UploadFileRequest{}
+	mi := &file_lyon_v1_file_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadFileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadFileRequest) ProtoMessage() {}
+
+func (x *UploadFileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadFileRequest.ProtoReflect.Descriptor instead.
+func (*UploadFileRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *UploadFileRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *UploadFileRequest) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *UploadFileRequest) GetOverwrite() bool {
+	if x != nil {
+		return x.Overwrite
+	}
+	return false
+}
+
+type UploadFileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SizeBytes     int64                  `protobuf:"varint,1,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadFileResponse) Reset() {
+	*x = UploadFileResponse{}
+	mi := &file_lyon_v1_file_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadFileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadFileResponse) ProtoMessage() {}
+
+func (x *UploadFileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_file_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadFileResponse.ProtoReflect.Descriptor instead.
+func (*UploadFileResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_file_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *UploadFileResponse) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
 var File_lyon_v1_file_proto protoreflect.FileDescriptor
 
 const file_lyon_v1_file_proto_rawDesc = "" +
@@ -569,7 +1134,38 @@ const file_lyon_v1_file_proto_rawDesc = "" +
 	"\x04data\x18\x03 \x01(\fR\x04data\x12\x1c\n" +
 	"\ttruncated\x18\x04 \x01(\bR\ttruncated\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x05 \x01(\x03R\tsizeBytes*\xb5\x01\n" +
+	"size_bytes\x18\x05 \x01(\x03R\tsizeBytes\"a\n" +
+	"\x10WriteFileRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1f\n" +
+	"\vcreate_only\x18\x03 \x01(\bR\n" +
+	"createOnly\"2\n" +
+	"\x11WriteFileResponse\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x01 \x01(\x03R\tsizeBytes\"I\n" +
+	"\fMkdirRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12%\n" +
+	"\x0ecreate_parents\x18\x02 \x01(\bR\rcreateParents\"\x0f\n" +
+	"\rMkdirResponse\">\n" +
+	"\rRenameRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x19\n" +
+	"\bnew_name\x18\x02 \x01(\tR\anewName\"\x10\n" +
+	"\x0eRenameResponse\"8\n" +
+	"\vMoveRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x15\n" +
+	"\x06to_dir\x18\x02 \x01(\tR\x05toDir\"\x0e\n" +
+	"\fMoveResponse\"A\n" +
+	"\rDeleteRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1c\n" +
+	"\trecursive\x18\x02 \x01(\bR\trecursive\"\x10\n" +
+	"\x0eDeleteResponse\"Y\n" +
+	"\x11UploadFileRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1c\n" +
+	"\toverwrite\x18\x03 \x01(\bR\toverwrite\"3\n" +
+	"\x12UploadFileResponse\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x01 \x01(\x03R\tsizeBytes*\xb5\x01\n" +
 	"\bFileKind\x12\x19\n" +
 	"\x15FILE_KIND_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rFILE_KIND_DIR\x10\x01\x12\x12\n" +
@@ -578,11 +1174,18 @@ const file_lyon_v1_file_proto_rawDesc = "" +
 	"\x12FILE_KIND_MARKDOWN\x10\x04\x12\x13\n" +
 	"\x0fFILE_KIND_IMAGE\x10\x05\x12\x11\n" +
 	"\rFILE_KIND_PDF\x10\x06\x12\x13\n" +
-	"\x0fFILE_KIND_OTHER\x10\a2\xfd\x01\n" +
+	"\x0fFILE_KIND_OTHER\x10\a2\xeb\x04\n" +
 	"\vFileService\x12N\n" +
 	"\rListDirectory\x12\x1d.lyon.v1.ListDirectoryRequest\x1a\x1e.lyon.v1.ListDirectoryResponse\x12K\n" +
 	"\fReadTextFile\x12\x1c.lyon.v1.ReadTextFileRequest\x1a\x1d.lyon.v1.ReadTextFileResponse\x12Q\n" +
-	"\x0eReadBinaryFile\x12\x1e.lyon.v1.ReadBinaryFileRequest\x1a\x1f.lyon.v1.ReadBinaryFileResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
+	"\x0eReadBinaryFile\x12\x1e.lyon.v1.ReadBinaryFileRequest\x1a\x1f.lyon.v1.ReadBinaryFileResponse\x12B\n" +
+	"\tWriteFile\x12\x19.lyon.v1.WriteFileRequest\x1a\x1a.lyon.v1.WriteFileResponse\x126\n" +
+	"\x05Mkdir\x12\x15.lyon.v1.MkdirRequest\x1a\x16.lyon.v1.MkdirResponse\x129\n" +
+	"\x06Rename\x12\x16.lyon.v1.RenameRequest\x1a\x17.lyon.v1.RenameResponse\x123\n" +
+	"\x04Move\x12\x14.lyon.v1.MoveRequest\x1a\x15.lyon.v1.MoveResponse\x129\n" +
+	"\x06Delete\x12\x16.lyon.v1.DeleteRequest\x1a\x17.lyon.v1.DeleteResponse\x12E\n" +
+	"\n" +
+	"UploadFile\x12\x1a.lyon.v1.UploadFileRequest\x1a\x1b.lyon.v1.UploadFileResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
 
 var (
 	file_lyon_v1_file_proto_rawDescOnce sync.Once
@@ -597,7 +1200,7 @@ func file_lyon_v1_file_proto_rawDescGZIP() []byte {
 }
 
 var file_lyon_v1_file_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_lyon_v1_file_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_lyon_v1_file_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_lyon_v1_file_proto_goTypes = []any{
 	(FileKind)(0),                  // 0: lyon.v1.FileKind
 	(*DirEntry)(nil),               // 1: lyon.v1.DirEntry
@@ -607,22 +1210,46 @@ var file_lyon_v1_file_proto_goTypes = []any{
 	(*ReadTextFileResponse)(nil),   // 5: lyon.v1.ReadTextFileResponse
 	(*ReadBinaryFileRequest)(nil),  // 6: lyon.v1.ReadBinaryFileRequest
 	(*ReadBinaryFileResponse)(nil), // 7: lyon.v1.ReadBinaryFileResponse
+	(*WriteFileRequest)(nil),       // 8: lyon.v1.WriteFileRequest
+	(*WriteFileResponse)(nil),      // 9: lyon.v1.WriteFileResponse
+	(*MkdirRequest)(nil),           // 10: lyon.v1.MkdirRequest
+	(*MkdirResponse)(nil),          // 11: lyon.v1.MkdirResponse
+	(*RenameRequest)(nil),          // 12: lyon.v1.RenameRequest
+	(*RenameResponse)(nil),         // 13: lyon.v1.RenameResponse
+	(*MoveRequest)(nil),            // 14: lyon.v1.MoveRequest
+	(*MoveResponse)(nil),           // 15: lyon.v1.MoveResponse
+	(*DeleteRequest)(nil),          // 16: lyon.v1.DeleteRequest
+	(*DeleteResponse)(nil),         // 17: lyon.v1.DeleteResponse
+	(*UploadFileRequest)(nil),      // 18: lyon.v1.UploadFileRequest
+	(*UploadFileResponse)(nil),     // 19: lyon.v1.UploadFileResponse
 }
 var file_lyon_v1_file_proto_depIdxs = []int32{
-	0, // 0: lyon.v1.DirEntry.kind:type_name -> lyon.v1.FileKind
-	1, // 1: lyon.v1.ListDirectoryResponse.entries:type_name -> lyon.v1.DirEntry
-	0, // 2: lyon.v1.ReadTextFileResponse.kind:type_name -> lyon.v1.FileKind
-	2, // 3: lyon.v1.FileService.ListDirectory:input_type -> lyon.v1.ListDirectoryRequest
-	4, // 4: lyon.v1.FileService.ReadTextFile:input_type -> lyon.v1.ReadTextFileRequest
-	6, // 5: lyon.v1.FileService.ReadBinaryFile:input_type -> lyon.v1.ReadBinaryFileRequest
-	3, // 6: lyon.v1.FileService.ListDirectory:output_type -> lyon.v1.ListDirectoryResponse
-	5, // 7: lyon.v1.FileService.ReadTextFile:output_type -> lyon.v1.ReadTextFileResponse
-	7, // 8: lyon.v1.FileService.ReadBinaryFile:output_type -> lyon.v1.ReadBinaryFileResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: lyon.v1.DirEntry.kind:type_name -> lyon.v1.FileKind
+	1,  // 1: lyon.v1.ListDirectoryResponse.entries:type_name -> lyon.v1.DirEntry
+	0,  // 2: lyon.v1.ReadTextFileResponse.kind:type_name -> lyon.v1.FileKind
+	2,  // 3: lyon.v1.FileService.ListDirectory:input_type -> lyon.v1.ListDirectoryRequest
+	4,  // 4: lyon.v1.FileService.ReadTextFile:input_type -> lyon.v1.ReadTextFileRequest
+	6,  // 5: lyon.v1.FileService.ReadBinaryFile:input_type -> lyon.v1.ReadBinaryFileRequest
+	8,  // 6: lyon.v1.FileService.WriteFile:input_type -> lyon.v1.WriteFileRequest
+	10, // 7: lyon.v1.FileService.Mkdir:input_type -> lyon.v1.MkdirRequest
+	12, // 8: lyon.v1.FileService.Rename:input_type -> lyon.v1.RenameRequest
+	14, // 9: lyon.v1.FileService.Move:input_type -> lyon.v1.MoveRequest
+	16, // 10: lyon.v1.FileService.Delete:input_type -> lyon.v1.DeleteRequest
+	18, // 11: lyon.v1.FileService.UploadFile:input_type -> lyon.v1.UploadFileRequest
+	3,  // 12: lyon.v1.FileService.ListDirectory:output_type -> lyon.v1.ListDirectoryResponse
+	5,  // 13: lyon.v1.FileService.ReadTextFile:output_type -> lyon.v1.ReadTextFileResponse
+	7,  // 14: lyon.v1.FileService.ReadBinaryFile:output_type -> lyon.v1.ReadBinaryFileResponse
+	9,  // 15: lyon.v1.FileService.WriteFile:output_type -> lyon.v1.WriteFileResponse
+	11, // 16: lyon.v1.FileService.Mkdir:output_type -> lyon.v1.MkdirResponse
+	13, // 17: lyon.v1.FileService.Rename:output_type -> lyon.v1.RenameResponse
+	15, // 18: lyon.v1.FileService.Move:output_type -> lyon.v1.MoveResponse
+	17, // 19: lyon.v1.FileService.Delete:output_type -> lyon.v1.DeleteResponse
+	19, // 20: lyon.v1.FileService.UploadFile:output_type -> lyon.v1.UploadFileResponse
+	12, // [12:21] is the sub-list for method output_type
+	3,  // [3:12] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_lyon_v1_file_proto_init() }
@@ -636,7 +1263,7 @@ func file_lyon_v1_file_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lyon_v1_file_proto_rawDesc), len(file_lyon_v1_file_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

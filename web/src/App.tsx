@@ -8,6 +8,7 @@ import SessionList from "./components/SessionList";
 import ChatView from "./components/ChatView";
 import SidePanel from "./components/SidePanel";
 import DashboardPanel from "./components/DashboardPanel";
+import ErrorBoundary from "./components/ErrorBoundary";
 import type { TodoItem } from "./todos";
 import type { StepRow } from "./types";
 
@@ -280,6 +281,7 @@ export default function App() {
   }); // no deps: the handler always reads the latest sessions/selection
 
   return (
+    <ErrorBoundary>
     <div className="app">
       <header className="topbar">
         <span className="brand">lyon</span>
@@ -350,5 +352,6 @@ export default function App() {
       )}
       {toast && <div className="toast">{toast}</div>}
     </div>
+    </ErrorBoundary>
   );
 }

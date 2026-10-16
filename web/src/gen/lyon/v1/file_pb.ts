@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/file.proto.
  */
 export const file_lyon_v1_file: GenFile = /*@__PURE__*/
-  fileDesc("ChJseW9uL3YxL2ZpbGUucHJvdG8SB2x5b24udjEidAoIRGlyRW50cnkSDAoEbmFtZRgBIAEoCRIOCgZpc19kaXIYAiABKAgSEgoKc2l6ZV9ieXRlcxgDIAEoAxIVCg1tdGltZV91bml4X21zGAQgASgDEh8KBGtpbmQYBSABKA4yES5seW9uLnYxLkZpbGVLaW5kIiQKFExpc3REaXJlY3RvcnlSZXF1ZXN0EgwKBHBhdGgYASABKAkiXAoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEgwKBHBhdGgYASABKAkSIgoHZW50cmllcxgCIAMoCzIRLmx5b24udjEuRGlyRW50cnkSEQoJdHJ1bmNhdGVkGAMgASgIIk4KE1JlYWRUZXh0RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIUCgxvZmZzZXRfbGluZXMYAiABKAUSEwoLbGltaXRfbGluZXMYAyABKAUikgEKFFJlYWRUZXh0RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSDwoHY29udGVudBgCIAEoCRIRCgl0cnVuY2F0ZWQYAyABKAgSEwoLdG90YWxfbGluZXMYBCABKAUSEgoKc2l6ZV9ieXRlcxgFIAEoAxIfCgRraW5kGAYgASgOMhEubHlvbi52MS5GaWxlS2luZCIlChVSZWFkQmluYXJ5RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCSJxChZSZWFkQmluYXJ5RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSFAoMY29udGVudF90eXBlGAIgASgJEgwKBGRhdGEYAyABKAwSEQoJdHJ1bmNhdGVkGAQgASgIEhIKCnNpemVfYnl0ZXMYBSABKAMqtQEKCEZpbGVLaW5kEhkKFUZJTEVfS0lORF9VTlNQRUNJRklFRBAAEhEKDUZJTEVfS0lORF9ESVIQARISCg5GSUxFX0tJTkRfVEVYVBACEhIKDkZJTEVfS0lORF9DT0RFEAMSFgoSRklMRV9LSU5EX01BUktET1dOEAQSEwoPRklMRV9LSU5EX0lNQUdFEAUSEQoNRklMRV9LSU5EX1BERhAGEhMKD0ZJTEVfS0lORF9PVEhFUhAHMv0BCgtGaWxlU2VydmljZRJOCg1MaXN0RGlyZWN0b3J5Eh0ubHlvbi52MS5MaXN0RGlyZWN0b3J5UmVxdWVzdBoeLmx5b24udjEuTGlzdERpcmVjdG9yeVJlc3BvbnNlEksKDFJlYWRUZXh0RmlsZRIcLmx5b24udjEuUmVhZFRleHRGaWxlUmVxdWVzdBodLmx5b24udjEuUmVhZFRleHRGaWxlUmVzcG9uc2USUQoOUmVhZEJpbmFyeUZpbGUSHi5seW9uLnYxLlJlYWRCaW5hcnlGaWxlUmVxdWVzdBofLmx5b24udjEuUmVhZEJpbmFyeUZpbGVSZXNwb25zZUIiWiBseW9uLWFnZW50L2dlbi9nby9seW9uL3YxO2x5b252MWIGcHJvdG8z");
+  fileDesc("ChJseW9uL3YxL2ZpbGUucHJvdG8SB2x5b24udjEidAoIRGlyRW50cnkSDAoEbmFtZRgBIAEoCRIOCgZpc19kaXIYAiABKAgSEgoKc2l6ZV9ieXRlcxgDIAEoAxIVCg1tdGltZV91bml4X21zGAQgASgDEh8KBGtpbmQYBSABKA4yES5seW9uLnYxLkZpbGVLaW5kIiQKFExpc3REaXJlY3RvcnlSZXF1ZXN0EgwKBHBhdGgYASABKAkiXAoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEgwKBHBhdGgYASABKAkSIgoHZW50cmllcxgCIAMoCzIRLmx5b24udjEuRGlyRW50cnkSEQoJdHJ1bmNhdGVkGAMgASgIIk4KE1JlYWRUZXh0RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIUCgxvZmZzZXRfbGluZXMYAiABKAUSEwoLbGltaXRfbGluZXMYAyABKAUikgEKFFJlYWRUZXh0RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSDwoHY29udGVudBgCIAEoCRIRCgl0cnVuY2F0ZWQYAyABKAgSEwoLdG90YWxfbGluZXMYBCABKAUSEgoKc2l6ZV9ieXRlcxgFIAEoAxIfCgRraW5kGAYgASgOMhEubHlvbi52MS5GaWxlS2luZCIlChVSZWFkQmluYXJ5RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCSJxChZSZWFkQmluYXJ5RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSFAoMY29udGVudF90eXBlGAIgASgJEgwKBGRhdGEYAyABKAwSEQoJdHJ1bmNhdGVkGAQgASgIEhIKCnNpemVfYnl0ZXMYBSABKAMiRgoQV3JpdGVGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAkSEwoLY3JlYXRlX29ubHkYAyABKAgiJwoRV3JpdGVGaWxlUmVzcG9uc2USEgoKc2l6ZV9ieXRlcxgBIAEoAyI0CgxNa2RpclJlcXVlc3QSDAoEcGF0aBgBIAEoCRIWCg5jcmVhdGVfcGFyZW50cxgCIAEoCCIPCg1Na2RpclJlc3BvbnNlIi8KDVJlbmFtZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIQCghuZXdfbmFtZRgCIAEoCSIQCg5SZW5hbWVSZXNwb25zZSIrCgtNb3ZlUmVxdWVzdBIMCgRwYXRoGAEgASgJEg4KBnRvX2RpchgCIAEoCSIOCgxNb3ZlUmVzcG9uc2UiMAoNRGVsZXRlUmVxdWVzdBIMCgRwYXRoGAEgASgJEhEKCXJlY3Vyc2l2ZRgCIAEoCCIQCg5EZWxldGVSZXNwb25zZSJCChFVcGxvYWRGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEgwKBGRhdGEYAiABKAwSEQoJb3ZlcndyaXRlGAMgASgIIigKElVwbG9hZEZpbGVSZXNwb25zZRISCgpzaXplX2J5dGVzGAEgASgDKrUBCghGaWxlS2luZBIZChVGSUxFX0tJTkRfVU5TUEVDSUZJRUQQABIRCg1GSUxFX0tJTkRfRElSEAESEgoORklMRV9LSU5EX1RFWFQQAhISCg5GSUxFX0tJTkRfQ09ERRADEhYKEkZJTEVfS0lORF9NQVJLRE9XThAEEhMKD0ZJTEVfS0lORF9JTUFHRRAFEhEKDUZJTEVfS0lORF9QREYQBhITCg9GSUxFX0tJTkRfT1RIRVIQBzLrBAoLRmlsZVNlcnZpY2USTgoNTGlzdERpcmVjdG9yeRIdLmx5b24udjEuTGlzdERpcmVjdG9yeVJlcXVlc3QaHi5seW9uLnYxLkxpc3REaXJlY3RvcnlSZXNwb25zZRJLCgxSZWFkVGV4dEZpbGUSHC5seW9uLnYxLlJlYWRUZXh0RmlsZVJlcXVlc3QaHS5seW9uLnYxLlJlYWRUZXh0RmlsZVJlc3BvbnNlElEKDlJlYWRCaW5hcnlGaWxlEh4ubHlvbi52MS5SZWFkQmluYXJ5RmlsZVJlcXVlc3QaHy5seW9uLnYxLlJlYWRCaW5hcnlGaWxlUmVzcG9uc2USQgoJV3JpdGVGaWxlEhkubHlvbi52MS5Xcml0ZUZpbGVSZXF1ZXN0GhoubHlvbi52MS5Xcml0ZUZpbGVSZXNwb25zZRI2CgVNa2RpchIVLmx5b24udjEuTWtkaXJSZXF1ZXN0GhYubHlvbi52MS5Na2RpclJlc3BvbnNlEjkKBlJlbmFtZRIWLmx5b24udjEuUmVuYW1lUmVxdWVzdBoXLmx5b24udjEuUmVuYW1lUmVzcG9uc2USMwoETW92ZRIULmx5b24udjEuTW92ZVJlcXVlc3QaFS5seW9uLnYxLk1vdmVSZXNwb25zZRI5CgZEZWxldGUSFi5seW9uLnYxLkRlbGV0ZVJlcXVlc3QaFy5seW9uLnYxLkRlbGV0ZVJlc3BvbnNlEkUKClVwbG9hZEZpbGUSGi5seW9uLnYxLlVwbG9hZEZpbGVSZXF1ZXN0GhsubHlvbi52MS5VcGxvYWRGaWxlUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
 
 /**
  * @generated from message lyon.v1.DirEntry
@@ -237,6 +237,252 @@ export const ReadBinaryFileResponseSchema: GenMessage<ReadBinaryFileResponse> = 
   messageDesc(file_lyon_v1_file, 6);
 
 /**
+ * @generated from message lyon.v1.WriteFileRequest
+ */
+export type WriteFileRequest = Message<"lyon.v1.WriteFileRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * full replacement, utf-8 ("" creates an empty file)
+   *
+   * @generated from field: string content = 2;
+   */
+  content: string;
+
+  /**
+   * new-file op: AlreadyExists when the path is taken
+   *
+   * @generated from field: bool create_only = 3;
+   */
+  createOnly: boolean;
+};
+
+/**
+ * Describes the message lyon.v1.WriteFileRequest.
+ * Use `create(WriteFileRequestSchema)` to create a new message.
+ */
+export const WriteFileRequestSchema: GenMessage<WriteFileRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 7);
+
+/**
+ * @generated from message lyon.v1.WriteFileResponse
+ */
+export type WriteFileResponse = Message<"lyon.v1.WriteFileResponse"> & {
+  /**
+   * @generated from field: int64 size_bytes = 1;
+   */
+  sizeBytes: bigint;
+};
+
+/**
+ * Describes the message lyon.v1.WriteFileResponse.
+ * Use `create(WriteFileResponseSchema)` to create a new message.
+ */
+export const WriteFileResponseSchema: GenMessage<WriteFileResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 8);
+
+/**
+ * @generated from message lyon.v1.MkdirRequest
+ */
+export type MkdirRequest = Message<"lyon.v1.MkdirRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * mkdir -p; otherwise the parent must exist
+   *
+   * @generated from field: bool create_parents = 2;
+   */
+  createParents: boolean;
+};
+
+/**
+ * Describes the message lyon.v1.MkdirRequest.
+ * Use `create(MkdirRequestSchema)` to create a new message.
+ */
+export const MkdirRequestSchema: GenMessage<MkdirRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 9);
+
+/**
+ * @generated from message lyon.v1.MkdirResponse
+ */
+export type MkdirResponse = Message<"lyon.v1.MkdirResponse"> & {
+};
+
+/**
+ * Describes the message lyon.v1.MkdirResponse.
+ * Use `create(MkdirResponseSchema)` to create a new message.
+ */
+export const MkdirResponseSchema: GenMessage<MkdirResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 10);
+
+/**
+ * Rename keeps the file inside its directory: new_name is a single path
+ * segment (no separators) — use Move to change directories.
+ *
+ * @generated from message lyon.v1.RenameRequest
+ */
+export type RenameRequest = Message<"lyon.v1.RenameRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string new_name = 2;
+   */
+  newName: string;
+};
+
+/**
+ * Describes the message lyon.v1.RenameRequest.
+ * Use `create(RenameRequestSchema)` to create a new message.
+ */
+export const RenameRequestSchema: GenMessage<RenameRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 11);
+
+/**
+ * @generated from message lyon.v1.RenameResponse
+ */
+export type RenameResponse = Message<"lyon.v1.RenameResponse"> & {
+};
+
+/**
+ * Describes the message lyon.v1.RenameResponse.
+ * Use `create(RenameResponseSchema)` to create a new message.
+ */
+export const RenameResponseSchema: GenMessage<RenameResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 12);
+
+/**
+ * Move relocates path into to_dir (also workspace-confined); name is kept.
+ *
+ * @generated from message lyon.v1.MoveRequest
+ */
+export type MoveRequest = Message<"lyon.v1.MoveRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string to_dir = 2;
+   */
+  toDir: string;
+};
+
+/**
+ * Describes the message lyon.v1.MoveRequest.
+ * Use `create(MoveRequestSchema)` to create a new message.
+ */
+export const MoveRequestSchema: GenMessage<MoveRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 13);
+
+/**
+ * @generated from message lyon.v1.MoveResponse
+ */
+export type MoveResponse = Message<"lyon.v1.MoveResponse"> & {
+};
+
+/**
+ * Describes the message lyon.v1.MoveResponse.
+ * Use `create(MoveResponseSchema)` to create a new message.
+ */
+export const MoveResponseSchema: GenMessage<MoveResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 14);
+
+/**
+ * Delete removes a file, or a directory only when recursive=true (empty
+ * dirs go through with recursive=false — rm -r semantics).
+ *
+ * @generated from message lyon.v1.DeleteRequest
+ */
+export type DeleteRequest = Message<"lyon.v1.DeleteRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: bool recursive = 2;
+   */
+  recursive: boolean;
+};
+
+/**
+ * Describes the message lyon.v1.DeleteRequest.
+ * Use `create(DeleteRequestSchema)` to create a new message.
+ */
+export const DeleteRequestSchema: GenMessage<DeleteRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 15);
+
+/**
+ * @generated from message lyon.v1.DeleteResponse
+ */
+export type DeleteResponse = Message<"lyon.v1.DeleteResponse"> & {
+};
+
+/**
+ * Describes the message lyon.v1.DeleteResponse.
+ * Use `create(DeleteResponseSchema)` to create a new message.
+ */
+export const DeleteResponseSchema: GenMessage<DeleteResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 16);
+
+/**
+ * @generated from message lyon.v1.UploadFileRequest
+ */
+export type UploadFileRequest = Message<"lyon.v1.UploadFileRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * capped server-side at the binary preview cap
+   *
+   * @generated from field: bytes data = 2;
+   */
+  data: Uint8Array;
+
+  /**
+   * default fail-closes on an existing target
+   *
+   * @generated from field: bool overwrite = 3;
+   */
+  overwrite: boolean;
+};
+
+/**
+ * Describes the message lyon.v1.UploadFileRequest.
+ * Use `create(UploadFileRequestSchema)` to create a new message.
+ */
+export const UploadFileRequestSchema: GenMessage<UploadFileRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 17);
+
+/**
+ * @generated from message lyon.v1.UploadFileResponse
+ */
+export type UploadFileResponse = Message<"lyon.v1.UploadFileResponse"> & {
+  /**
+   * @generated from field: int64 size_bytes = 1;
+   */
+  sizeBytes: bigint;
+};
+
+/**
+ * Describes the message lyon.v1.UploadFileResponse.
+ * Use `create(UploadFileResponseSchema)` to create a new message.
+ */
+export const UploadFileResponseSchema: GenMessage<UploadFileResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 18);
+
+/**
  * @generated from enum lyon.v1.FileKind
  */
 export enum FileKind {
@@ -296,11 +542,16 @@ export const FileKindSchema: GenEnum<FileKind> = /*@__PURE__*/
   enumDesc(file_lyon_v1_file, 0);
 
 /**
- * FileService: read-only workspace preview. Every path is workspace-relative
- * and passed through the same containment as the agent's read_file
- * (confine(), pkg/tools/files.go:49) — absolute paths, "..", and symlink
- * escapes are rejected fail-closed. v1 is read-only; write/upload RPCs are
- * TODO(v2) and will ride the existing tool-approval gate.
+ * FileService: workspace file access for the web panel. Every path is
+ * workspace-relative and passed through the same containment as the agent's
+ * read_file (confine(), pkg/tools/files.go:49) — absolute paths, "..", and
+ * symlink escapes are rejected fail-closed.
+ *
+ * Read RPCs serve the preview. Write RPCs (v2) are user-initiated panel
+ * operations, not agent tool calls: they never enter the agent approval
+ * gate (no ExecEvent exists for them) — destructive intent is confirmed by
+ * the client before the call (portal precedent), and the server still
+ * fail-closes on containment, existing-target conflicts, and size caps.
  *
  * @generated from service lyon.v1.FileService
  */
@@ -322,14 +573,62 @@ export const FileService: GenService<{
     output: typeof ReadTextFileResponseSchema;
   },
   /**
-   * TODO(v2): stream download for large files.
-   *
    * @generated from rpc lyon.v1.FileService.ReadBinaryFile
    */
   readBinaryFile: {
     methodKind: "unary";
     input: typeof ReadBinaryFileRequestSchema;
     output: typeof ReadBinaryFileResponseSchema;
+  },
+  /**
+   * @generated from rpc lyon.v1.FileService.WriteFile
+   */
+  writeFile: {
+    methodKind: "unary";
+    input: typeof WriteFileRequestSchema;
+    output: typeof WriteFileResponseSchema;
+  },
+  /**
+   * @generated from rpc lyon.v1.FileService.Mkdir
+   */
+  mkdir: {
+    methodKind: "unary";
+    input: typeof MkdirRequestSchema;
+    output: typeof MkdirResponseSchema;
+  },
+  /**
+   * @generated from rpc lyon.v1.FileService.Rename
+   */
+  rename: {
+    methodKind: "unary";
+    input: typeof RenameRequestSchema;
+    output: typeof RenameResponseSchema;
+  },
+  /**
+   * @generated from rpc lyon.v1.FileService.Move
+   */
+  move: {
+    methodKind: "unary";
+    input: typeof MoveRequestSchema;
+    output: typeof MoveResponseSchema;
+  },
+  /**
+   * @generated from rpc lyon.v1.FileService.Delete
+   */
+  delete: {
+    methodKind: "unary";
+    input: typeof DeleteRequestSchema;
+    output: typeof DeleteResponseSchema;
+  },
+  /**
+   * TODO(v2): stream download for large files.
+   *
+   * @generated from rpc lyon.v1.FileService.UploadFile
+   */
+  uploadFile: {
+    methodKind: "unary";
+    input: typeof UploadFileRequestSchema;
+    output: typeof UploadFileResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_lyon_v1_file, 0);
