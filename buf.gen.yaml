@@ -16,11 +16,12 @@ plugins:
   - local: protoc-gen-connect-go
     out: gen/go
     opt: paths=source_relative
-  # Phase 3 enable (requires web/node_modules with exact-pinned versions —
-  # generator and runtime must be the exact same version):
-  # - local: ["node", "web/node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es"]
-  #   out: web/src/gen
-  #   opt: target=ts
-  # - local: ["node", "web/node_modules/@connectrpc/protoc-gen-connect-es/bin/protoc-gen-connect-es"]
-  #   out: web/src/gen
-  #   opt: target=ts
+  # TS side (Phase 3): ONE plugin, not the v1 pair — protoc-gen-es v2
+  # emits messages AND service descriptors in the same *_pb.ts, which
+  # @connectrpc/connect v2's createClient consumes directly
+  # (protoc-gen-connect-es stopped at 1.7.0: it is v1-runtime-only).
+  # Generator and @bufbuild/protobuf runtime are pinned to the exact same
+  # version in web/package.json (2.16.0), connect runtime 2.2.0 alongside.
+  - local: ["node", "web/node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es"]
+    out: web/src/gen
+    opt: target=ts
