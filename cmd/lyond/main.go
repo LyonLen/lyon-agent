@@ -45,6 +45,7 @@ func main() {
 		webTools   = flag.String("web-tools", "", "web tool mode: server|client|off (default: auto)")
 		maxTurns   = flag.Int("max-turns", 0, "global cap on in-flight API turns across sessions (0 = unlimited)")
 		prewarm    = flag.Bool("prewarm", false, "warm the prompt cache (one tiny request) before serving")
+		approve    = flag.Bool("approve", false, "require human approval for WriteFile/EditFile/Shell over the web ApprovalService (default: auto-approve, matching a non-TTY lyon run)")
 		openai     = flag.Bool("openai", false, "speak OpenAI protocol to the gateway at "+openaix.DefaultBase+" (same API key as Bearer auth)")
 		openaiBase = flag.String("openai-base", "", "OpenAI-compatible base URL, e.g. https://host/v1 (implies -openai; env LYON_OPENAI_BASE)")
 	)
@@ -96,9 +97,22 @@ func main() {
 		cfg.OpenAIBase = openaix.DefaultBase
 	}
 
+	// -approve parks NeedsApproval tools until a web client decides. The
+	// bridge must exist before the engine (cfg.Approve rides every
+	// session's adapter), and SetApproval below attaches the store for
+	// seat back-resolution — approvals before that would fail closed.
+	var appr *server.ApprovalBridge
+	if *approve {
+		appr = server.NewApprovalBridge()
+		cfg.Approve = appr.ApproveFunc()
+	}
+
 	eng := agent.NewEngine(cfg, nil)
 	store := server.NewStore(*maxSess, *ttl)
 	srv := server.New(eng, store)
+	if appr != nil {
+		srv.SetApproval(appr)
+	}
 	srv.SetToken(*token)
 	// One shared Metrics collector feeds /metrics with per-tool latency for
 	// every session of this process.

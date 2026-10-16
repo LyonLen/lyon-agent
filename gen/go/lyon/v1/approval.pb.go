@@ -24,6 +24,10 @@ const (
 // WatchPendingResponse is one pending approval (draft name ApprovalRequest;
 // renamed for lint STANDARD's RPC_RESPONSE_STANDARD_NAME — the message is
 // the streamed response, not a request).
+// Stream semantics: the server first sends the current set, then updates.
+// tool_name == "" is a resolve — drop the card keyed by
+// (session_id, exec_id): it was decided, interrupted, or reaped. Live
+// arrivals always carry tool_name and input_json.
 type WatchPendingResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`

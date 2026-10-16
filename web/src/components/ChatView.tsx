@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
+import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
 import { errText, sessionClient } from "../api";
 
 // One rendered item on the transcript. The reducer below folds the event
@@ -230,12 +231,75 @@ function prettyInput(raw: string): string {
 export default function ChatView(props: {
   sessionId: string;
   onChanged: () => void;
+  pending: WatchPendingResponse[];
+  onDecide: (
+    sessionId: string,
+    execId: bigint,
+    approve: boolean,
+    remember: boolean,
+  ) => void;
 }) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
   const [err, setErr] = useState("");
+  const [apprSel, setApprSel] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
+
+  // FIFO by ask time; the stream may replay snapshots in any order.
+  const pendings = useMemo(
+    () =>
+      [...props.pending].sort((a, b) =>
+        a.requestedAtMs === b.requestedAtMs
+          ? 0
+          : a.requestedAtMs < b.requestedAtMs
+            ? -1
+            : 1,
+      ),
+    [props.pending],
+  );
+  const sel = pendings.length === 0 ? 0 : Math.min(apprSel, pendings.length - 1);
+
+  // Approval keys mirror TUI's card: y/n/a answer, arrows/tab walk the
+  // queue. Never while the user is typing into an input — a prompt that
+  // contains "y" must not approve anything.
+  useEffect(() => {
+    if (pendings.length === 0) return;
+    const answer = (approve: boolean, remember: boolean) => {
+      const p = pendings[sel];
+      if (p) props.onDecide(p.sessionId, p.execId, approve, remember);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
+      switch (e.key) {
+        case "ArrowDown":
+        case "Tab":
+          e.preventDefault();
+          setApprSel((s) => (s + 1) % pendings.length);
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setApprSel((s) => (s - 1 + pendings.length) % pendings.length);
+          break;
+        case "y":
+          answer(true, false);
+          break;
+        case "n":
+          answer(false, false);
+          break;
+        case "a":
+          answer(true, true);
+          break;
+        case "Enter":
+          e.preventDefault();
+          answer(true, false);
+          break;
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [pendings, sel, props]);
 
   // One WatchEvents stream per selected session: from_seq=-1 replays the
   // hub ring (whatever the previous prompt left) then goes live. Cleanup
@@ -348,6 +412,50 @@ export default function ChatView(props: {
         )}
       </div>
       {err && <div className="err chat-err">{err}</div>}
+      {pendings.length > 0 && (
+        <div className="approval-stack">
+          {pendings.map((p, i) => (
+            <div
+              key={`${p.sessionId}:${p.execId}`}
+              className={"approval-card" + (i === sel ? " active" : "")}
+            >
+              <div className="appr-head">
+                <span className="appr-title">
+                  <span className="appr-q">approve?</span>
+                  <span className="tool-name">{p.toolName}</span>
+                </span>
+                {i === sel && (
+                  <span className="appr-hint">
+                    y approve · n deny · a always · ↑↓ switch
+                  </span>
+                )}
+              </div>
+              {p.inputJson && (
+                <pre className="appr-input">{prettyInput(p.inputJson)}</pre>
+              )}
+              <div className="appr-actions">
+                <button
+                  onClick={() => props.onDecide(p.sessionId, p.execId, true, false)}
+                >
+                  approve
+                </button>
+                <button
+                  className="ghost"
+                  onClick={() => props.onDecide(p.sessionId, p.execId, false, false)}
+                >
+                  deny
+                </button>
+                <button
+                  className="ghost"
+                  onClick={() => props.onDecide(p.sessionId, p.execId, true, true)}
+                >
+                  always
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="chat-controls">
         <button className="ghost" onClick={() => void setMode("plan")}>
           plan

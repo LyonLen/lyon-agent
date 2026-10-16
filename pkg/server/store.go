@@ -180,6 +180,20 @@ func (s *Store) Sessions() []*agent.Session {
 	return out
 }
 
+// IDOf resolves a session back to its seat id — the approval bridge gets a
+// *Session from the tool context but the wire speaks ids. "" when the
+// session already left the store (reaped/deleted under the caller).
+func (s *Store) IDOf(sess *agent.Session) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, e := range s.sessions {
+		if e.sess == sess {
+			return id
+		}
+	}
+	return ""
+}
+
 // Reap closes sessions idle longer than the TTL. Returns how many were
 // reaped. It is a no-op when ttl<=0.
 func (s *Store) Reap() int {

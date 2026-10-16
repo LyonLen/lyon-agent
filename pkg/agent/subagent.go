@@ -20,6 +20,15 @@ import (
 // handlers (which receive that context) can find their session.
 type sessionCtxKey struct{}
 
+// SessionFromContext returns the driving *Session for ctx, or nil when the
+// context did not come from a session's runner. Server-side seams that
+// receive the tool context (the approval bridge) use it to attribute an
+// execution to its seat.
+func SessionFromContext(ctx context.Context) *Session {
+	s, _ := ctx.Value(sessionCtxKey{}).(*Session)
+	return s
+}
+
 // SubagentSystemPrompt is the frozen system prompt of subagent runs. Kept
 // separate from the main prompt: the subagent's cache prefix is its own and
 // never contends with the main loop's.

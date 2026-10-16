@@ -22,7 +22,8 @@ type Server struct {
 	eng   *agent.Engine
 	store *Store
 	mux   *http.ServeMux
-	obs   tools.Observer // shared across sessions; feeds /metrics
+	obs   tools.Observer  // shared across sessions; feeds /metrics
+	appr  *ApprovalBridge // nil = no -approve; RPCs stay Unimplemented
 	start time.Time
 	token string // bearer token; empty = no auth (loopback-only deployments)
 }
@@ -44,10 +45,10 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(filePath, fileHandler)
 	dashPath, dashHandler := lyonv1connect.NewDashboardServiceHandler(&dashboardService{s: s})
 	s.mux.Handle(dashPath, dashHandler)
-	// Approval/Plan are v1 stubs (Unimplemented) — mounted anyway so the
-	// web client can call them, get a stable code, and degrade, instead
-	// of falling through to 404 (plan web Phase 5).
-	apprPath, apprHandler := lyonv1connect.NewApprovalServiceHandler(&approvalService{})
+	// Approval: mounted with the server so the handler can see whether
+	// -approve attached a bridge (nil → Unimplemented, the Phase 5 stub
+	// contract); Plan is still a v1 stub (plan web Phase 5).
+	apprPath, apprHandler := lyonv1connect.NewApprovalServiceHandler(&approvalService{s: s})
 	s.mux.Handle(apprPath, apprHandler)
 	planPath, planHandler := lyonv1connect.NewPlanServiceHandler(&planService{})
 	s.mux.Handle(planPath, planHandler)
@@ -62,6 +63,16 @@ func (s *Server) SetObserver(obs tools.Observer) { s.obs = obs }
 // will require. Empty disables auth (safe only behind loopback or a proxy).
 // Call before Handler.
 func (s *Server) SetToken(tok string) { s.token = tok }
+
+// SetApproval attaches the approval bridge: the store becomes the
+// bridge's seat back-resolver and the ApprovalService RPCs come alive.
+// The bridge's ApproveFunc must already sit on the engine cfg (it was
+// built before NewEngine); this is the second half of the wiring. Call
+// before serving — approvals arriving before it would fail closed.
+func (s *Server) SetApproval(b *ApprovalBridge) {
+	b.store = s.store
+	s.appr = b
+}
 
 // Handler returns the root HTTP handler, wrapped in token auth when a
 // token is set. lyond hands out run_shell and file writes through these

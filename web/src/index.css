@@ -234,3 +234,44 @@ button:disabled { opacity: 0.5; cursor: default; }
 .ev-input { color: var(--dim); }
 
 .audit-time { color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* --- approval cards (Phase B) ----------------------------------------- */
+/* parked tool asks own the bottom of the chat, like TUI's overlay */
+.approval-stack {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 8px 12px; border-top: 1px solid #4a3f14; background: #191610;
+}
+.approval-card {
+  border: 1px solid #6b5a20; border-left: 3px solid var(--warn, #e0b341);
+  border-radius: 6px; background: #1d1a12; padding: 8px 10px;
+  animation: appr-in 0.18s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.approval-card.active { border-color: #e0b341; box-shadow: 0 0 0 1px #e0b34155; }
+@keyframes appr-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.appr-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.appr-title { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.appr-q { color: #e0b341; font-weight: 700; }
+.appr-hint { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.appr-input {
+  white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--dim);
+  background: #14120c; border: 1px solid #3a3418; border-radius: 4px;
+  padding: 6px 8px; margin: 6px 0; max-height: 200px; overflow: auto;
+}
+.appr-actions { display: flex; gap: 6px; }
+.appr-actions button { background: #e0b341; color: #1a1408; }
+
+.toast {
+  position: fixed; right: 16px; bottom: 16px; z-index: 50;
+  background: var(--panel); border: 1px solid #e0b341; color: var(--fg);
+  border-radius: 6px; padding: 8px 14px; font-size: 13px;
+  box-shadow: 0 4px 16px #00000088;
+  animation: toast-in 0.2s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}

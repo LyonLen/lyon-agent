@@ -16,6 +16,10 @@ export const file_lyon_v1_approval: GenFile = /*@__PURE__*/
  * WatchPendingResponse is one pending approval (draft name ApprovalRequest;
  * renamed for lint STANDARD's RPC_RESPONSE_STANDARD_NAME — the message is
  * the streamed response, not a request).
+ * Stream semantics: the server first sends the current set, then updates.
+ * tool_name == "" is a resolve — drop the card keyed by
+ * (session_id, exec_id): it was decided, interrupted, or reaped. Live
+ * arrivals always carry tool_name and input_json.
  *
  * @generated from message lyon.v1.WatchPendingResponse
  */
