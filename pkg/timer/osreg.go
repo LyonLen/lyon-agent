@@ -69,26 +69,33 @@ func SchtasksCreateArgs(t *Task, exe string, now time.Time) ([]string, error) {
 	return append(args, sched...), nil
 }
 
-// SchtasksTaskRun builds the /TR command line: exe + `run` + prompt.
-// The exe path is quoted when it contains spaces; the prompt follows
-// CommandLineToArgvW quoting so Chinese text and embedded quotes
-// survive the round trip through the task scheduler.
+// SchtasksTaskRun builds the /TR command line. Prompt tasks invoke
+// lyon itself; command tasks go through %COMSPEC% /C because lyon has
+// no shell verb — registering `<lyon.exe> /C ...` succeeds but fires
+// as a garbage prompt, so the shell must be cmd.exe itself. `--`
+// before the prompt keeps a dash-leading prompt from being parsed as
+// a flag by `lyon run`. The exe path is quoted when it contains
+// spaces; prompts follow CommandLineToArgvW quoting so Chinese text
+// and embedded quotes survive the round trip through the task
+// scheduler. The text after /C is wrapped in plain double quotes —
+// cmd.exe strips them itself and does not understand backslash
+// escapes, so the command must reach it verbatim.
 func SchtasksTaskRun(t *Task, exe string) (string, error) {
+	if t.Command != "" {
+		shell := os.Getenv("COMSPEC")
+		if shell == "" {
+			shell = "cmd.exe"
+		}
+		return winQuoteArg(shell) + ` /C "` + t.Command + `"`, nil
+	}
 	var b strings.Builder
 	b.WriteString(winQuoteArg(exe))
-	if t.Command != "" {
-		// Raw command tasks: hand the command to the shell, matching
-		// the in-process runner's semantics.
-		b.WriteString(" /C ")
-		b.WriteString(winQuoteArg(t.Command))
-		return b.String(), nil
-	}
 	b.WriteString(" run")
 	if t.Workspace != "" {
 		b.WriteString(" -workspace ")
 		b.WriteString(winQuoteArg(t.Workspace))
 	}
-	b.WriteString(" ")
+	b.WriteString(" -- ")
 	b.WriteString(winQuoteArg(t.Prompt))
 	return b.String(), nil
 }
@@ -274,12 +281,24 @@ func CrontabLine(t *Task, exe, logsDir string) (string, error) {
 		parts = append(parts, "--", shQuote(t.Prompt))
 		cmd = strings.Join(parts, " ")
 	}
-	// shQuote splits the log path so $(date) still expands: quoted
-	// prefix + bare substitution + quoted suffix.
-	line := sched + " " + cmd +
-		" >> " + shQuote(filepath.Join(logsDir, "timer-os-")) + "$(date +%F)" + shQuote(".log") + " 2>&1" +
+	// Vixie-family cron (vixie/cronie/anacron, macOS) converts every
+	// bare % in the command portion into a newline before the shell
+	// ever sees it, so user payload percents get the documented `\%`
+	// escape exactly once, here. Our own log redirect sidesteps cron's
+	// percent handling entirely: printf '\045' builds the % at
+	// runtime, so the line carries none — which also avoids relying
+	// on any particular cron consuming the escaping backslash.
+	line := sched + " " + escapeCronPercents(cmd) +
+		" >> " + shQuote(filepath.Join(logsDir, "timer-os-")) + "$(date +$(printf '\045F'))" + shQuote(".log") + " 2>&1" +
 		" # " + crontabAnchor(t.ID)
 	return line, nil
+}
+
+// escapeCronPercents backslash-escapes every % for Vixie-family cron.
+// Applied by CrontabLine to the payload after quoting; users must not
+// pre-escape in their Task text.
+func escapeCronPercents(s string) string {
+	return strings.ReplaceAll(s, "%", `\%`)
 }
 
 // crontabAnchor is the comment marker identifying our entries.
@@ -410,7 +429,7 @@ func (b *schtasksBackend) Register(t *Task) error {
 	}
 	out, err := exec.Command("schtasks", args...).CombinedOutput()
 	if err != nil {
-		msg := strings.TrimSpace(string(out))
+		msg := strings.TrimSpace(string(ansiToUTF8(out)))
 		if isAccessDenied(msg) {
 			return fmt.Errorf("timer %s: schtasks /Create needs elevation or task-folder permission: %s", t.ID, msg)
 		}
@@ -423,11 +442,14 @@ func (b *schtasksBackend) Register(t *Task) error {
 func (b *schtasksBackend) Unregister(id string) error {
 	out, err := exec.Command("schtasks", SchtasksDeleteArgs(id)...).CombinedOutput()
 	if err != nil {
-		msg := strings.TrimSpace(string(out))
+		// Chinese Windows prints its messages in the ANSI code page
+		// (GBK) through a pipe, so decode before matching — raw UTF-8
+		// byte matching for 找不到 would never hit and the idempotent
+		// path below would break.
+		msg := strings.TrimSpace(string(ansiToUTF8(out)))
 		// Deleting a task that was never registered (or is already
 		// gone) counts as success — idempotent by design.
-		if strings.Contains(msg, "cannot find") || strings.Contains(msg, "ERROR: The system cannot find") ||
-			strings.Contains(msg, "找不到") {
+		if isMissingTaskMsg(msg) {
 			return nil
 		}
 		return fmt.Errorf("timer %s: schtasks /Delete failed: %v: %s", id, err, msg)
@@ -439,9 +461,16 @@ func (b *schtasksBackend) Unregister(id string) error {
 func (b *schtasksBackend) List() ([]string, error) {
 	out, err := exec.Command("schtasks", "/Query", "/FO", "CSV", "/NH").CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("timer: schtasks /Query failed: %v: %s", err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("timer: schtasks /Query failed: %v: %s", err, strings.TrimSpace(string(ansiToUTF8(out))))
 	}
-	return ParseSchtasksQuery(string(out)), nil
+	return ParseSchtasksQuery(string(ansiToUTF8(out))), nil
+}
+
+// isMissingTaskMsg reports whether schtasks output means "this task
+// does not exist". Input must already be ANSI-decoded (ansiToUTF8).
+func isMissingTaskMsg(msg string) bool {
+	return strings.Contains(msg, "cannot find") ||
+		strings.Contains(msg, "找不到")
 }
 
 func isAccessDenied(msg string) bool {

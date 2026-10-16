@@ -68,11 +68,23 @@
 - 删除：`schtasks /Delete /TN lyon-<id> /F`（不存在视为成功，幂等）。
 - 列举：`schtasks /Query /FO CSV /NH`，筛 `TaskName` 前缀 `\lyon-`。
 - 无权限（Access denied / 拒绝访问）：原样返回带提示的错误，**不做任何半程状态**。
+- **输出按 ANSI 代码页解码**（`ansiToUTF8`，kernel32 `MultiByteToWideChar(CP_ACP)`）：
+  中文 Windows 的 schtasks 走管道时输出 GBK（ACP 936），`找不到`/`拒绝访问` 的
+  UTF-8 字节匹配永不命中——幂等删除与权限识别在本地化系统上会失效。解码后统一
+  在 UTF-8 文本上匹配，错误消息也因此可读；纯 ASCII 原样通过。
+- **`command` 载荷的 /TR 是 `%COMSPEC% /C "<cmd>"`**（注册时展开为绝对路径，缺省
+  `cmd.exe`）：lyon 没有 `/C` 动词，`<lyon.exe> /C ...` 注册成功但触发必败。
+  `/C` 后用**裸双引号**包裹命令——cmd.exe 自己剥引号、不认反斜杠转义，命令必须
+  原样到达（内嵌引号按「首尾引号剥离」规则正确还原）。
 
 ### POSIX（crontab，`# lyon:` 注释锚点）
 
-- 行形态：`<cron> <command|lyon-run> >> "<logs>/timer-os-$(date +%F).log" 2>&1 # lyon:<id>`
+- 行形态：`<cron> <command|lyon-run> >> "<logs>/timer-os-$(date +$(printf '\045F')).log" 2>&1 # lyon:<id>`
   —— 锚点在行尾、在 shell 里是注释，cron 实际执行时被 `sh` 剥掉，零副作用。
+- **% 逃逸**：Vixie 系 cron（vixie/cronie/anacron、macOS）会把命令段里裸的 `%`
+  变成换行再交给 sh——载荷里的 `%` 统一在注册时替换成文档惯用的 `\%`（恰好一次，
+  用户不要自己预先转义）；我们自己的日期重定向则用 `printf '\045'` 在运行时拼出
+  `%`，整行不含 `%`，不依赖任何一种 cron 对反斜杠的处理语义。
 - 注册 = `crontab -l`（无 crontab 视为空）→ 按锚点幂等去重 → `crontab -` 写回。
 - 删除/列举按 `# lyon:<id>` 锚点识别自己的条目，绝不动用户的其他行。
 - interval→cron 只接受能整除 60 的分钟数（`*/n` 在 n 不整除 60 时不是严格每 n 分钟），
@@ -83,9 +95,12 @@
 `lyon run` 是非交互子命令（`lyon run [flags] "prompt"`，prompt 也支持 stdin），
 所以 OS 任务的拉起命令是：
 
-- Windows：`"C:\path\lyon.exe" run "提示词"` —— /TR 里 exe 带空格要整体加引号，
-  prompt 按 CommandLineToArgvW 规则转义（`\"`、尾部反斜杠加倍）。
-- POSIX：`'/path/lyon' run '提示词'` —— sh 单引号转义。
+- Windows：`"C:\path\lyon.exe" run -- "提示词"` —— /TR 里 exe 带空格要整体加引号，
+  prompt 按 CommandLineToArgvW 规则转义（`\"`、尾部反斜杠加倍）；`--` 保证破折号
+  开头的 prompt 不会被 `lyon run` 的 flag 解析吞掉（Go flag 在 `--` 处终止）。
+- POSIX：`'/path/lyon' run -- '提示词'` —— sh 单引号转义。
+- `command` 载荷不经过 lyon：Windows 是 `%COMSPEC% /C "<cmd>"`、POSIX 直接交给
+  cron 的 sh（crontab 行本身就是 shell 命令），见 §3。
 - exe 路径取 `os.Executable()`（EvalSymlinks 尽力解析），也可显式指定便于测试。
 - prompt 必须单行（schtasks /TR 上限 261 字符；crontab 是一行）——校验并给清晰错误。
 
@@ -148,12 +163,16 @@ af98bcd 的提交信息曾误称本文件已含此清单；接线实际在后续
 2. **`lyon timer disable` 对运行中的 chat 不生效、还可能被回写**：运行中的 scheduler 只在
    Start 时装载，fire 后按内存态（enabled=true）回写文件。live 状态一律用 `/timer` 管；
    CLI 面向离线/单进程（输出已带提示）。后续工作：mtime 感知或跨进程心跳。
-3. **Windows `command` 载荷的 OS 注册动作有上游缺陷（已实测）**：`SchtasksTaskRun` 生成
-   `<lyon.exe> /C "<cmd>"`，而 lyon 没有 `/C` 动词——注册成功、触发必败。应改为
-   `%COMSPEC% /C`（或让 lyon 认 `/C`）；osreg_test.go 目前把该形态钉死，需一并改。
-4. **中文 Windows 的 schtasks 输出是 GBK**：osreg.go 里 `找不到` / `拒绝访问` 的 UTF-8 字节
-   匹配永不命中——「删除不存在任务视为成功」与 access-denied 识别在本地化系统上失效
-   （实测二次 unregister 报 rc=1）。需按 ANSI 代码页解码或做双编码匹配。
+3. **Windows `command` 载荷的 OS 注册动作有上游缺陷（已实测）→ 已修复**：`SchtasksTaskRun`
+   曾生成 `<lyon.exe> /C "<cmd>"`，而 lyon 没有 `/C` 动词——注册成功、触发必败。现改为
+   `%COMSPEC% /C "<cmd>"`（注册时展开绝对路径，裸双引号包裹）；osreg_test.go 的钉死用例
+   已改为 cmd.exe 形态。真机触发回归：`LYON_TIMER_ITEST=2` 门控的
+   `TestSchtasksCommandTriggerIntegration` 注册真实 ONCE 任务并等探针文件落盘。
+4. **中文 Windows 的 schtasks 输出是 GBK → 已修复**：`找不到` / `拒绝访问` 的 UTF-8 字节
+   匹配在本地化系统上永不命中（实测二次 unregister 报 rc=1）。现所有 schtasks 输出先过
+   `ansiToUTF8`（CP_ACP→UTF-8，kernel32）再匹配：幂等删除与 access-denied 识别在
+   936/1252 等任何 ANSI 代码页上都成立；GBK 固定样本的解码有 windows-only 单测钉住
+   （非 936 机器跳过）。
 5. **进程树与回灌**：CommandContext 只杀直接子进程；prompt/command 的输出只落
    `$LYON_HOME/logs/timer-*.log`，不回灌 TUI（fire 时的 TUI 提示列为后续工作）。
 6. **`-plain` REPL 没有 `/timer`**（调度器照常跑）：管理走 `lyon timer` 或全屏 TUI。

@@ -102,29 +102,44 @@ func TestSchtasksTaskRunQuoting(t *testing.T) {
 			"chinese prompt with space",
 			&Task{ID: "t", Kind: KindOnce, At: at("2026-10-16T09:00:00Z"), Prompt: "每日 报告"},
 			`C:\Program Files\lyon\lyon.exe`,
-			`"C:\Program Files\lyon\lyon.exe" run "每日 报告"`,
+			`"C:\Program Files\lyon\lyon.exe" run -- "每日 报告"`,
 		},
 		{
 			"embedded quotes escaped",
 			&Task{ID: "t", Kind: KindOnce, At: at("2026-10-16T09:00:00Z"), Prompt: `say "hi"`},
 			`C:\lyon\lyon.exe`,
-			`C:\lyon\lyon.exe run "say \"hi\""`,
+			`C:\lyon\lyon.exe run -- "say \"hi\""`,
 		},
 		{
 			"workspace flag",
 			&Task{ID: "t", Kind: KindOnce, At: at("2026-10-16T09:00:00Z"), Prompt: "x", Workspace: `D:\my work`},
 			`C:\lyon\lyon.exe`,
-			`C:\lyon\lyon.exe run -workspace "D:\my work" x`,
+			`C:\lyon\lyon.exe run -workspace "D:\my work" -- x`,
 		},
 		{
-			"command task goes through shell",
+			// lyon has no /C verb: the action must be cmd.exe itself,
+			// or registration succeeds while every fire fails.
+			"command task goes through cmd.exe",
 			&Task{ID: "t", Kind: KindOnce, At: at("2026-10-16T09:00:00Z"), Command: "echo hello && dir"},
 			`C:\lyon\lyon.exe`,
-			`C:\lyon\lyon.exe /C "echo hello && dir"`,
+			`C:\Windows\system32\cmd.exe /C "echo hello && dir"`,
+		},
+		{
+			"command with quotes reaches cmd verbatim",
+			&Task{ID: "t", Kind: KindOnce, At: at("2026-10-16T09:00:00Z"), Command: `echo "hi" > out.txt`},
+			`C:\lyon\lyon.exe`,
+			`C:\Windows\system32\cmd.exe /C "echo "hi" > out.txt"`,
+		},
+		{
+			"command with spaces in path quoted",
+			&Task{ID: "t", Kind: KindOnce, At: at("2026-10-16T09:00:00Z"), Command: `dir "C:\Program Files"`},
+			`C:\lyon\lyon.exe`,
+			`C:\Windows\system32\cmd.exe /C "dir "C:\Program Files""`,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("COMSPEC", `C:\Windows\system32\cmd.exe`)
 			got, err := SchtasksTaskRun(c.tk, c.exe)
 			if err != nil {
 				t.Fatal(err)
@@ -201,7 +216,10 @@ func TestCrontabLine(t *testing.T) {
 				" run ",
 				`'生成日报'`,
 				" >> ",
-				"$(date +%F)",
+				// printf-built %F: the line itself carries no %, so
+				// Vixie cron's percent-to-newline rule can never
+				// mangle the redirect.
+				"$(date +$(printf '\045F'))",
 				"2>&1",
 				"# lyon:daily",
 			},
@@ -233,6 +251,20 @@ func TestCrontabLine(t *testing.T) {
 			&Task{ID: "c", Kind: KindCron, Cron: "0 3 * * *", Command: "make backup"},
 			false,
 			[]string{"0 3 * * * make backup", "# lyon:c"},
+		},
+		{
+			// Vixie cron turns a bare % into a newline; the payload's
+			// percents must carry the documented backslash escape.
+			"command percent escaped for cron",
+			&Task{ID: "p", Kind: KindCron, Cron: "0 4 * * *", Command: "df -h | grep 80%"},
+			false,
+			[]string{`df -h | grep 80\%`},
+		},
+		{
+			"prompt percent escaped for cron",
+			&Task{ID: "p", Kind: KindCron, Cron: "0 9 * * *", Prompt: "检查80%磁盘"},
+			false,
+			[]string{`'检查80\%磁盘'`},
 		},
 	}
 	for _, c := range cases {
@@ -331,8 +363,8 @@ func TestCrontabRemoveOnlyOwnLine(t *testing.T) {
 
 func TestParseCrontabLyonIDs(t *testing.T) {
 	content := "# user stuff\n0 5 * * * backup\n" +
-		"30 8 * * * lyon run -- 'a' >> '/x/logs/timer-os-'$(date +%F)'.log' 2>&1 # lyon:daily\n" +
-		"0 22 * * * lyon run -- 'b' >> '/x/logs/timer-os-'$(date +%F)'.log' 2>&1 # lyon:nightly\n"
+		"30 8 * * * lyon run -- 'a' >> '/x/logs/timer-os-'$(date +$(printf '\045F'))'.log' 2>&1 # lyon:daily\n" +
+		"0 22 * * * lyon run -- 'b' >> '/x/logs/timer-os-'$(date +$(printf '\045F'))'.log' 2>&1 # lyon:nightly\n"
 	ids := ParseCrontabLyonIDs(content)
 	if len(ids) != 2 || ids[0] != "daily" || ids[1] != "nightly" {
 		t.Fatalf("ids = %v", ids)
@@ -349,6 +381,31 @@ func TestShQuote(t *testing.T) {
 	for _, c := range cases {
 		if got := shQuote(c.in); got != c.want {
 			t.Fatalf("shQuote(%q) = %s, want %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestIsMissingTaskMsg(t *testing.T) {
+	// Input is ANSI-decoded text (ansiToUTF8) before matching.
+	missing := []string{
+		"ERROR: The system cannot find the file specified.",
+		"错误: 系统找不到指定的文件。",
+		"错误: 找不到 *。", // truncated localized variants still hit 找不到
+	}
+	for _, m := range missing {
+		if !isMissingTaskMsg(m) {
+			t.Fatalf("should be missing: %q", m)
+		}
+	}
+	present := []string{
+		"",
+		"ERROR: Access is denied.",
+		"错误: 拒绝访问。",
+		"SUCCESS: The scheduled task \"lyon-x\" has successfully been created.",
+	}
+	for _, m := range present {
+		if isMissingTaskMsg(m) {
+			t.Fatalf("should NOT be missing: %q", m)
 		}
 	}
 }
