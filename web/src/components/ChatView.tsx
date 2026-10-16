@@ -1,24 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import { errText, sessionClient } from "../api";
 
 // One rendered item on the transcript. The reducer below folds the event
-// stream into these blocks — deltas append, boundaries open new ones.
+// stream into these blocks — deltas append, boundaries open new ones,
+// tool execs attach to their own card by id (parallel calls never
+// cross-attach).
 type Block =
+  | { kind: "user"; text: string }
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
   | {
       kind: "tool";
       name: string;
+      toolId: string;
+      execId: bigint | null;
       input: string;
       output: string;
-      done: boolean;
-      isError: boolean;
+      status: "pending" | "running" | "done" | "failed" | "server";
+      durationMs: number;
       error: string;
+      server: boolean;
+      sub: boolean;
     }
-  | { kind: "notice"; text: string }
-  | { kind: "stats"; text: string }
+  | { kind: "notice"; text: string; detail?: string }
   | { kind: "error"; text: string };
 
 function appendToLast(
@@ -33,79 +42,144 @@ function appendToLast(
   return [...blocks, { kind, text: delta }];
 }
 
+function replaceAt(blocks: Block[], i: number, next: Block): Block[] {
+  return [...blocks.slice(0, i), next, ...blocks.slice(i + 1)];
+}
+
+// Last index matching pred — hand-rolled: the lib target is ES2022 and
+// Array.prototype.findLastIndex is ES2023.
+function lastToolIndex(
+  blocks: Block[],
+  pred: (b: Extract<Block, { kind: "tool" }>) => boolean,
+): number {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.kind === "tool" && pred(b)) return i;
+  }
+  return -1;
+}
+
+function newToolBlock(ev: SessionEvent): Extract<Block, { kind: "tool" }> {
+  return {
+    kind: "tool",
+    name: ev.toolName || "tool",
+    toolId: ev.toolId,
+    execId: null,
+    input: "",
+    output: "",
+    status: "pending",
+    durationMs: 0,
+    error: "",
+    server: ev.server,
+    sub: ev.sub,
+  };
+}
+
 // Fold one hub event into the block list. type_name is authoritative
-// (forward compatible with types this build doesn't know).
+// (forward compatible with types this build doesn't know). Event
+// semantics mirror cmd/lyon/tui.go's transcript cases.
 function reduce(blocks: Block[], ev: SessionEvent): Block[] {
   switch (ev.typeName) {
+    case "user_message":
+      return ev.text ? [...blocks, { kind: "user", text: ev.text }] : blocks;
     case "text_delta":
       return appendToLast(blocks, "text", ev.text);
     case "thinking_delta":
       return appendToLast(blocks, "thinking", ev.thinking);
-    case "tool_use_start":
+    case "tool_use_start": {
+      const card = newToolBlock(ev);
+      if (ev.server) {
+        // Server-side tool: the API already has the input and executes
+        // it itself — one card carries query + result, no exec events.
+        return [
+          ...blocks,
+          { ...card, status: "server", input: ev.inputJson },
+        ];
+      }
+      // Harness tool: the API's tool_use carries no input yet — the
+      // exec row below fills it in. Parallel calls each get their own
+      // card, tagged by tool id.
+      return [...blocks, card];
+    }
+    case "tool_exec_start": {
+      // Attach to the parent tool_use card via tool id; a subagent-inner
+      // exec has no parent on this stream (events.go Sub) — open its own.
+      const i = lastToolIndex(
+        blocks,
+        (b) => b.toolId !== "" && b.toolId === ev.toolId && b.execId === null,
+      );
+      const filled = (
+        base: Extract<Block, { kind: "tool" }>,
+      ): Extract<Block, { kind: "tool" }> => ({
+        ...base,
+        execId: ev.execId,
+        input: ev.inputJson || base.input,
+        status: ev.sub && base.status === "pending" ? "pending" : "running",
+        sub: base.sub || ev.sub,
+      });
+      if (i >= 0) return replaceAt(blocks, i, filled(blocks[i] as Extract<Block, { kind: "tool" }>));
+      return [...blocks, filled({ ...newToolBlock(ev), status: "pending" })];
+    }
+    case "tool_exec_output": {
+      if (ev.execId === 0n) return blocks;
+      const i = lastToolIndex(blocks, (b) => b.execId === ev.execId);
+      if (i < 0) return blocks;
+      const t = blocks[i] as Extract<Block, { kind: "tool" }>;
+      return replaceAt(blocks, i, { ...t, output: t.output + ev.text + ev.detail });
+    }
+    case "tool_exec_end": {
+      const end = (base: Extract<Block, { kind: "tool" }>) => ({
+        ...base,
+        status: ev.isError ? ("failed" as const) : ("done" as const),
+        durationMs: Number(ev.durationMs),
+        error: ev.isError ? ev.error || base.error : base.error,
+      });
+      if (ev.execId !== 0n) {
+        const i = lastToolIndex(blocks, (b) => b.execId === ev.execId);
+        if (i >= 0) return replaceAt(blocks, i, end(blocks[i] as Extract<Block, { kind: "tool" }>));
+      }
+      // exec_end without a seen exec_start (replay anchor skipped it):
+      // open a finished card rather than drop the completion.
+      return [...blocks, end({ ...newToolBlock(ev), status: "pending" })];
+    }
+    case "server_tool_result":
+      // ⤷ results: the payload rides input; one card per server tool.
       return [
         ...blocks,
         {
-          kind: "tool",
-          name: ev.toolName || "tool",
+          ...newToolBlock(ev),
+          status: ev.isError ? "failed" : "done",
           input: ev.inputJson,
-          output: "",
-          done: false,
-          isError: ev.isError,
-          error: ev.error,
         },
       ];
-    case "tool_exec_output": {
-      const last = blocks[blocks.length - 1];
-      if (last && last.kind === "tool") {
-        return [
-          ...blocks.slice(0, -1),
-          { ...last, output: last.output + ev.text + ev.detail },
-        ];
-      }
-      return blocks;
-    }
-    case "tool_exec_end": {
-      const last = blocks[blocks.length - 1];
-      if (last && last.kind === "tool") {
-        return [
-          ...blocks.slice(0, -1),
-          {
-            ...last,
-            done: true,
-            isError: last.isError || ev.isError,
-            error: last.error || ev.error,
-          },
-        ];
-      }
-      return blocks;
-    }
-    case "server_tool_result":
+    case "queue_injected":
+      // The parked line joined the run at a turn gap — render it as the
+      // prompt it now is (TUI queueInjected), not a generic notice.
+      return ev.text
+        ? [...blocks, { kind: "user", text: ev.text }]
+        : [...blocks, { kind: "notice", text: "queued prompt joined the run" }];
+    case "memory_injected":
+      return [
+        ...blocks,
+        { kind: "notice", text: ev.detail, detail: ev.attrs["memory"] },
+      ];
+    case "compaction":
+      return ev.detail
+        ? [...blocks, { kind: "notice", text: `compaction — ${ev.detail}` }]
+        : blocks;
+    case "subagent_end": {
+      const u = ev.usage;
+      const usage = u
+        ? `in=${u.input} out=${u.output} cache_read=${u.cacheRead}`
+        : "";
+      const tail = ev.isError
+        ? ev.error
+        : `${ev.detail} ${Number(ev.durationMs)}ms`.trim();
       return [
         ...blocks,
         {
           kind: "notice",
-          text: `server tool ${ev.toolName} ${ev.isError ? "failed" : "returned"}`,
-        },
-      ];
-    case "queue_injected":
-      return [...blocks, { kind: "notice", text: "queued prompt joined the run" }];
-    case "memory_injected":
-    case "compaction":
-    case "subagent_start":
-    case "subagent_end":
-      return ev.detail
-        ? [...blocks, { kind: "notice", text: ev.detail }]
-        : blocks;
-    case "turn_end": {
-      const u = ev.usage;
-      const tokens = u
-        ? `in=${u.input} out=${u.output} cache_read=${u.cacheRead}`
-        : "";
-      return [
-        ...blocks,
-        {
-          kind: "stats",
-          text: `turn ${ev.turn} · ${ev.stopReason} · ${ev.durationMs}ms ${tokens}`,
+          text: `🧠 subagent ${ev.toolName} ${usage} ${tail}`.trim(),
         },
       ];
     }
@@ -117,7 +191,37 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       }
       return blocks;
     default:
+      // message_start / turn_end / subagent_start / unknown — nothing to
+      // draw (TUI draws nothing for turn boundaries either).
       return blocks;
+  }
+}
+
+// Markdown for assistant prose: headings/lists/tables/strikethrough via
+// remark-gfm; fenced code stays a plain pre — deliberately no syntax
+// highlighter (portal precedent, plan Phase C).
+const mdComponents: Components = {
+  code({ className, children }) {
+    const text = String(children ?? "");
+    const match = /language-([\w-]+)/.exec(className || "");
+    if (!match) return <code className="md-inline">{text}</code>;
+    return <code className={`md-fence ${className}`}>{text}</code>;
+  },
+  a({ href, children }) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  },
+};
+
+// Pretty-print tool input JSON when it is JSON; pass anything else through.
+function prettyInput(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
   }
 }
 
@@ -133,11 +237,21 @@ export default function ChatView(props: {
 
   // One WatchEvents stream per selected session: from_seq=-1 replays the
   // hub ring (whatever the previous prompt left) then goes live. Cleanup
-  // aborts on unmount / session switch.
+  // aborts on unmount / session switch. Busy seeds from the session
+  // record so opening a mid-run session doesn't render it idle.
   useEffect(() => {
     const ac = new AbortController();
     let live = true;
+    setBlocks([]);
+    setErr("");
     void (async () => {
+      try {
+        const res = await sessionClient.getSession({ sessionId: props.sessionId });
+        if (live && res.session) setBusy(res.session.busy);
+      } catch {
+        // The stream below surfaces auth/connect problems; busy just
+        // falls back to idle until then.
+      }
       try {
         const stream = sessionClient.watchEvents(
           { sessionId: props.sessionId, fromSeq: -1n },
@@ -187,6 +301,9 @@ export default function ChatView(props: {
         ]);
       } else {
         setBusy(true);
+        // No local echo: SubmitPrompt injects the prompt as a
+        // user_message hub event, so live and replayed transcripts stay
+        // identical (server path, connect_session.go).
         await sessionClient.submitPrompt({
           sessionId: props.sessionId,
           prompt,
@@ -264,8 +381,21 @@ export default function ChatView(props: {
 
 function BlockView({ block }: { block: Block }) {
   switch (block.kind) {
+    case "user":
+      return (
+        <div className="blk-user">
+          <span className="user-caret">❯</span>
+          <div className="user-text">{block.text}</div>
+        </div>
+      );
     case "text":
-      return <pre className="blk-text">{block.text}</pre>;
+      return (
+        <div className="blk-text md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+            {block.text}
+          </ReactMarkdown>
+        </div>
+      );
     case "thinking":
       return (
         <details className="blk-thinking">
@@ -275,20 +405,42 @@ function BlockView({ block }: { block: Block }) {
       );
     case "tool":
       return (
-        <div className={"blk-tool" + (block.isError ? " failed" : "")}>
-          <div className="blk-tool-head">
-            <span className="tool-name">{block.name}</span>
-            {block.done && <span className="tool-state">done</span>}
-          </div>
-          {block.input && <pre className="tool-input">{block.input}</pre>}
+        <details
+          className={"blk-tool" + (block.status === "failed" ? " failed" : "")}
+        >
+          <summary className="blk-tool-head">
+            <span className="tool-title">
+              <span className="tool-chevron" aria-hidden="true">
+                ▸
+              </span>
+              <span className="tool-name">{block.name}</span>
+              {block.sub && <span className="tool-badge">sub</span>}
+              {block.server && <span className="tool-badge server">server</span>}
+            </span>
+            <span className={`tool-status ${block.status}`}>
+              {block.status === "running" && <span className="spin" aria-hidden="true" />}
+              {block.status === "pending" && "…"}
+              {block.status === "running" && "running"}
+              {block.status === "done" && `✓ ${block.durationMs}ms`}
+              {block.status === "failed" && `✗ ${block.durationMs}ms`}
+              {block.status === "server" && "🌐 server"}
+            </span>
+          </summary>
+          {block.input && <pre className="tool-input">{prettyInput(block.input)}</pre>}
           {block.output && <pre className="tool-output">{block.output}</pre>}
           {block.error && <div className="err">{block.error}</div>}
-        </div>
+        </details>
       );
     case "notice":
+      if (block.detail) {
+        return (
+          <details className="blk-notice">
+            <summary>{block.text}</summary>
+            <pre className="notice-detail">{block.detail}</pre>
+          </details>
+        );
+      }
       return <div className="blk-notice">{block.text}</div>;
-    case "stats":
-      return <div className="blk-stats">{block.text}</div>;
     case "error":
       return <div className="err">{block.text}</div>;
   }

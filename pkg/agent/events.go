@@ -84,6 +84,13 @@ type Event struct {
 
 	// Detail carries a human-readable note on compaction/subagent events.
 	Detail string `json:"detail,omitempty"`
+
+	// Attrs is a key/value sink for event payload the typed fields don't
+	// cover — the wire's forward-compat channel (event.proto attrs). The
+	// web renderer reads e.g. memory_injected's "memory" key to make the
+	// memory notice expandable; renderers without a use for it ignore the
+	// map entirely.
+	Attrs map[string]string `json:"attrs,omitempty"`
 }
 
 // normalize converts one raw SDK stream event into an engine Event, or nil

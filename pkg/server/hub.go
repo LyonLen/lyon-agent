@@ -25,7 +25,7 @@ import (
 type hub struct {
 	events <-chan agent.Event // the session's single consumer channel
 
-	seq atomic.Int64 // last stamped seq; only run() increments it
+	seq atomic.Int64 // last stamped seq; incremented only by push under mu
 
 	mu     sync.Mutex
 	ring   []hubItem          // bounded replay buffer, seq-ascending
@@ -62,29 +62,13 @@ func newHub(events <-chan agent.Event) *hub {
 	return &hub{events: events, subs: make(map[uint64]*hubSub)}
 }
 
-// run is the hub's single goroutine: consume, stamp, sanitize, ring, fan
-// out. It never blocks on a subscriber and never drops for the driver.
+// run is the hub's single consumer of the driver's events: dispatch each
+// through push (stamp, sanitize, ring, fan out). It never blocks on a
+// subscriber and never drops for the driver.
 func (h *hub) run() {
 	for ev := range h.events {
-		it := hubItem{seq: h.seq.Add(1), ev: sanitizeEvent(ev)}
 		h.mu.Lock()
-		h.ring = append(h.ring, it)
-		if len(h.ring) > hubRingSize {
-			// Keep the newest window. The backing array's older slots are
-			// overwritten by later appends (amortized growth, bounded).
-			h.ring = h.ring[len(h.ring)-hubRingSize:]
-		}
-		for id, sub := range h.subs {
-			select {
-			case sub.ch <- it:
-			default:
-				// Slow subscriber: kick it rather than stall every other
-				// subscriber and the driver behind them.
-				delete(h.subs, id)
-				sub.kicked = true
-				close(sub.ch)
-			}
-		}
+		h.push(ev)
 		h.mu.Unlock()
 	}
 	// Session closed (event chan drained and closed): close every
@@ -95,6 +79,41 @@ func (h *hub) run() {
 		close(sub.ch)
 	}
 	h.mu.Unlock()
+}
+
+// inject stamps a server-synthesized event (prompt echo, restored
+// snapshot history) through the exact path run() uses, so seq-ascending
+// always matches ring-ascending no matter who produced the event. Safe
+// after shutdown: run's exit path has emptied h.subs under this same
+// lock, so the fan-out loop below touches no closed channel.
+func (h *hub) inject(ev agent.Event) {
+	h.mu.Lock()
+	h.push(ev)
+	h.mu.Unlock()
+}
+
+// push stamps, sanitizes, rings, and fans one event out. Caller holds
+// h.mu — stamping under the lock is what keeps ring order and seq order
+// identical across the driver path (run) and synthetic injections.
+func (h *hub) push(ev agent.Event) {
+	it := hubItem{seq: h.seq.Add(1), ev: sanitizeEvent(ev)}
+	h.ring = append(h.ring, it)
+	if len(h.ring) > hubRingSize {
+		// Keep the newest window. The backing array's older slots are
+		// overwritten by later appends (amortized growth, bounded).
+		h.ring = h.ring[len(h.ring)-hubRingSize:]
+	}
+	for id, sub := range h.subs {
+		select {
+		case sub.ch <- it:
+		default:
+			// Slow subscriber: kick it rather than stall every other
+			// subscriber and the driver behind them.
+			delete(h.subs, id)
+			sub.kicked = true
+			close(sub.ch)
+		}
+	}
 }
 
 // subscribe registers a live subscriber and computes its replay batch.
@@ -182,6 +201,15 @@ func sanitizeEvent(ev agent.Event) agent.Event {
 	ev.Detail = fix(ev.Detail)
 	if len(ev.Input) > 0 {
 		ev.Input = json.RawMessage(fix(string(ev.Input)))
+	}
+	if len(ev.Attrs) > 0 {
+		// Copy: the map may be shared with the emitter (e.g. the session's
+		// memory buffer), and sanitizing must never mutate producer state.
+		attrs := make(map[string]string, len(ev.Attrs))
+		for k, v := range ev.Attrs {
+			attrs[fix(k)] = fix(v)
+		}
+		ev.Attrs = attrs
 	}
 	return ev
 }

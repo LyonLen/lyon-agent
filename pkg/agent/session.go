@@ -534,6 +534,7 @@ func (s *Session) drive(prompt, runModel string) {
 		s.emit(Event{
 			Type:   EventMemoryInjected,
 			Detail: fmt.Sprintf("%d bytes of hot memory", len(s.memoryText)),
+			Attrs:  map[string]string{"memory": s.memoryText},
 		})
 	}
 

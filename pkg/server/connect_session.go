@@ -101,6 +101,14 @@ func (c *sessionService) DeleteSession(_ context.Context, req *connect.Request[l
 	return connect.NewResponse(&lyonv1.DeleteSessionResponse{}), nil
 }
 
+// evUserMessage is a server-synthesized transcript event: the agent has
+// no user-message event type (renderers echo prompts from local state),
+// so the web layer injects the prompt into the hub itself — type stays
+// UNSPECIFIED on the wire and type_name carries it, the event.proto
+// forward-compat channel. TUI never sees these (it consumes agent
+// events directly, not through the hub).
+const evUserMessage = agent.EventType("user_message")
+
 func (c *sessionService) SubmitPrompt(_ context.Context, req *connect.Request[lyonv1.SubmitPromptRequest]) (*connect.Response[lyonv1.SubmitPromptResponse], error) {
 	msg := req.Msg
 	if strings.TrimSpace(msg.Prompt) == "" {
@@ -113,6 +121,19 @@ func (c *sessionService) SubmitPrompt(_ context.Context, req *connect.Request[ly
 	// Events flow to watchers through the hub ring — a watcher that
 	// attaches late replays with from_seq, nothing is lost by this unary
 	// ack not streaming anything.
+	//
+	// The echo must stamp BEFORE SubmitOn hands the prompt to the driver,
+	// or the transcript renders the reply above its question; and it must
+	// not stamp when the submit will be rejected, or the ring keeps a
+	// phantom prompt. Busy() is the same gate SubmitOn's CAS takes, so
+	// pre-checking closes the common race (concurrent double-submit is
+	// the residual, and the UI already serializes sends).
+	if sess.Busy() {
+		return nil, rpcErr(agent.ErrPromptInProgress)
+	}
+	if h, herr := c.s.store.Hub(msg.SessionId); herr == nil {
+		h.inject(agent.Event{Type: evUserMessage, Text: msg.Prompt})
+	}
 	if err := sess.SubmitOn(msg.Prompt, msg.Model); err != nil {
 		return nil, rpcErr(err)
 	}
@@ -270,6 +291,9 @@ func protoEvent(it hubItem) *lyonv1.SessionEvent {
 		StopReason: it.ev.StopReason,
 		Iterations: int32(it.ev.Iterations),
 		Detail:     it.ev.Detail,
+	}
+	if len(it.ev.Attrs) > 0 {
+		se.Attrs = it.ev.Attrs
 	}
 	if it.ev.Usage != nil {
 		se.Usage = protoUsage(*it.ev.Usage)
