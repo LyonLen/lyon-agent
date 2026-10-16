@@ -103,6 +103,21 @@ func (h *hub) injectAll(evs []agent.Event) {
 	}
 }
 
+// resetAndInject replaces the replay ring with evs under one lock — the
+// rollback seam: the conversation itself was rewritten, so the old events
+// would narrate a history that no longer exists. seq keeps ascending
+// (stamp-only-under-mu stays true, existing live subscribers just see the
+// new batch continue after the old last seq); reconnecting with -1
+// replays exactly the post-reset transcript.
+func (h *hub) resetAndInject(evs []agent.Event) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ring = h.ring[:0]
+	for _, ev := range evs {
+		h.push(ev)
+	}
+}
+
 // push stamps, sanitizes, rings, and fans one event out. Caller holds
 // h.mu — stamping under the lock is what keeps ring order and seq order
 // identical across the driver path (run) and synthetic injections.

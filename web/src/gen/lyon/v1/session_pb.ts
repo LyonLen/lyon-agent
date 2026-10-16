@@ -14,7 +14,130 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/session.proto.
  */
 export const file_lyon_v1_session: GenFile = /*@__PURE__*/
-  fileDesc("ChVseW9uL3YxL3Nlc3Npb24ucHJvdG8SB2x5b24udjEi5QEKB1Nlc3Npb24SCgoCaWQYASABKAkSEQoJd29ya3NwYWNlGAIgASgJEg0KBW1vZGVsGAMgASgJEg0KBXRpdGxlGAQgASgJEgwKBG1vZGUYBSABKAkSDAoEYnVzeRgGIAEoCBIRCglxdWV1ZV9sZW4YByABKAUSDQoFdHVybnMYCCABKAUSLgoKY3JlYXRlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLbGFzdF9hY3RpdmUYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjMKFENyZWF0ZVNlc3Npb25SZXF1ZXN0Eg0KBW1vZGVsGAEgASgJEgwKBG1vZGUYAiABKAkiOgoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEiEKB3Nlc3Npb24YASABKAsyEC5seW9uLnYxLlNlc3Npb24iFQoTTGlzdFNlc3Npb25zUmVxdWVzdCI6ChRMaXN0U2Vzc2lvbnNSZXNwb25zZRIiCghzZXNzaW9ucxgBIAMoCzIQLmx5b24udjEuU2Vzc2lvbiInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIjcKEkdldFNlc3Npb25SZXNwb25zZRIhCgdzZXNzaW9uGAEgASgLMhAubHlvbi52MS5TZXNzaW9uIioKFERlbGV0ZVNlc3Npb25SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiFwoVRGVsZXRlU2Vzc2lvblJlc3BvbnNlIkgKE1N1Ym1pdFByb21wdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZwcm9tcHQYAiABKAkSDQoFbW9kZWwYAyABKAkiJwoUU3VibWl0UHJvbXB0UmVzcG9uc2USDwoHc3RhcnRlZBgBIAEoCCI6ChRFbnF1ZXVlUHJvbXB0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg4KBnByb21wdBgCIAEoCSIqChVFbnF1ZXVlUHJvbXB0UmVzcG9uc2USEQoJcXVldWVfbGVuGAEgASgFIiYKEEludGVycnVwdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSIoChFJbnRlcnJ1cHRSZXNwb25zZRITCgtpbnRlcnJ1cHRlZBgBIAEoCCIlCg9HZXRTdGF0c1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSKJAQoIVHVyblN0YXQSDAoEdHVybhgBIAEoBRITCgtzdG9wX3JlYXNvbhgCIAEoCRIdCgV1c2FnZRgDIAEoCzIOLmx5b24udjEuVXNhZ2USEwoLZHVyYXRpb25fbXMYBCABKAMSJgoCYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjQKEEdldFN0YXRzUmVzcG9uc2USIAoFdHVybnMYASADKAsyES5seW9uLnYxLlR1cm5TdGF0IjIKDlNldE1vZGVSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDAoEbW9kZRgCIAEoCSIfCg9TZXRNb2RlUmVzcG9uc2USDAoEbW9kZRgBIAEoCSI7ChNXYXRjaEV2ZW50c1Jlc3BvbnNlEiQKBWV2ZW50GAEgASgLMhUubHlvbi52MS5TZXNzaW9uRXZlbnQiOgoSV2F0Y2hFdmVudHNSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEAoIZnJvbV9zZXEYAiABKAMiJQoVUmVzdG9yZVNlc3Npb25SZXF1ZXN0EgwKBHBhdGgYASABKAkiVgoWUmVzdG9yZVNlc3Npb25SZXNwb25zZRIhCgdzZXNzaW9uGAEgASgLMhAubHlvbi52MS5TZXNzaW9uEhkKEXJlc3RvcmVkX21lc3NhZ2VzGAIgASgFMsMGCg5TZXNzaW9uU2VydmljZRJOCg1DcmVhdGVTZXNzaW9uEh0ubHlvbi52MS5DcmVhdGVTZXNzaW9uUmVxdWVzdBoeLmx5b24udjEuQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEksKDExpc3RTZXNzaW9ucxIcLmx5b24udjEuTGlzdFNlc3Npb25zUmVxdWVzdBodLmx5b24udjEuTGlzdFNlc3Npb25zUmVzcG9uc2USRQoKR2V0U2Vzc2lvbhIaLmx5b24udjEuR2V0U2Vzc2lvblJlcXVlc3QaGy5seW9uLnYxLkdldFNlc3Npb25SZXNwb25zZRJOCg1EZWxldGVTZXNzaW9uEh0ubHlvbi52MS5EZWxldGVTZXNzaW9uUmVxdWVzdBoeLmx5b24udjEuRGVsZXRlU2Vzc2lvblJlc3BvbnNlEksKDFN1Ym1pdFByb21wdBIcLmx5b24udjEuU3VibWl0UHJvbXB0UmVxdWVzdBodLmx5b24udjEuU3VibWl0UHJvbXB0UmVzcG9uc2USTgoNRW5xdWV1ZVByb21wdBIdLmx5b24udjEuRW5xdWV1ZVByb21wdFJlcXVlc3QaHi5seW9uLnYxLkVucXVldWVQcm9tcHRSZXNwb25zZRJCCglJbnRlcnJ1cHQSGS5seW9uLnYxLkludGVycnVwdFJlcXVlc3QaGi5seW9uLnYxLkludGVycnVwdFJlc3BvbnNlEj8KCEdldFN0YXRzEhgubHlvbi52MS5HZXRTdGF0c1JlcXVlc3QaGS5seW9uLnYxLkdldFN0YXRzUmVzcG9uc2USPAoHU2V0TW9kZRIXLmx5b24udjEuU2V0TW9kZVJlcXVlc3QaGC5seW9uLnYxLlNldE1vZGVSZXNwb25zZRJKCgtXYXRjaEV2ZW50cxIbLmx5b24udjEuV2F0Y2hFdmVudHNSZXF1ZXN0GhwubHlvbi52MS5XYXRjaEV2ZW50c1Jlc3BvbnNlMAESUQoOUmVzdG9yZVNlc3Npb24SHi5seW9uLnYxLlJlc3RvcmVTZXNzaW9uUmVxdWVzdBofLmx5b24udjEuUmVzdG9yZVNlc3Npb25SZXNwb25zZUIiWiBseW9uLWFnZW50L2dlbi9nby9seW9uL3YxO2x5b252MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_lyon_v1_event]);
+  fileDesc("ChVseW9uL3YxL3Nlc3Npb24ucHJvdG8SB2x5b24udjEibwoKQ2hlY2twb2ludBIKCgJpZBgBIAEoBRIMCgRraW5kGAIgASgJEg0KBWxhYmVsGAMgASgJEhAKCG1lc3NhZ2VzGAQgASgFEiYKAmF0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIsChZMaXN0Q2hlY2twb2ludHNSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiQwoXTGlzdENoZWNrcG9pbnRzUmVzcG9uc2USKAoLY2hlY2twb2ludHMYASADKAsyEy5seW9uLnYxLkNoZWNrcG9pbnQiOAoWUm9sbGJhY2tTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgoKAmlkGAIgASgFIkIKF1JvbGxiYWNrU2Vzc2lvblJlc3BvbnNlEicKCmNoZWNrcG9pbnQYASABKAsyEy5seW9uLnYxLkNoZWNrcG9pbnQi5QEKB1Nlc3Npb24SCgoCaWQYASABKAkSEQoJd29ya3NwYWNlGAIgASgJEg0KBW1vZGVsGAMgASgJEg0KBXRpdGxlGAQgASgJEgwKBG1vZGUYBSABKAkSDAoEYnVzeRgGIAEoCBIRCglxdWV1ZV9sZW4YByABKAUSDQoFdHVybnMYCCABKAUSLgoKY3JlYXRlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLbGFzdF9hY3RpdmUYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjMKFENyZWF0ZVNlc3Npb25SZXF1ZXN0Eg0KBW1vZGVsGAEgASgJEgwKBG1vZGUYAiABKAkiOgoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEiEKB3Nlc3Npb24YASABKAsyEC5seW9uLnYxLlNlc3Npb24iFQoTTGlzdFNlc3Npb25zUmVxdWVzdCI6ChRMaXN0U2Vzc2lvbnNSZXNwb25zZRIiCghzZXNzaW9ucxgBIAMoCzIQLmx5b24udjEuU2Vzc2lvbiInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIjcKEkdldFNlc3Npb25SZXNwb25zZRIhCgdzZXNzaW9uGAEgASgLMhAubHlvbi52MS5TZXNzaW9uIioKFERlbGV0ZVNlc3Npb25SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiFwoVRGVsZXRlU2Vzc2lvblJlc3BvbnNlIkgKE1N1Ym1pdFByb21wdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZwcm9tcHQYAiABKAkSDQoFbW9kZWwYAyABKAkiJwoUU3VibWl0UHJvbXB0UmVzcG9uc2USDwoHc3RhcnRlZBgBIAEoCCI6ChRFbnF1ZXVlUHJvbXB0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg4KBnByb21wdBgCIAEoCSIqChVFbnF1ZXVlUHJvbXB0UmVzcG9uc2USEQoJcXVldWVfbGVuGAEgASgFIiYKEEludGVycnVwdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSIoChFJbnRlcnJ1cHRSZXNwb25zZRITCgtpbnRlcnJ1cHRlZBgBIAEoCCIlCg9HZXRTdGF0c1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSKJAQoIVHVyblN0YXQSDAoEdHVybhgBIAEoBRITCgtzdG9wX3JlYXNvbhgCIAEoCRIdCgV1c2FnZRgDIAEoCzIOLmx5b24udjEuVXNhZ2USEwoLZHVyYXRpb25fbXMYBCABKAMSJgoCYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjQKEEdldFN0YXRzUmVzcG9uc2USIAoFdHVybnMYASADKAsyES5seW9uLnYxLlR1cm5TdGF0IjIKDlNldE1vZGVSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDAoEbW9kZRgCIAEoCSIfCg9TZXRNb2RlUmVzcG9uc2USDAoEbW9kZRgBIAEoCSI7ChNXYXRjaEV2ZW50c1Jlc3BvbnNlEiQKBWV2ZW50GAEgASgLMhUubHlvbi52MS5TZXNzaW9uRXZlbnQiOgoSV2F0Y2hFdmVudHNSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEAoIZnJvbV9zZXEYAiABKAMiJQoVUmVzdG9yZVNlc3Npb25SZXF1ZXN0EgwKBHBhdGgYASABKAkiVgoWUmVzdG9yZVNlc3Npb25SZXNwb25zZRIhCgdzZXNzaW9uGAEgASgLMhAubHlvbi52MS5TZXNzaW9uEhkKEXJlc3RvcmVkX21lc3NhZ2VzGAIgASgFMu8HCg5TZXNzaW9uU2VydmljZRJOCg1DcmVhdGVTZXNzaW9uEh0ubHlvbi52MS5DcmVhdGVTZXNzaW9uUmVxdWVzdBoeLmx5b24udjEuQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEksKDExpc3RTZXNzaW9ucxIcLmx5b24udjEuTGlzdFNlc3Npb25zUmVxdWVzdBodLmx5b24udjEuTGlzdFNlc3Npb25zUmVzcG9uc2USRQoKR2V0U2Vzc2lvbhIaLmx5b24udjEuR2V0U2Vzc2lvblJlcXVlc3QaGy5seW9uLnYxLkdldFNlc3Npb25SZXNwb25zZRJOCg1EZWxldGVTZXNzaW9uEh0ubHlvbi52MS5EZWxldGVTZXNzaW9uUmVxdWVzdBoeLmx5b24udjEuRGVsZXRlU2Vzc2lvblJlc3BvbnNlEksKDFN1Ym1pdFByb21wdBIcLmx5b24udjEuU3VibWl0UHJvbXB0UmVxdWVzdBodLmx5b24udjEuU3VibWl0UHJvbXB0UmVzcG9uc2USTgoNRW5xdWV1ZVByb21wdBIdLmx5b24udjEuRW5xdWV1ZVByb21wdFJlcXVlc3QaHi5seW9uLnYxLkVucXVldWVQcm9tcHRSZXNwb25zZRJCCglJbnRlcnJ1cHQSGS5seW9uLnYxLkludGVycnVwdFJlcXVlc3QaGi5seW9uLnYxLkludGVycnVwdFJlc3BvbnNlEj8KCEdldFN0YXRzEhgubHlvbi52MS5HZXRTdGF0c1JlcXVlc3QaGS5seW9uLnYxLkdldFN0YXRzUmVzcG9uc2USPAoHU2V0TW9kZRIXLmx5b24udjEuU2V0TW9kZVJlcXVlc3QaGC5seW9uLnYxLlNldE1vZGVSZXNwb25zZRJKCgtXYXRjaEV2ZW50cxIbLmx5b24udjEuV2F0Y2hFdmVudHNSZXF1ZXN0GhwubHlvbi52MS5XYXRjaEV2ZW50c1Jlc3BvbnNlMAESUQoOUmVzdG9yZVNlc3Npb24SHi5seW9uLnYxLlJlc3RvcmVTZXNzaW9uUmVxdWVzdBofLmx5b24udjEuUmVzdG9yZVNlc3Npb25SZXNwb25zZRJUCg9MaXN0Q2hlY2twb2ludHMSHy5seW9uLnYxLkxpc3RDaGVja3BvaW50c1JlcXVlc3QaIC5seW9uLnYxLkxpc3RDaGVja3BvaW50c1Jlc3BvbnNlElQKD1JvbGxiYWNrU2Vzc2lvbhIfLmx5b24udjEuUm9sbGJhY2tTZXNzaW9uUmVxdWVzdBogLmx5b24udjEuUm9sbGJhY2tTZXNzaW9uUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_lyon_v1_event]);
+
+/**
+ * Checkpoint is one undo point: a prompt boundary or a pre-compaction
+ * capture (kind distinguishes them).
+ *
+ * @generated from message lyon.v1.Checkpoint
+ */
+export type Checkpoint = Message<"lyon.v1.Checkpoint"> & {
+  /**
+   * opaque handle for RollbackRequest.id
+   *
+   * @generated from field: int32 id = 1;
+   */
+  id: number;
+
+  /**
+   * "prompt" | "compact"
+   *
+   * @generated from field: string kind = 2;
+   */
+  kind: string;
+
+  /**
+   * prompt excerpt / "before compact (N msgs)"
+   *
+   * @generated from field: string label = 3;
+   */
+  label: string;
+
+  /**
+   * history length at capture
+   *
+   * @generated from field: int32 messages = 4;
+   */
+  messages: number;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp at = 5;
+   */
+  at?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message lyon.v1.Checkpoint.
+ * Use `create(CheckpointSchema)` to create a new message.
+ */
+export const CheckpointSchema: GenMessage<Checkpoint> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_session, 0);
+
+/**
+ * @generated from message lyon.v1.ListCheckpointsRequest
+ */
+export type ListCheckpointsRequest = Message<"lyon.v1.ListCheckpointsRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+};
+
+/**
+ * Describes the message lyon.v1.ListCheckpointsRequest.
+ * Use `create(ListCheckpointsRequestSchema)` to create a new message.
+ */
+export const ListCheckpointsRequestSchema: GenMessage<ListCheckpointsRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_session, 1);
+
+/**
+ * @generated from message lyon.v1.ListCheckpointsResponse
+ */
+export type ListCheckpointsResponse = Message<"lyon.v1.ListCheckpointsResponse"> & {
+  /**
+   * @generated from field: repeated lyon.v1.Checkpoint checkpoints = 1;
+   */
+  checkpoints: Checkpoint[];
+};
+
+/**
+ * Describes the message lyon.v1.ListCheckpointsResponse.
+ * Use `create(ListCheckpointsResponseSchema)` to create a new message.
+ */
+export const ListCheckpointsResponseSchema: GenMessage<ListCheckpointsResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_session, 2);
+
+/**
+ * @generated from message lyon.v1.RollbackSessionRequest
+ */
+export type RollbackSessionRequest = Message<"lyon.v1.RollbackSessionRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * from ListCheckpoints; 0 = the newest checkpoint
+   *
+   * @generated from field: int32 id = 2;
+   */
+  id: number;
+};
+
+/**
+ * Describes the message lyon.v1.RollbackSessionRequest.
+ * Use `create(RollbackSessionRequestSchema)` to create a new message.
+ */
+export const RollbackSessionRequestSchema: GenMessage<RollbackSessionRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_session, 3);
+
+/**
+ * @generated from message lyon.v1.RollbackSessionResponse
+ */
+export type RollbackSessionResponse = Message<"lyon.v1.RollbackSessionResponse"> & {
+  /**
+   * @generated from field: lyon.v1.Checkpoint checkpoint = 1;
+   */
+  checkpoint?: Checkpoint | undefined;
+};
+
+/**
+ * Describes the message lyon.v1.RollbackSessionResponse.
+ * Use `create(RollbackSessionResponseSchema)` to create a new message.
+ */
+export const RollbackSessionResponseSchema: GenMessage<RollbackSessionResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_session, 4);
 
 /**
  * @generated from message lyon.v1.Session
@@ -86,7 +209,7 @@ export type Session = Message<"lyon.v1.Session"> & {
  * Use `create(SessionSchema)` to create a new message.
  */
 export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 0);
+  messageDesc(file_lyon_v1_session, 5);
 
 /**
  * @generated from message lyon.v1.CreateSessionRequest
@@ -112,7 +235,7 @@ export type CreateSessionRequest = Message<"lyon.v1.CreateSessionRequest"> & {
  * Use `create(CreateSessionRequestSchema)` to create a new message.
  */
 export const CreateSessionRequestSchema: GenMessage<CreateSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 1);
+  messageDesc(file_lyon_v1_session, 6);
 
 /**
  * @generated from message lyon.v1.CreateSessionResponse
@@ -129,7 +252,7 @@ export type CreateSessionResponse = Message<"lyon.v1.CreateSessionResponse"> & {
  * Use `create(CreateSessionResponseSchema)` to create a new message.
  */
 export const CreateSessionResponseSchema: GenMessage<CreateSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 2);
+  messageDesc(file_lyon_v1_session, 7);
 
 /**
  * @generated from message lyon.v1.ListSessionsRequest
@@ -142,7 +265,7 @@ export type ListSessionsRequest = Message<"lyon.v1.ListSessionsRequest"> & {
  * Use `create(ListSessionsRequestSchema)` to create a new message.
  */
 export const ListSessionsRequestSchema: GenMessage<ListSessionsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 3);
+  messageDesc(file_lyon_v1_session, 8);
 
 /**
  * @generated from message lyon.v1.ListSessionsResponse
@@ -159,7 +282,7 @@ export type ListSessionsResponse = Message<"lyon.v1.ListSessionsResponse"> & {
  * Use `create(ListSessionsResponseSchema)` to create a new message.
  */
 export const ListSessionsResponseSchema: GenMessage<ListSessionsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 4);
+  messageDesc(file_lyon_v1_session, 9);
 
 /**
  * @generated from message lyon.v1.GetSessionRequest
@@ -176,7 +299,7 @@ export type GetSessionRequest = Message<"lyon.v1.GetSessionRequest"> & {
  * Use `create(GetSessionRequestSchema)` to create a new message.
  */
 export const GetSessionRequestSchema: GenMessage<GetSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 5);
+  messageDesc(file_lyon_v1_session, 10);
 
 /**
  * @generated from message lyon.v1.GetSessionResponse
@@ -193,7 +316,7 @@ export type GetSessionResponse = Message<"lyon.v1.GetSessionResponse"> & {
  * Use `create(GetSessionResponseSchema)` to create a new message.
  */
 export const GetSessionResponseSchema: GenMessage<GetSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 6);
+  messageDesc(file_lyon_v1_session, 11);
 
 /**
  * @generated from message lyon.v1.DeleteSessionRequest
@@ -210,7 +333,7 @@ export type DeleteSessionRequest = Message<"lyon.v1.DeleteSessionRequest"> & {
  * Use `create(DeleteSessionRequestSchema)` to create a new message.
  */
 export const DeleteSessionRequestSchema: GenMessage<DeleteSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 7);
+  messageDesc(file_lyon_v1_session, 12);
 
 /**
  * @generated from message lyon.v1.DeleteSessionResponse
@@ -223,7 +346,7 @@ export type DeleteSessionResponse = Message<"lyon.v1.DeleteSessionResponse"> & {
  * Use `create(DeleteSessionResponseSchema)` to create a new message.
  */
 export const DeleteSessionResponseSchema: GenMessage<DeleteSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 8);
+  messageDesc(file_lyon_v1_session, 13);
 
 /**
  * @generated from message lyon.v1.SubmitPromptRequest
@@ -252,7 +375,7 @@ export type SubmitPromptRequest = Message<"lyon.v1.SubmitPromptRequest"> & {
  * Use `create(SubmitPromptRequestSchema)` to create a new message.
  */
 export const SubmitPromptRequestSchema: GenMessage<SubmitPromptRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 9);
+  messageDesc(file_lyon_v1_session, 14);
 
 /**
  * @generated from message lyon.v1.SubmitPromptResponse
@@ -269,7 +392,7 @@ export type SubmitPromptResponse = Message<"lyon.v1.SubmitPromptResponse"> & {
  * Use `create(SubmitPromptResponseSchema)` to create a new message.
  */
 export const SubmitPromptResponseSchema: GenMessage<SubmitPromptResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 10);
+  messageDesc(file_lyon_v1_session, 15);
 
 /**
  * @generated from message lyon.v1.EnqueuePromptRequest
@@ -291,7 +414,7 @@ export type EnqueuePromptRequest = Message<"lyon.v1.EnqueuePromptRequest"> & {
  * Use `create(EnqueuePromptRequestSchema)` to create a new message.
  */
 export const EnqueuePromptRequestSchema: GenMessage<EnqueuePromptRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 11);
+  messageDesc(file_lyon_v1_session, 16);
 
 /**
  * @generated from message lyon.v1.EnqueuePromptResponse
@@ -308,7 +431,7 @@ export type EnqueuePromptResponse = Message<"lyon.v1.EnqueuePromptResponse"> & {
  * Use `create(EnqueuePromptResponseSchema)` to create a new message.
  */
 export const EnqueuePromptResponseSchema: GenMessage<EnqueuePromptResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 12);
+  messageDesc(file_lyon_v1_session, 17);
 
 /**
  * @generated from message lyon.v1.InterruptRequest
@@ -325,7 +448,7 @@ export type InterruptRequest = Message<"lyon.v1.InterruptRequest"> & {
  * Use `create(InterruptRequestSchema)` to create a new message.
  */
 export const InterruptRequestSchema: GenMessage<InterruptRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 13);
+  messageDesc(file_lyon_v1_session, 18);
 
 /**
  * @generated from message lyon.v1.InterruptResponse
@@ -342,7 +465,7 @@ export type InterruptResponse = Message<"lyon.v1.InterruptResponse"> & {
  * Use `create(InterruptResponseSchema)` to create a new message.
  */
 export const InterruptResponseSchema: GenMessage<InterruptResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 14);
+  messageDesc(file_lyon_v1_session, 19);
 
 /**
  * @generated from message lyon.v1.GetStatsRequest
@@ -359,7 +482,7 @@ export type GetStatsRequest = Message<"lyon.v1.GetStatsRequest"> & {
  * Use `create(GetStatsRequestSchema)` to create a new message.
  */
 export const GetStatsRequestSchema: GenMessage<GetStatsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 15);
+  messageDesc(file_lyon_v1_session, 20);
 
 /**
  * @generated from message lyon.v1.TurnStat
@@ -396,7 +519,7 @@ export type TurnStat = Message<"lyon.v1.TurnStat"> & {
  * Use `create(TurnStatSchema)` to create a new message.
  */
 export const TurnStatSchema: GenMessage<TurnStat> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 16);
+  messageDesc(file_lyon_v1_session, 21);
 
 /**
  * @generated from message lyon.v1.GetStatsResponse
@@ -413,7 +536,7 @@ export type GetStatsResponse = Message<"lyon.v1.GetStatsResponse"> & {
  * Use `create(GetStatsResponseSchema)` to create a new message.
  */
 export const GetStatsResponseSchema: GenMessage<GetStatsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 17);
+  messageDesc(file_lyon_v1_session, 22);
 
 /**
  * @generated from message lyon.v1.SetModeRequest
@@ -437,7 +560,7 @@ export type SetModeRequest = Message<"lyon.v1.SetModeRequest"> & {
  * Use `create(SetModeRequestSchema)` to create a new message.
  */
 export const SetModeRequestSchema: GenMessage<SetModeRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 18);
+  messageDesc(file_lyon_v1_session, 23);
 
 /**
  * @generated from message lyon.v1.SetModeResponse
@@ -454,7 +577,7 @@ export type SetModeResponse = Message<"lyon.v1.SetModeResponse"> & {
  * Use `create(SetModeResponseSchema)` to create a new message.
  */
 export const SetModeResponseSchema: GenMessage<SetModeResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 19);
+  messageDesc(file_lyon_v1_session, 24);
 
 /**
  * One streamed chunk wraps one hub event (SessionEvent stays a pure data
@@ -474,7 +597,7 @@ export type WatchEventsResponse = Message<"lyon.v1.WatchEventsResponse"> & {
  * Use `create(WatchEventsResponseSchema)` to create a new message.
  */
 export const WatchEventsResponseSchema: GenMessage<WatchEventsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 20);
+  messageDesc(file_lyon_v1_session, 25);
 
 /**
  * @generated from message lyon.v1.WatchEventsRequest
@@ -501,7 +624,7 @@ export type WatchEventsRequest = Message<"lyon.v1.WatchEventsRequest"> & {
  * Use `create(WatchEventsRequestSchema)` to create a new message.
  */
 export const WatchEventsRequestSchema: GenMessage<WatchEventsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 21);
+  messageDesc(file_lyon_v1_session, 26);
 
 /**
  * @generated from message lyon.v1.RestoreSessionRequest
@@ -522,7 +645,7 @@ export type RestoreSessionRequest = Message<"lyon.v1.RestoreSessionRequest"> & {
  * Use `create(RestoreSessionRequestSchema)` to create a new message.
  */
 export const RestoreSessionRequestSchema: GenMessage<RestoreSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 22);
+  messageDesc(file_lyon_v1_session, 27);
 
 /**
  * @generated from message lyon.v1.RestoreSessionResponse
@@ -546,7 +669,7 @@ export type RestoreSessionResponse = Message<"lyon.v1.RestoreSessionResponse"> &
  * Use `create(RestoreSessionResponseSchema)` to create a new message.
  */
 export const RestoreSessionResponseSchema: GenMessage<RestoreSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 23);
+  messageDesc(file_lyon_v1_session, 28);
 
 /**
  * SessionService: lifecycle + prompt injection + event streaming.
@@ -663,6 +786,28 @@ export const SessionService: GenService<{
     methodKind: "unary";
     input: typeof RestoreSessionRequestSchema;
     output: typeof RestoreSessionResponseSchema;
+  },
+  /**
+   * Undo stack (TUI /rollback parity). Every prompt captures a checkpoint
+   * before running (pkg/agent/rollback.go); RollbackSession discards the
+   * history back to that point AND re-synthesizes the session's event ring
+   * (WatchEvents replays return the post-rollback transcript; reconnect
+   * with from_seq=-1 after a rollback).
+   *
+   * @generated from rpc lyon.v1.SessionService.ListCheckpoints
+   */
+  listCheckpoints: {
+    methodKind: "unary";
+    input: typeof ListCheckpointsRequestSchema;
+    output: typeof ListCheckpointsResponseSchema;
+  },
+  /**
+   * @generated from rpc lyon.v1.SessionService.RollbackSession
+   */
+  rollbackSession: {
+    methodKind: "unary";
+    input: typeof RollbackSessionRequestSchema;
+    output: typeof RollbackSessionResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_lyon_v1_session, 0);

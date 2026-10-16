@@ -6,8 +6,10 @@ import type { WatchPendingResponse } from "./gen/lyon/v1/approval_pb";
 import { approvalClient, dashboardClient, errText, getToken, sessionClient, setToken } from "./api";
 import SessionList from "./components/SessionList";
 import ChatView from "./components/ChatView";
-import FilePanel from "./components/FilePanel";
+import SidePanel from "./components/SidePanel";
 import DashboardPanel from "./components/DashboardPanel";
+import type { TodoItem } from "./todos";
+import type { StepRow } from "./types";
 
 export default function App() {
   const [tokenInput, setTokenInput] = useState(getToken());
@@ -21,6 +23,13 @@ export default function App() {
   // this list; ChatView renders the slice for the selected seat.
   const [pending, setPending] = useState<WatchPendingResponse[]>([]);
   const [toast, setToast] = useState("");
+  // Phase D: the right column renders the seat's plan corner + steps
+  // (reported up by ChatView's reducer) and a files tab; reloadKey forces
+  // the transcript stream to re-anchor after a rollback rewrote the ring.
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [steps, setSteps] = useState<StepRow[]>([]);
+  const [panelTab, setPanelTab] = useState<"files" | "steps">("steps");
+  const [reloadKey, setReloadKey] = useState(0);
   // Refs the stream loop reads without re-subscribing on every change:
   // selectedId for toast suppression, pending for new-vs-replay detection.
   const selectedRef = useRef(selectedId);
@@ -180,6 +189,96 @@ export default function App() {
     void refresh();
   };
 
+  // flash is the App-wide 3s toast (approval events and slash commands
+  // share it); the timer resets so a newer message always gets its slot.
+  const flash = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 3000);
+  };
+
+  // rollback rewinds the seat to its newest checkpoint: the server
+  // rewrites the ring, then the transcript stream re-anchors with -1 and
+  // replays the rewound conversation (TUI /rollback parity).
+  const rollback = async () => {
+    if (!selectedId) return;
+    try {
+      const res = await sessionClient.rollbackSession({
+        sessionId: selectedId,
+        id: 0, // int32 — 0 picks the newest checkpoint
+      });
+      const cp = res.checkpoint;
+      flash(`rolled back ${cp ? `— “${cp.label}” undone (${cp.messages} msgs restored)` : ""}`);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      flash(errText(e));
+    }
+  };
+
+  // cycleMode walks default → plan → bypass → default (TUI shift+tab).
+  const cycleMode = async () => {
+    const cur = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
+    const next =
+      cur === "default" ? "plan" : cur === "plan" ? "bypass" : "default";
+    if (!selectedId) return;
+    try {
+      await sessionClient.setMode({ sessionId: selectedId, mode: next });
+      flash(`mode → ${next}`);
+      await refresh();
+    } catch (e) {
+      flash(errText(e));
+    }
+  };
+
+  // Slash actions that need App state: the ChatView handles the local
+  // ones (/clear /think /model /stats /help) and routes the rest here.
+  const runCommand = async (cmd: string) => {
+    switch (cmd) {
+      case "/new":
+        await create();
+        flash("new session");
+        break;
+      case "/resume": {
+        const latest = saved[0]; // ListSnapshots is newest-first
+        if (!latest) {
+          flash("no saved sessions in this workspace");
+          break;
+        }
+        await restore(latest.path);
+        flash(`restored “${latest.title || "(untitled)"}”`);
+        break;
+      }
+      case "/rollback":
+        await rollback();
+        break;
+      case "/sessions":
+        flash("live + saved sessions are in the left sidebar");
+        break;
+      case "/mode":
+        await cycleMode();
+        break;
+      case "/steps":
+        setPanelTab("steps");
+        flash("steps panel — right column");
+        break;
+      default:
+        flash(`unknown command ${cmd}`);
+    }
+  };
+
+  // shift+tab cycles the execution mode anywhere in the app (TUI parity);
+  // the browser's default focus-leave is exactly what the chord must NOT do.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Tab" && e.shiftKey) {
+        e.preventDefault();
+        void cycleMode();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }); // no deps: the handler always reads the latest sessions/selection
+
   return (
     <div className="app">
       <header className="topbar">
@@ -231,14 +330,22 @@ export default function App() {
               onChanged={() => void refresh()}
               pending={seatPending}
               onDecide={decide}
+              onTodos={setTodos}
+              onSteps={setSteps}
+              onCommand={runCommand}
+              reloadKey={reloadKey}
+              mode={sessions.find((s) => s.id === selectedId)?.mode ?? "default"}
             />
           ) : (
             <div className="placeholder">select or create a session</div>
           )}
         </main>
-        <aside className="col-files">
-          <FilePanel />
-        </aside>
+        <SidePanel
+          todos={todos}
+          steps={steps}
+          tab={panelTab}
+          onTab={setPanelTab}
+        />
         </div>
       )}
       {toast && <div className="toast">{toast}</div>}

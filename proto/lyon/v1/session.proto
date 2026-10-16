@@ -43,7 +43,32 @@ service SessionService {
   // codes.InvalidArgument before any disk touch; missing or empty
   // snapshots fail with codes.NotFound.
   rpc RestoreSession(RestoreSessionRequest) returns (RestoreSessionResponse);
+
+  // Undo stack (TUI /rollback parity). Every prompt captures a checkpoint
+  // before running (pkg/agent/rollback.go); RollbackSession discards the
+  // history back to that point AND re-synthesizes the session's event ring
+  // (WatchEvents replays return the post-rollback transcript; reconnect
+  // with from_seq=-1 after a rollback).
+  rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
+  rpc RollbackSession(RollbackSessionRequest) returns (RollbackSessionResponse);
 }
+
+// Checkpoint is one undo point: a prompt boundary or a pre-compaction
+// capture (kind distinguishes them).
+message Checkpoint {
+  int32 id = 1;         // opaque handle for RollbackRequest.id
+  string kind = 2;      // "prompt" | "compact"
+  string label = 3;     // prompt excerpt / "before compact (N msgs)"
+  int32 messages = 4;   // history length at capture
+  google.protobuf.Timestamp at = 5;
+}
+message ListCheckpointsRequest { string session_id = 1; }
+message ListCheckpointsResponse { repeated Checkpoint checkpoints = 1; }
+message RollbackSessionRequest {
+  string session_id = 1;
+  int32 id = 2;         // from ListCheckpoints; 0 = the newest checkpoint
+}
+message RollbackSessionResponse { Checkpoint checkpoint = 1; }
 
 message Session {
   string id = 1;

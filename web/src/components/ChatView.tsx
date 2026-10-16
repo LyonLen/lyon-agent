@@ -6,6 +6,29 @@ import type { Components } from "react-markdown";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
 import { errText, sessionClient } from "../api";
+import { parseTodos } from "../todos";
+import type { TodoItem } from "../todos";
+import type { StepRow } from "../types";
+import { todoProgress } from "./SidePanel";
+
+// The web slice of TUI's slashCommands table (cmd/lyon/tui.go): session/
+// model/panel/misc categories, descriptions mirrored from the terminal
+// build. The evolve/evolution rows are TUI-only surfaces (no web panel
+// yet); unknown tokens fall through to App's runCommand and get a toast.
+type SlashKind = "session" | "model" | "panel" | "misc";
+const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
+  { cmd: "/new", desc: "start a fresh session", kind: "session" },
+  { cmd: "/resume", desc: "restore the newest saved session", kind: "session" },
+  { cmd: "/rollback", desc: "undo to the newest checkpoint", kind: "session" },
+  { cmd: "/sessions", desc: "list live + saved sessions", kind: "session" },
+  { cmd: "/clear", desc: "clear the transcript view (history kept)", kind: "session" },
+  { cmd: "/mode", desc: "cycle default → plan → bypass", kind: "model" },
+  { cmd: "/model", desc: "show the session's model", kind: "model" },
+  { cmd: "/think", desc: "expand/collapse thinking blocks", kind: "model" },
+  { cmd: "/steps", desc: "open the action audit panel", kind: "panel" },
+  { cmd: "/stats", desc: "usage totals — turns, tokens, cache", kind: "misc" },
+  { cmd: "/help", desc: "list commands and keys", kind: "misc" },
+];
 
 // One rendered item on the transcript. The reducer below folds the event
 // stream into these blocks — deltas append, boundaries open new ones,
@@ -238,6 +261,11 @@ export default function ChatView(props: {
     approve: boolean,
     remember: boolean,
   ) => void;
+  onTodos: (t: TodoItem[]) => void;
+  onSteps: (s: StepRow[]) => void;
+  onCommand: (cmd: string) => void;
+  reloadKey: number; // bump re-anchors the stream (rollback rewrote the ring)
+  mode: string; // App owns the session record — badge follows its refresh
 }) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [busy, setBusy] = useState(false);
@@ -245,6 +273,16 @@ export default function ChatView(props: {
   const [err, setErr] = useState("");
   const [apprSel, setApprSel] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
+  // Phase D: plan corner / status line / slash panel local state.
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [ctxTokens, setCtxTokens] = useState(0); // last turn's prompt load
+  const [model, setModel] = useState(""); // "" = engine default
+  const [thinkOpen, setThinkOpen] = useState(false);
+  const [cmdNote, setCmdNote] = useState(""); // local command receipt, 3s
+  const [slashSel, setSlashSel] = useState(0);
+  const [hist, setHist] = useState<string[]>([]);
+  const [histIdx, setHistIdx] = useState(-1); // -1 = editing a fresh line
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // FIFO by ask time; the stream may replay snapshots in any order.
   const pendings = useMemo(
@@ -274,7 +312,12 @@ export default function ChatView(props: {
       if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
       switch (e.key) {
         case "ArrowDown":
+          e.preventDefault();
+          setApprSel((s) => (s + 1) % pendings.length);
+          break;
         case "Tab":
+          // shift+tab belongs to App's global mode cycle, not the card.
+          if (e.shiftKey) break;
           e.preventDefault();
           setApprSel((s) => (s + 1) % pendings.length);
           break;
@@ -304,16 +347,23 @@ export default function ChatView(props: {
   // One WatchEvents stream per selected session: from_seq=-1 replays the
   // hub ring (whatever the previous prompt left) then goes live. Cleanup
   // aborts on unmount / session switch. Busy seeds from the session
-  // record so opening a mid-run session doesn't render it idle.
+  // record so opening a mid-run session doesn't render it idle. reloadKey
+  // re-anchors the same seat after a rollback rewrote the ring — the
+  // replay below re-derives todos/steps from the surviving events.
   useEffect(() => {
     const ac = new AbortController();
     let live = true;
     setBlocks([]);
     setErr("");
+    setTodos([]);
+    setCtxTokens(0);
     void (async () => {
       try {
         const res = await sessionClient.getSession({ sessionId: props.sessionId });
-        if (live && res.session) setBusy(res.session.busy);
+        if (live && res.session) {
+          setBusy(res.session.busy);
+          setModel(res.session.model);
+        }
       } catch {
         // The stream below surfaces auth/connect problems; busy just
         // falls back to idle until then.
@@ -330,6 +380,23 @@ export default function ChatView(props: {
           if (ev.typeName === "prompt_end") {
             setBusy(false);
           }
+          // todo_write: exec_start (not sub) carries the COMPLETE list —
+          // replace the whole plan (cmd/lyon/todos.go semantics). On the
+          // replay path the same exec_start re-delivers it, so the plan
+          // survives rollbacks and reconnects without extra plumbing.
+          if (ev.typeName === "tool_exec_start" && !ev.sub && ev.toolName === "todo_write") {
+            const t = parseTodos(ev.inputJson);
+            if (t) {
+              setTodos(t);
+              props.onTodos(t);
+            }
+          }
+          // turn_end carries the turn's usage — the TUI ctx gauge reads
+          // prompt load (input + cache read + cache creation).
+          if (ev.typeName === "turn_end" && ev.usage) {
+            const u = ev.usage;
+            setCtxTokens(Number(u.input + u.cacheRead + u.cacheCreation));
+          }
           setBlocks((b) => reduce(b, ev));
         }
       } catch (e) {
@@ -343,17 +410,113 @@ export default function ChatView(props: {
       live = false;
       ac.abort();
     };
-  }, [props.sessionId]);
+  }, [props.sessionId, props.reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Steps are a pure view of the tool blocks (single source of truth):
+  // fold once here, publish the rows for the right column's audit list.
+  useEffect(() => {
+    const rows: StepRow[] = [];
+    for (const b of blocks) {
+      if (b.kind !== "tool") continue;
+      rows.push({
+        execId: b.execId ?? 0n,
+        toolName: b.name,
+        input: b.input ? prettyInput(b.input) : "",
+        output: b.output,
+        status: b.status,
+        durationMs: b.durationMs,
+        error: b.error,
+        sub: b.sub,
+      });
+    }
+    props.onSteps(rows);
+  }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The slash panel only matches a single bare token ("/sta"), so a
+  // command with args falls through to send()'s dispatcher.
+  const slashOpen = input.startsWith("/") && !/\s/.test(input);
+  const slashMatches = useMemo(() => {
+    if (!slashOpen) return [];
+    const q = input.trim().toLowerCase();
+    return SLASH.filter((c) => c.cmd.startsWith(q));
+  }, [slashOpen, input]);
+  const ssel = Math.min(slashSel, Math.max(0, slashMatches.length - 1));
+  useEffect(() => setSlashSel(0), [input]);
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
   }, [blocks]);
+
+  // note prints a local command receipt into the status line (3s, the
+  // TUI status toast slot — App's flash() covers cross-component ones).
+  const note = (m: string) => {
+    setCmdNote(m);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setCmdNote(""), 3000);
+  };
+
+  // execCommand runs one slash token: the local rows ChatView owns, the
+  // cross-component ones routed up to App (/new /resume /rollback …).
+  const execCommand = async (raw: string) => {
+    const cmd = raw.trim().split(/\s+/)[0];
+    switch (cmd) {
+      case "/clear":
+        setBlocks([]);
+        note("transcript cleared (history kept)");
+        break;
+      case "/think":
+        setThinkOpen((v) => {
+          note(v ? "thinking collapsed" : "thinking expanded");
+          return !v;
+        });
+        break;
+      case "/model":
+        note(`model: ${model || "engine default"}`);
+        break;
+      case "/stats": {
+        try {
+          const res = await sessionClient.getStats({ sessionId: props.sessionId });
+          let inT = 0;
+          let outT = 0;
+          let cr = 0;
+          let cw = 0;
+          for (const t of res.turns) {
+            const u = t.usage;
+            if (!u) continue;
+            inT += Number(u.input);
+            outT += Number(u.output);
+            cr += Number(u.cacheRead);
+            cw += Number(u.cacheCreation);
+          }
+          note(
+            `stats: ${res.turns.length} turns · in=${inT} out=${outT} cache_r=${cr} cache_w=${cw}`,
+          );
+        } catch (e) {
+          note(errText(e));
+        }
+        break;
+      }
+      case "/help":
+        note(`${SLASH.map((c) => c.cmd).join(" ")} · shift+tab mode · ↑ history`);
+        break;
+      default:
+        void props.onCommand(cmd);
+    }
+  };
 
   const send = async () => {
     const prompt = input.trim();
     if (!prompt) return;
     setInput("");
     setErr("");
+    // A slash token (with or without args) dispatches instead of sending:
+    // "/rollback" alone or "/rollback anything" both reach execCommand.
+    if (prompt.startsWith("/")) {
+      await execCommand(prompt);
+      return;
+    }
+    setHist((h) => [...h, prompt]); // ↑ browses what this seat actually sent
+    setHistIdx(-1);
     try {
       if (busy) {
         const res = await sessionClient.enqueuePrompt({
@@ -403,7 +566,7 @@ export default function ChatView(props: {
     <div className="chat">
       <div className="chat-feed" ref={feedRef}>
         {blocks.map((b, i) => (
-          <BlockView key={i} block={b} />
+          <BlockView key={`${i}:${b.kind}`} block={b} thinkOpen={thinkOpen} />
         ))}
         {blocks.length === 0 && (
           <div className="placeholder">
@@ -456,6 +619,57 @@ export default function ChatView(props: {
           ))}
         </div>
       )}
+      {slashOpen && slashMatches.length > 0 && (
+        <div className="slash-panel">
+          {slashMatches.map((c, i) => (
+            <div
+              key={c.cmd}
+              className={"slash-row" + (i === ssel ? " sel" : "")}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep focus; run on click
+                setInput("");
+                void execCommand(c.cmd);
+              }}
+            >
+              <span className="slash-cmd">{c.cmd}</span>
+              <span className={`slash-kind ${c.kind}`}>{c.kind}</span>
+              <span className="slash-desc">{c.desc}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {busy && input.trim() && (
+        <div className="queue-preview">
+          <span className="queue-caret">⏎</span>
+          <span className="queue-text">{input.trim().slice(0, 120)}</span>
+          <span className="queue-hint">Enter queues for the next turn gap</span>
+        </div>
+      )}
+      <div className="status-line">
+        <span className={`mode-badge ${props.mode}`}>{props.mode}</span>
+        {todos.length > 0 && (
+          <span className="sl-plan">
+            {(() => {
+              const p = todoProgress(todos);
+              return `📋 ${p.done}/${p.total}${p.current ? ` ▸ ${p.current}` : ""}`;
+            })()}
+          </span>
+        )}
+        {ctxTokens > 0 && <span className="sl-ctx">ctx {ctxTokens} tok</span>}
+        <span className="sl-fill" />
+        {cmdNote ? (
+          <span className="sl-note">{cmdNote}</span>
+        ) : pendings.length > 0 ? (
+          <span className="sl-appr">approval pending — y approve · n deny · a always</span>
+        ) : busy ? (
+          <span className="sl-hint">
+            <span className="spin" aria-hidden="true" />
+            running · interrupt to stop · Enter queues
+          </span>
+        ) : (
+          <span className="sl-legend">/ for commands · shift+tab mode · ↑ history</span>
+        )}
+      </div>
       <div className="chat-controls">
         <button className="ghost" onClick={() => void setMode("plan")}>
           plan
@@ -472,9 +686,63 @@ export default function ChatView(props: {
       <div className="chat-input">
         <textarea
           value={input}
-          placeholder={busy ? "busy — Enter queues for the next turn gap" : "prompt (Enter to send)"}
+          placeholder={busy ? "busy — Enter queues for the next turn gap" : "prompt (Enter to send) · / for commands"}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
+            // Slash panel first: it is open only while the input is one
+            // bare token, so these keys never fight prose editing.
+            if (slashOpen && slashMatches.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSlashSel((s) => (s + 1) % slashMatches.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSlashSel(
+                  (s) => (s - 1 + slashMatches.length) % slashMatches.length,
+                );
+                return;
+              }
+              if (e.key === "Tab" && !e.shiftKey) {
+                e.preventDefault(); // complete the bare token in place
+                setInput(slashMatches[ssel].cmd);
+                return;
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                const pick = slashMatches[ssel] ?? slashMatches[0];
+                setInput("");
+                void execCommand(pick.cmd);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setInput("");
+                return;
+              }
+            }
+            // ↑↓ walks the sent-prompt history while the line is empty —
+            // the TUI readline gesture; a fresh line starts at newest.
+            if (e.key === "ArrowUp" && input === "" && hist.length > 0) {
+              e.preventDefault();
+              const next = histIdx < 0 ? hist.length - 1 : Math.max(0, histIdx - 1);
+              setHistIdx(next);
+              setInput(hist[next]);
+              return;
+            }
+            if (e.key === "ArrowDown" && histIdx >= 0) {
+              e.preventDefault();
+              const next = histIdx + 1;
+              if (next >= hist.length) {
+                setHistIdx(-1);
+                setInput("");
+              } else {
+                setHistIdx(next);
+                setInput(hist[next]);
+              }
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void send();
@@ -489,7 +757,7 @@ export default function ChatView(props: {
   );
 }
 
-function BlockView({ block }: { block: Block }) {
+function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
   switch (block.kind) {
     case "user":
       return (
@@ -508,7 +776,9 @@ function BlockView({ block }: { block: Block }) {
       );
     case "thinking":
       return (
-        <details className="blk-thinking">
+        // key remounts on toggle so <details> picks up the new open
+        // state — /think flips every thinking block at once.
+        <details key={String(thinkOpen)} className="blk-thinking" open={thinkOpen}>
           <summary>thinking</summary>
           <pre>{block.text}</pre>
         </details>

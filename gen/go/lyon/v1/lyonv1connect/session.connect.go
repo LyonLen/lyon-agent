@@ -64,6 +64,12 @@ const (
 	// SessionServiceRestoreSessionProcedure is the fully-qualified name of the SessionService's
 	// RestoreSession RPC.
 	SessionServiceRestoreSessionProcedure = "/lyon.v1.SessionService/RestoreSession"
+	// SessionServiceListCheckpointsProcedure is the fully-qualified name of the SessionService's
+	// ListCheckpoints RPC.
+	SessionServiceListCheckpointsProcedure = "/lyon.v1.SessionService/ListCheckpoints"
+	// SessionServiceRollbackSessionProcedure is the fully-qualified name of the SessionService's
+	// RollbackSession RPC.
+	SessionServiceRollbackSessionProcedure = "/lyon.v1.SessionService/RollbackSession"
 )
 
 // SessionServiceClient is a client for the lyon.v1.SessionService service.
@@ -93,6 +99,13 @@ type SessionServiceClient interface {
 	// codes.InvalidArgument before any disk touch; missing or empty
 	// snapshots fail with codes.NotFound.
 	RestoreSession(context.Context, *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error)
+	// Undo stack (TUI /rollback parity). Every prompt captures a checkpoint
+	// before running (pkg/agent/rollback.go); RollbackSession discards the
+	// history back to that point AND re-synthesizes the session's event ring
+	// (WatchEvents replays return the post-rollback transcript; reconnect
+	// with from_seq=-1 after a rollback).
+	ListCheckpoints(context.Context, *connect.Request[v1.ListCheckpointsRequest]) (*connect.Response[v1.ListCheckpointsResponse], error)
+	RollbackSession(context.Context, *connect.Request[v1.RollbackSessionRequest]) (*connect.Response[v1.RollbackSessionResponse], error)
 }
 
 // NewSessionServiceClient constructs a client for the lyon.v1.SessionService service. By default,
@@ -172,22 +185,36 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("RestoreSession")),
 			connect.WithClientOptions(opts...),
 		),
+		listCheckpoints: connect.NewClient[v1.ListCheckpointsRequest, v1.ListCheckpointsResponse](
+			httpClient,
+			baseURL+SessionServiceListCheckpointsProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("ListCheckpoints")),
+			connect.WithClientOptions(opts...),
+		),
+		rollbackSession: connect.NewClient[v1.RollbackSessionRequest, v1.RollbackSessionResponse](
+			httpClient,
+			baseURL+SessionServiceRollbackSessionProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("RollbackSession")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sessionServiceClient implements SessionServiceClient.
 type sessionServiceClient struct {
-	createSession  *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
-	listSessions   *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	getSession     *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
-	deleteSession  *connect.Client[v1.DeleteSessionRequest, v1.DeleteSessionResponse]
-	submitPrompt   *connect.Client[v1.SubmitPromptRequest, v1.SubmitPromptResponse]
-	enqueuePrompt  *connect.Client[v1.EnqueuePromptRequest, v1.EnqueuePromptResponse]
-	interrupt      *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
-	getStats       *connect.Client[v1.GetStatsRequest, v1.GetStatsResponse]
-	setMode        *connect.Client[v1.SetModeRequest, v1.SetModeResponse]
-	watchEvents    *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
-	restoreSession *connect.Client[v1.RestoreSessionRequest, v1.RestoreSessionResponse]
+	createSession   *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
+	listSessions    *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
+	getSession      *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
+	deleteSession   *connect.Client[v1.DeleteSessionRequest, v1.DeleteSessionResponse]
+	submitPrompt    *connect.Client[v1.SubmitPromptRequest, v1.SubmitPromptResponse]
+	enqueuePrompt   *connect.Client[v1.EnqueuePromptRequest, v1.EnqueuePromptResponse]
+	interrupt       *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
+	getStats        *connect.Client[v1.GetStatsRequest, v1.GetStatsResponse]
+	setMode         *connect.Client[v1.SetModeRequest, v1.SetModeResponse]
+	watchEvents     *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
+	restoreSession  *connect.Client[v1.RestoreSessionRequest, v1.RestoreSessionResponse]
+	listCheckpoints *connect.Client[v1.ListCheckpointsRequest, v1.ListCheckpointsResponse]
+	rollbackSession *connect.Client[v1.RollbackSessionRequest, v1.RollbackSessionResponse]
 }
 
 // CreateSession calls lyon.v1.SessionService.CreateSession.
@@ -245,6 +272,16 @@ func (c *sessionServiceClient) RestoreSession(ctx context.Context, req *connect.
 	return c.restoreSession.CallUnary(ctx, req)
 }
 
+// ListCheckpoints calls lyon.v1.SessionService.ListCheckpoints.
+func (c *sessionServiceClient) ListCheckpoints(ctx context.Context, req *connect.Request[v1.ListCheckpointsRequest]) (*connect.Response[v1.ListCheckpointsResponse], error) {
+	return c.listCheckpoints.CallUnary(ctx, req)
+}
+
+// RollbackSession calls lyon.v1.SessionService.RollbackSession.
+func (c *sessionServiceClient) RollbackSession(ctx context.Context, req *connect.Request[v1.RollbackSessionRequest]) (*connect.Response[v1.RollbackSessionResponse], error) {
+	return c.rollbackSession.CallUnary(ctx, req)
+}
+
 // SessionServiceHandler is an implementation of the lyon.v1.SessionService service.
 type SessionServiceHandler interface {
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
@@ -272,6 +309,13 @@ type SessionServiceHandler interface {
 	// codes.InvalidArgument before any disk touch; missing or empty
 	// snapshots fail with codes.NotFound.
 	RestoreSession(context.Context, *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error)
+	// Undo stack (TUI /rollback parity). Every prompt captures a checkpoint
+	// before running (pkg/agent/rollback.go); RollbackSession discards the
+	// history back to that point AND re-synthesizes the session's event ring
+	// (WatchEvents replays return the post-rollback transcript; reconnect
+	// with from_seq=-1 after a rollback).
+	ListCheckpoints(context.Context, *connect.Request[v1.ListCheckpointsRequest]) (*connect.Response[v1.ListCheckpointsResponse], error)
+	RollbackSession(context.Context, *connect.Request[v1.RollbackSessionRequest]) (*connect.Response[v1.RollbackSessionResponse], error)
 }
 
 // NewSessionServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -347,6 +391,18 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("RestoreSession")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceListCheckpointsHandler := connect.NewUnaryHandler(
+		SessionServiceListCheckpointsProcedure,
+		svc.ListCheckpoints,
+		connect.WithSchema(sessionServiceMethods.ByName("ListCheckpoints")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sessionServiceRollbackSessionHandler := connect.NewUnaryHandler(
+		SessionServiceRollbackSessionProcedure,
+		svc.RollbackSession,
+		connect.WithSchema(sessionServiceMethods.ByName("RollbackSession")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/lyon.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionServiceCreateSessionProcedure:
@@ -371,6 +427,10 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceWatchEventsHandler.ServeHTTP(w, r)
 		case SessionServiceRestoreSessionProcedure:
 			sessionServiceRestoreSessionHandler.ServeHTTP(w, r)
+		case SessionServiceListCheckpointsProcedure:
+			sessionServiceListCheckpointsHandler.ServeHTTP(w, r)
+		case SessionServiceRollbackSessionProcedure:
+			sessionServiceRollbackSessionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -422,4 +482,12 @@ func (UnimplementedSessionServiceHandler) WatchEvents(context.Context, *connect.
 
 func (UnimplementedSessionServiceHandler) RestoreSession(context.Context, *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.RestoreSession is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) ListCheckpoints(context.Context, *connect.Request[v1.ListCheckpointsRequest]) (*connect.Response[v1.ListCheckpointsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.ListCheckpoints is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) RollbackSession(context.Context, *connect.Request[v1.RollbackSessionRequest]) (*connect.Response[v1.RollbackSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.RollbackSession is not implemented"))
 }
