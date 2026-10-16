@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { DirEntry } from "../gen/lyon/v1/file_pb";
 import { FileKind } from "../gen/lyon/v1/file_pb";
 import { errText, fileClient } from "../api";
-import { makeMdComponents, resolveRel } from "./ChatView";
+import { makeMdComponents, resolveRel } from "./mdkit";
+
+// Shared with the transcript: the parser chunk loads on first md preview.
+const MarkdownView = lazy(() => import("./Markdown"));
 
 type Preview =
   | { kind: "text"; path: string; content: string; truncated: boolean; md: boolean }
@@ -512,9 +513,9 @@ export default function FilePanel() {
           </div>
           {preview.md ? (
             <div className="md files-md">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdLinks}>
-                {preview.content}
-              </ReactMarkdown>
+              <Suspense fallback={<pre>{preview.content}</pre>}>
+                <MarkdownView components={mdLinks}>{preview.content}</MarkdownView>
+              </Suspense>
             </div>
           ) : (
             <pre>{preview.content}</pre>

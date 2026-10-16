@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { Components } from "react-markdown";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
-import { errText, fileClient, sessionClient } from "../api";
+import { errText, sessionClient } from "../api";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
 import type { StepRow } from "../types";
 import { todoProgress } from "./SidePanel";
+
+// The markdown parser rides its own chunk — Suspense fallback shows the
+// raw text until it lands (Phase F split).
+const MarkdownView = lazy(() => import("./Markdown"));
 
 // The web slice of TUI's slashCommands table (cmd/lyon/tui.go): session/
 // model/panel/misc categories, descriptions mirrored from the terminal
@@ -223,123 +224,6 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
   }
 }
 
-// Markdown for assistant prose: headings/lists/tables/strikethrough via
-// remark-gfm; fenced code stays a plain pre — deliberately no syntax
-// highlighter (portal precedent, plan Phase C).
-//
-// The factory lets the file panel share the renderer with two extras
-// (portal CodeEditor's link/image three-state handling): local relative
-// links navigate the panel instead of 404ing the tab, and relative images
-// resolve through ReadBinaryFile as a blob. The transcript passes nothing.
-export function makeMdComponents(opts?: {
-  onLocalPath?: (path: string) => void;
-  basePath?: string;
-}): Components {
-  return {
-    code({ className, children }) {
-      const text = String(children ?? "");
-      const match = /language-([\w-]+)/.exec(className || "");
-      if (!match) return <code className="md-inline">{text}</code>;
-      return <code className={`md-fence ${className}`}>{text}</code>;
-    },
-    a({ href, children }) {
-      const h = href ?? "";
-      if (/^(https?:|mailto:)/i.test(h) || h.startsWith("#")) {
-        return (
-          <a href={h} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        );
-      }
-      if (opts?.onLocalPath) {
-        return (
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              opts.onLocalPath?.(h);
-            }}
-          >
-            {children}
-          </a>
-        );
-      }
-      return (
-        <a href={h} target="_blank" rel="noreferrer">
-          {children}
-        </a>
-      );
-    },
-    img: opts?.basePath ? (props) => <MdImage {...props} basePath={opts.basePath!} /> : undefined,
-  };
-}
-
-export const mdComponents: Components = makeMdComponents();
-
-// Resolve a markdown-relative href against the preview's directory,
-// collapsing "." / ".." lexically — the server's Confine re-validates on
-// fetch, so this is URL bookkeeping, not a security decision.
-export function resolveRel(dir: string, href: string): string {
-  if (href.startsWith("/")) return href.slice(1);
-  const segs = (dir ? dir.split("/") : []).concat(href.split("/"));
-  const out: string[] = [];
-  for (const s of segs) {
-    if (s === "" || s === ".") continue;
-    if (s === "..") out.pop();
-    else out.push(s);
-  }
-  return out.join("/");
-}
-
-// MdImage: relative srcs go through ReadBinaryFile → object URL so md
-// previews can show workspace images; failures degrade to alt text
-// (portal MdImage behavior), never a broken-image glyph.
-function MdImage({
-  src,
-  alt,
-  basePath,
-}: {
-  src?: string | Blob;
-  alt?: string;
-  basePath: string;
-}) {
-  const raw = typeof src === "string" ? src : "";
-  const [url, setUrl] = useState<string | null>(null);
-  const [state, setState] = useState<"idle" | "load" | "fail">("idle");
-  useEffect(() => {
-    let live = true;
-    let created = "";
-    if (!raw || /^(https?:|data:)/i.test(raw)) {
-      setUrl(raw || null);
-      setState("idle");
-      return () => {
-        live = false;
-      };
-    }
-    setState("load");
-    void (async () => {
-      try {
-        const res = await fileClient.readBinaryFile({ path: resolveRel(basePath, raw) });
-        if (!live) return; // unmounted mid-fetch: don't mint an orphan URL
-        const blob = new Blob([new Uint8Array(res.data)], { type: res.contentType });
-        created = URL.createObjectURL(blob);
-        setUrl(created);
-        setState("idle");
-      } catch {
-        if (live) setState("fail");
-      }
-    })();
-    return () => {
-      live = false;
-      if (created) URL.revokeObjectURL(created);
-    };
-  }, [raw, basePath]);
-  if (state === "fail") return <>[图片加载失败: {alt ?? raw}]</>;
-  if (state === "load") return <>[加载中: {alt ?? raw}]</>;
-  if (!url) return <img src={raw} alt={alt} />;
-  return <img src={url} alt={alt} />;
-}
-
 // Pretty-print tool input JSON when it is JSON; pass anything else through.
 function prettyInput(raw: string): string {
   try {
@@ -447,7 +331,9 @@ export default function ChatView(props: {
   // aborts on unmount / session switch. Busy seeds from the session
   // record so opening a mid-run session doesn't render it idle. reloadKey
   // re-anchors the same seat after a rollback rewrote the ring — the
-  // replay below re-derives todos/steps from the surviving events.
+  // replay below re-derives todos/steps from the surviving events; streamKey
+  // is the local retry bump (dropped stream → the err row's retry button).
+  const [streamKey, setStreamKey] = useState(0);
   useEffect(() => {
     const ac = new AbortController();
     let live = true;
@@ -508,7 +394,7 @@ export default function ChatView(props: {
       live = false;
       ac.abort();
     };
-  }, [props.sessionId, props.reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [props.sessionId, props.reloadKey, streamKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Steps are a pure view of the tool blocks (single source of truth):
   // fold once here, publish the rows for the right column's audit list.
@@ -661,7 +547,7 @@ export default function ChatView(props: {
   };
 
   return (
-    <div className="chat">
+    <div className={"chat" + (busy ? " streaming" : "")}>
       <div className="chat-feed" ref={feedRef}>
         {blocks.map((b, i) => (
           <BlockView key={`${i}:${b.kind}`} block={b} thinkOpen={thinkOpen} />
@@ -672,7 +558,20 @@ export default function ChatView(props: {
           </div>
         )}
       </div>
-      {err && <div className="err chat-err">{err}</div>}
+      {err && (
+        <div className="chat-err-row">
+          <span className="err chat-err">{err}</span>
+          <button
+            className="ghost"
+            onClick={() => {
+              setErr("");
+              setStreamKey((k) => k + 1);
+            }}
+          >
+            retry
+          </button>
+        </div>
+      )}
       {pendings.length > 0 && (
         <div className="approval-stack">
           {pendings.map((p, i) => (
@@ -867,9 +766,9 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
     case "text":
       return (
         <div className="blk-text md">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-            {block.text}
-          </ReactMarkdown>
+          <Suspense fallback={<pre>{block.text}</pre>}>
+            <MarkdownView>{block.text}</MarkdownView>
+          </Suspense>
         </div>
       );
     case "thinking":

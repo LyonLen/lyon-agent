@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Session } from "./gen/lyon/v1/session_pb";
 import type { SnapshotRef } from "./gen/lyon/v1/dashboard_pb";
@@ -7,8 +7,11 @@ import { approvalClient, dashboardClient, errText, getToken, sessionClient, setT
 import SessionList from "./components/SessionList";
 import ChatView from "./components/ChatView";
 import SidePanel from "./components/SidePanel";
-import DashboardPanel from "./components/DashboardPanel";
 import ErrorBoundary from "./components/ErrorBoundary";
+
+// Dashboard is a separate route-level view — lazy so the chat pane's
+// first paint doesn't pay for replay/audit rendering (Phase F chunking).
+const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 import type { TodoItem } from "./todos";
 import type { StepRow } from "./types";
 
@@ -309,7 +312,19 @@ export default function App() {
         {listErr && <span className="err">{listErr}</span>}
       </header>
       {view === "dashboard" ? (
-        <DashboardPanel />
+        <Suspense
+          fallback={
+            <div className="dash">
+              <div className="skeleton-rows" aria-hidden="true">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="skeleton-row" style={{ width: `${60 + ((i * 13) % 35)}%` }} />
+                ))}
+              </div>
+            </div>
+          }
+        >
+          <DashboardPanel />
+        </Suspense>
       ) : (
         <div className="cols">
         <aside className="col-sessions">
