@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "./gen/lyon/v1/session_pb";
-import { errText, getToken, sessionClient, setToken } from "./api";
+import type { SnapshotRef } from "./gen/lyon/v1/dashboard_pb";
+import { dashboardClient, errText, getToken, sessionClient, setToken } from "./api";
 import SessionList from "./components/SessionList";
 import ChatView from "./components/ChatView";
 import FilePanel from "./components/FilePanel";
@@ -9,17 +10,28 @@ import DashboardPanel from "./components/DashboardPanel";
 export default function App() {
   const [tokenInput, setTokenInput] = useState(getToken());
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [saved, setSaved] = useState<SnapshotRef[]>([]);
+  const [restoring, setRestoring] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [listErr, setListErr] = useState("");
   const [view, setView] = useState<"chat" | "dashboard">("chat");
 
+  // Live sessions and the saved snapshot store are independent reads —
+  // fetch both concurrently, each with its own error so one failing
+  // channel doesn't blank the other.
   const refresh = useCallback(async () => {
-    try {
-      const res = await sessionClient.listSessions({});
-      setSessions([...res.sessions].reverse()); // oldest first; newest active sits at the bottom near the chat
+    const [live, arch] = await Promise.allSettled([
+      sessionClient.listSessions({}),
+      dashboardClient.listSnapshots({}),
+    ]);
+    if (live.status === "fulfilled") {
+      setSessions([...live.value.sessions].reverse()); // oldest first; newest active sits at the bottom near the chat
       setListErr("");
-    } catch (err) {
-      setListErr(errText(err));
+    } else {
+      setListErr(errText(live.reason));
+    }
+    if (arch.status === "fulfilled") {
+      setSaved(arch.value.snapshots);
     }
   }, []);
 
@@ -34,6 +46,24 @@ export default function App() {
       await refresh();
     } catch (err) {
       setListErr(errText(err));
+    }
+  };
+
+  // Restore a saved snapshot into the live store; the new session id
+  // becomes the selection and ChatView's from_seq=-1 replay draws the
+  // whole history (plan Phase A — the "点不进来" fix).
+  const restore = async (path: string) => {
+    if (restoring) return;
+    setRestoring(path);
+    setListErr("");
+    try {
+      const res = await sessionClient.restoreSession({ path });
+      if (res.session) setSelectedId(res.session.id);
+      await refresh();
+    } catch (err) {
+      setListErr(errText(err));
+    } finally {
+      setRestoring("");
     }
   };
 
@@ -76,10 +106,13 @@ export default function App() {
         <aside className="col-sessions">
           <SessionList
             sessions={sessions}
+            saved={saved}
             selectedId={selectedId}
+            restoring={restoring}
             onSelect={setSelectedId}
             onCreate={() => void create()}
             onRefresh={() => void refresh()}
+            onRestore={(p) => void restore(p)}
           />
         </aside>
         <main className="col-chat">

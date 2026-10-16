@@ -65,7 +65,9 @@ function newToolBlock(ev: SessionEvent): Extract<Block, { kind: "tool" }> {
     name: ev.toolName || "tool",
     toolId: ev.toolId,
     execId: null,
-    input: "",
+    // Live tool_use_start carries no input yet (it fills from exec);
+    // restored-history events arrive with the snapshot's input already.
+    input: ev.inputJson,
     output: "",
     status: "pending",
     durationMs: 0,
@@ -421,8 +423,12 @@ function BlockView({ block }: { block: Block }) {
               {block.status === "running" && <span className="spin" aria-hidden="true" />}
               {block.status === "pending" && "…"}
               {block.status === "running" && "running"}
-              {block.status === "done" && `✓ ${block.durationMs}ms`}
-              {block.status === "failed" && `✗ ${block.durationMs}ms`}
+              {/* Replayed history has no timing — show the marker bare
+                  instead of a misleading "0ms". */}
+              {block.status === "done" &&
+                (block.durationMs ? `✓ ${block.durationMs}ms` : "✓")}
+              {block.status === "failed" &&
+                (block.durationMs ? `✗ ${block.durationMs}ms` : "✗")}
               {block.status === "server" && "🌐 server"}
             </span>
           </summary>

@@ -89,9 +89,26 @@ func (s *Store) Delete(id string) bool {
 	}
 	s.mu.Unlock()
 	if ok {
-		e.sess.Close()
+		archiveAndClose(e)
 	}
 	return ok
+}
+
+// archiveAndClose is every store exit path — delete, reap, shutdown.
+// The conversation is archived first (best effort) so a dropped session
+// stays resumable from the snapshot store instead of dying with it (web
+// plan Phase A — the historical data-loss root cause). Interrupt before
+// Export: histMu is held end to end by an in-flight prompt, and the TUI's
+// own exit uses the same settle-then-export order. Archive failures must
+// not wedge teardown — the memory copy is lost either way.
+func archiveAndClose(e *entry) {
+	e.sess.Interrupt()
+	if _, err := e.sess.ArchiveIfNew(); err != nil {
+		// Best effort by design (comment above); nothing to do with a
+		// disk error on the way down.
+		_ = err
+	}
+	e.sess.Close()
 }
 
 // Hub returns the session's event hub, refreshing its idle timer.
@@ -180,7 +197,7 @@ func (s *Store) Reap() int {
 	}
 	s.mu.Unlock()
 	for _, e := range doomed {
-		e.sess.Close()
+		archiveAndClose(e)
 	}
 	return len(doomed)
 }
@@ -197,7 +214,7 @@ func (s *Store) CloseAll() {
 	s.sessions = make(map[string]*entry)
 	s.mu.Unlock()
 	for _, e := range all {
-		e.sess.Close()
+		archiveAndClose(e)
 	}
 }
 

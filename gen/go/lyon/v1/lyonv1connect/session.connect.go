@@ -61,6 +61,9 @@ const (
 	// SessionServiceWatchEventsProcedure is the fully-qualified name of the SessionService's
 	// WatchEvents RPC.
 	SessionServiceWatchEventsProcedure = "/lyon.v1.SessionService/WatchEvents"
+	// SessionServiceRestoreSessionProcedure is the fully-qualified name of the SessionService's
+	// RestoreSession RPC.
+	SessionServiceRestoreSessionProcedure = "/lyon.v1.SessionService/RestoreSession"
 )
 
 // SessionServiceClient is a client for the lyon.v1.SessionService service.
@@ -82,6 +85,14 @@ type SessionServiceClient interface {
 	// WatchEvents is the server-streaming event feed: replay from the hub
 	// ring then go live. Multiple concurrent watchers per session are fine.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest]) (*connect.ServerStreamForClient[v1.WatchEventsResponse], error)
+	// RestoreSession re-opens a saved snapshot (a path exactly as
+	// DashboardService.ListSnapshots returned it) as a live session: the
+	// stored history is synthesized into the hub ring, so an ordinary
+	// WatchEvents(from_seq=-1) replays it and the conversation continues
+	// like any other session. Paths outside $LYON_HOME/sessions fail with
+	// codes.InvalidArgument before any disk touch; missing or empty
+	// snapshots fail with codes.NotFound.
+	RestoreSession(context.Context, *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error)
 }
 
 // NewSessionServiceClient constructs a client for the lyon.v1.SessionService service. By default,
@@ -155,21 +166,28 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		restoreSession: connect.NewClient[v1.RestoreSessionRequest, v1.RestoreSessionResponse](
+			httpClient,
+			baseURL+SessionServiceRestoreSessionProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("RestoreSession")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sessionServiceClient implements SessionServiceClient.
 type sessionServiceClient struct {
-	createSession *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
-	listSessions  *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	getSession    *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
-	deleteSession *connect.Client[v1.DeleteSessionRequest, v1.DeleteSessionResponse]
-	submitPrompt  *connect.Client[v1.SubmitPromptRequest, v1.SubmitPromptResponse]
-	enqueuePrompt *connect.Client[v1.EnqueuePromptRequest, v1.EnqueuePromptResponse]
-	interrupt     *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
-	getStats      *connect.Client[v1.GetStatsRequest, v1.GetStatsResponse]
-	setMode       *connect.Client[v1.SetModeRequest, v1.SetModeResponse]
-	watchEvents   *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
+	createSession  *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
+	listSessions   *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
+	getSession     *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
+	deleteSession  *connect.Client[v1.DeleteSessionRequest, v1.DeleteSessionResponse]
+	submitPrompt   *connect.Client[v1.SubmitPromptRequest, v1.SubmitPromptResponse]
+	enqueuePrompt  *connect.Client[v1.EnqueuePromptRequest, v1.EnqueuePromptResponse]
+	interrupt      *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
+	getStats       *connect.Client[v1.GetStatsRequest, v1.GetStatsResponse]
+	setMode        *connect.Client[v1.SetModeRequest, v1.SetModeResponse]
+	watchEvents    *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
+	restoreSession *connect.Client[v1.RestoreSessionRequest, v1.RestoreSessionResponse]
 }
 
 // CreateSession calls lyon.v1.SessionService.CreateSession.
@@ -222,6 +240,11 @@ func (c *sessionServiceClient) WatchEvents(ctx context.Context, req *connect.Req
 	return c.watchEvents.CallServerStream(ctx, req)
 }
 
+// RestoreSession calls lyon.v1.SessionService.RestoreSession.
+func (c *sessionServiceClient) RestoreSession(ctx context.Context, req *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error) {
+	return c.restoreSession.CallUnary(ctx, req)
+}
+
 // SessionServiceHandler is an implementation of the lyon.v1.SessionService service.
 type SessionServiceHandler interface {
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
@@ -241,6 +264,14 @@ type SessionServiceHandler interface {
 	// WatchEvents is the server-streaming event feed: replay from the hub
 	// ring then go live. Multiple concurrent watchers per session are fine.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error
+	// RestoreSession re-opens a saved snapshot (a path exactly as
+	// DashboardService.ListSnapshots returned it) as a live session: the
+	// stored history is synthesized into the hub ring, so an ordinary
+	// WatchEvents(from_seq=-1) replays it and the conversation continues
+	// like any other session. Paths outside $LYON_HOME/sessions fail with
+	// codes.InvalidArgument before any disk touch; missing or empty
+	// snapshots fail with codes.NotFound.
+	RestoreSession(context.Context, *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error)
 }
 
 // NewSessionServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -310,6 +341,12 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceRestoreSessionHandler := connect.NewUnaryHandler(
+		SessionServiceRestoreSessionProcedure,
+		svc.RestoreSession,
+		connect.WithSchema(sessionServiceMethods.ByName("RestoreSession")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/lyon.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionServiceCreateSessionProcedure:
@@ -332,6 +369,8 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceSetModeHandler.ServeHTTP(w, r)
 		case SessionServiceWatchEventsProcedure:
 			sessionServiceWatchEventsHandler.ServeHTTP(w, r)
+		case SessionServiceRestoreSessionProcedure:
+			sessionServiceRestoreSessionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -379,4 +418,8 @@ func (UnimplementedSessionServiceHandler) SetMode(context.Context, *connect.Requ
 
 func (UnimplementedSessionServiceHandler) WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.WatchEvents is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) RestoreSession(context.Context, *connect.Request[v1.RestoreSessionRequest]) (*connect.Response[v1.RestoreSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.RestoreSession is not implemented"))
 }

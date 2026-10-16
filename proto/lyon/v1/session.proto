@@ -34,6 +34,15 @@ service SessionService {
   // WatchEvents is the server-streaming event feed: replay from the hub
   // ring then go live. Multiple concurrent watchers per session are fine.
   rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
+
+  // RestoreSession re-opens a saved snapshot (a path exactly as
+  // DashboardService.ListSnapshots returned it) as a live session: the
+  // stored history is synthesized into the hub ring, so an ordinary
+  // WatchEvents(from_seq=-1) replays it and the conversation continues
+  // like any other session. Paths outside $LYON_HOME/sessions fail with
+  // codes.InvalidArgument before any disk touch; missing or empty
+  // snapshots fail with codes.NotFound.
+  rpc RestoreSession(RestoreSessionRequest) returns (RestoreSessionResponse);
 }
 
 message Session {
@@ -104,4 +113,15 @@ message WatchEventsRequest {
   // longer holds n+1 the server fails with codes.FailedPrecondition and the
   // client should re-anchor (snapshot list / run dump) and retry with -1.
   int64 from_seq = 2;
+}
+
+message RestoreSessionRequest {
+  // Absolute snapshot path exactly as ListSnapshots reported it — must
+  // land inside $LYON_HOME/sessions (the server re-validates the
+  // containment before reading).
+  string path = 1;
+}
+message RestoreSessionResponse {
+  Session session = 1;
+  int32 restored_messages = 2;  // history length synthesized into the ring
 }

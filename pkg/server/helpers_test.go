@@ -2,12 +2,30 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+// TestMain pins $LYON_HOME to a scratch dir for the whole package: the
+// store's delete/reap/shutdown paths archive snapshots to disk (Phase A),
+// and no test may touch the real ~/.lyon. Individual tests override with
+// t.Setenv when they need their own root; both stack fine.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "lyon-server-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "scratch LYON_HOME:", err)
+		os.Exit(1)
+	}
+	os.Setenv("LYON_HOME", dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 // testClient is a thin httptest wrapper for route tests that must not hit
 // the Anthropic API (none of these endpoints do without a message, and the

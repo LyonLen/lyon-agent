@@ -92,6 +92,17 @@ func (h *hub) inject(ev agent.Event) {
 	h.mu.Unlock()
 }
 
+// injectAll stamps a batch under one lock — a restored conversation
+// enters the ring atomically with respect to subscribers, so nobody ever
+// replays half a history before the rest lands.
+func (h *hub) injectAll(evs []agent.Event) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, ev := range evs {
+		h.push(ev)
+	}
+}
+
 // push stamps, sanitizes, rings, and fans one event out. Caller holds
 // h.mu — stamping under the lock is what keeps ring order and seq order
 // identical across the driver path (run) and synthetic injections.
