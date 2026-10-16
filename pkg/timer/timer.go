@@ -112,6 +112,26 @@ type Task struct {
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
+// minPayloadEveryMS is the floor for interval tasks that carry a
+// payload (prompt/command): every fire of such a task forks a
+// `lyon run` / shell child, so a sub-second interval is a fork
+// storm — a real 15ms fixture leaked into a live store once and the
+// TUI forked sixty children a second until the machine cried uncle.
+// Tasks below the floor never enter the heap, and an on-disk copy is
+// disarmed (enabled=false) so the storm cannot restart on every
+// launch. Interval tasks without a payload (a pure tick) are not
+// constrained; once/cron are minute-grained or one-shot anyway.
+// Tests lower this variable via scratchHome to drive fast ticks with
+// injected non-forking runners; production code must not touch it.
+var minPayloadEveryMS int64 = 1000
+
+// tooFast reports whether the task is a payload-carrying interval
+// task below minPayloadEveryMS.
+func (t *Task) tooFast() bool {
+	return t.Kind == KindInterval && t.EveryMS > 0 && t.EveryMS < minPayloadEveryMS &&
+		(t.Command != "" || t.Prompt != "")
+}
+
 // Validate rejects anything that could not be scheduled or persisted:
 // IDs must be filename/taskname/anchor safe, the kind must be known,
 // the schedule must be present, and exactly one payload must be set.

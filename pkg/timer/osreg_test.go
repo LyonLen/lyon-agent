@@ -242,6 +242,14 @@ func TestCrontabLine(t *testing.T) {
 			true, nil,
 		},
 		{
+			// The OS-level floor: crontab is minute-grained, so a
+			// sub-minute interval must be refused here too (matching
+			// schtasksSchedule), never silently rounded.
+			"sub-minute interval rejected",
+			&Task{ID: "p", Kind: KindInterval, EveryMS: 500, Prompt: "x"},
+			true, nil,
+		},
+		{
 			"once rejected with in-process hint",
 			&Task{ID: "p", Kind: KindOnce, At: at("2026-10-16T09:00:00Z"), Prompt: "x"},
 			true, nil,

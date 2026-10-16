@@ -3,6 +3,7 @@ package timer
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -440,6 +441,95 @@ func TestSchedulerStartLoadsPersistedTasks(t *testing.T) {
 	defer mu.Unlock()
 	if !seen["a"] || !seen["b"] {
 		t.Fatalf("persisted tasks not loaded: %v", seen)
+	}
+}
+
+// TestSchedulerRejectsFastPayloadInterval: the fork-storm guard.
+// scratchHome lowered minPayloadEveryMS for the fast-tick fixtures;
+// these checks pin the production floor (1000ms) behavior: Add refuses
+// to persist a sub-floor payload interval, a hostile on-disk copy is
+// disarmed at load (enabled=false + one WARN, so it cannot revive on
+// every launch), and Enable refuses to arm it back up.
+func TestSchedulerRejectsFastPayloadInterval(t *testing.T) {
+	home := scratchHome(t)
+	minPayloadEveryMS = 1000 // production floor (scratchHome's cleanup restores)
+
+	s, _ := NewScheduler(func(ctx context.Context, tk *Task) error { return nil }, time.Second)
+
+	// Add path: rejected outright, nothing lands on disk.
+	err := s.Add(&Task{ID: "fast", Kind: KindInterval, EveryMS: 15, Prompt: "x", Enabled: true})
+	if err == nil || !strings.Contains(err.Error(), "below 1000ms") {
+		t.Fatalf("Add 15ms payload interval: err = %v, want below-floor rejection", err)
+	}
+	if _, lerr := Load("fast"); !errors.Is(lerr, os.ErrNotExist) {
+		t.Fatalf("rejected task must not persist, Load err = %v", lerr)
+	}
+
+	// Load path: a pre-existing hostile enabled=true copy is rejected
+	// from the heap and written back disabled (anti-revival).
+	hostile := &Task{ID: "hostile", Kind: KindInterval, EveryMS: 15, Prompt: "x", Enabled: true}
+	if err := Save(hostile); err != nil {
+		t.Fatal(err)
+	}
+	var fires atomic.Int64
+	s2, _ := NewScheduler(func(ctx context.Context, tk *Task) error {
+		fires.Add(1)
+		return nil
+	}, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s2.Start(ctx)
+	waitLog(t, home, "fork-storm guard", 3*time.Second)
+	s2.Stop()
+	saved, err := Load("hostile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Enabled {
+		t.Fatalf("hostile task must be persisted disabled, got enabled=true")
+	}
+	if got := fires.Load(); got != 0 {
+		t.Fatalf("sub-floor task fired %d times", got)
+	}
+
+	// Enable path: arming it by hand is refused and stays disabled.
+	if err := s2.Enable("hostile", true); err == nil || !strings.Contains(err.Error(), "below 1000ms") {
+		t.Fatalf("Enable(true) of fast task: err = %v, want rejection", err)
+	}
+	reloaded, err := Load("hostile")
+	if err != nil || reloaded.Enabled {
+		t.Fatalf("enable must leave the copy disabled, enabled=%v err=%v", reloaded != nil && reloaded.Enabled, err)
+	}
+}
+
+// TestSchedulerIntervalFloorBoundary: exactly 1000ms passes, and the
+// floor only bites payload-carrying intervals — a payload-less pure
+// tick stays free (it forks nothing).
+func TestSchedulerIntervalFloorBoundary(t *testing.T) {
+	scratchHome(t)
+	minPayloadEveryMS = 1000 // production floor (scratchHome's cleanup restores)
+
+	s, _ := NewScheduler(func(ctx context.Context, tk *Task) error { return nil }, time.Second)
+	if err := s.Add(&Task{ID: "edge", Kind: KindInterval, EveryMS: 1000, Prompt: "x", Enabled: true}); err != nil {
+		t.Fatalf("1000ms boundary must pass: %v", err)
+	}
+	saved, err := Load("edge")
+	if err != nil || !saved.Enabled {
+		t.Fatalf("boundary task not stored enabled: enabled=%v err=%v", saved != nil && saved.Enabled, err)
+	}
+	if err := s.Remove("edge"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Payload-less interval: exempt at any interval (Validate happens
+	// to require exactly one payload today, so this guards the floor
+	// itself — a pure tick forks nothing and must never trip it).
+	if (&Task{Kind: KindInterval, EveryMS: 15}).tooFast() {
+		t.Fatal("payload-less interval must be exempt from the floor")
+	}
+	// 999ms with a payload: one millisecond under the floor still bites.
+	if !(&Task{Kind: KindInterval, EveryMS: 999, Prompt: "x"}).tooFast() {
+		t.Fatal("999ms payload interval must be below the floor")
 	}
 }
 

@@ -25,6 +25,13 @@ func scratchHome(t *testing.T) string {
 		t.Logf("settle cleanup failed: %v", err)
 	})
 	t.Setenv("LYON_HOME", dir)
+	// Unit tests drive 10-20ms payload intervals through injected
+	// non-forking runners; drop the production fork-storm floor so
+	// those schedules register. Tests are serial (no t.Parallel), and
+	// the guard tests that need the real floor restore it explicitly.
+	old := minPayloadEveryMS
+	minPayloadEveryMS = 10
+	t.Cleanup(func() { minPayloadEveryMS = old })
 	return dir
 }
 

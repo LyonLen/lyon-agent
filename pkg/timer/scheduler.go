@@ -135,8 +135,20 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 // registerLocked computes t's next fire from now (applying the miss
 // policy) and inserts it into the heap. Caller holds s.mu. Returns
-// false when the task has no future fire.
+// false when the task has no future fire — or when it is a
+// payload-carrying interval below the fork-storm floor, in which
+// case it is disarmed on disk (enabled=false persisted) so the next
+// launch skips it instead of re-triggering the storm.
 func (s *Scheduler) registerLocked(t *Task, now time.Time) bool {
+	if t.tooFast() {
+		LogWarn("timer %s: payload interval %dms below %dms floor — disabled (fork-storm guard)",
+			t.ID, t.EveryMS, minPayloadEveryMS)
+		t.Enabled = false
+		if err := Save(t); err != nil {
+			LogError("timer %s: save disarmed copy: %v", t.ID, err)
+		}
+		return false
+	}
 	next, err := computeNext(t, now)
 	if err != nil {
 		if err != ErrNoNext {
@@ -399,6 +411,15 @@ func (s *Scheduler) Add(t *Task) error {
 	if err := t.Validate(); err != nil {
 		return err
 	}
+	// Fork-storm guard: a payload-carrying sub-second interval forks
+	// a child per tick in production. Rejected outright — nothing
+	// lands on disk, so a bad /timer add cannot persist a storm.
+	if t.tooFast() {
+		LogWarn("timer %s: payload interval %dms below %dms floor — rejected (fork-storm guard)",
+			t.ID, t.EveryMS, minPayloadEveryMS)
+		return fmt.Errorf("timer %s: payload interval %dms below %dms minimum; raise every_ms (sub-second intervals fork a child per tick)",
+			t.ID, t.EveryMS, minPayloadEveryMS)
+	}
 	if err := Save(t); err != nil {
 		return err
 	}
@@ -445,6 +466,19 @@ func (s *Scheduler) Enable(id string, on bool) error {
 	t, err := Load(id)
 	if err != nil {
 		return err
+	}
+	// Fork-storm guard: enabling a payload interval below the floor
+	// is refused, and the on-disk copy is written back disabled so a
+	// hostile short-interval file cannot be armed by hand.
+	if on && t.tooFast() {
+		LogWarn("timer %s: payload interval %dms below %dms floor — kept disabled (fork-storm guard)",
+			t.ID, t.EveryMS, minPayloadEveryMS)
+		t.Enabled = false
+		if err := Save(t); err != nil {
+			return err
+		}
+		return fmt.Errorf("timer %s: payload interval %dms below %dms minimum; raise every_ms (sub-second intervals fork a child per tick)",
+			t.ID, t.EveryMS, minPayloadEveryMS)
 	}
 	t.Enabled = on
 	if err := Save(t); err != nil {

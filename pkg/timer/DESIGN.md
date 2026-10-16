@@ -51,6 +51,17 @@
   **默认不补跑**（miss=skip）——错过的拍记一条 INFO 日志。可选 `miss=once`：
   若宕机期间确实错过拍，启动时**补跑一次**（只一次，不逐拍补）。理由：默认不补
   是因为补跑风暴（停机一夜后连跑 200 个 cron）比漏一拍伤害大得多。
+- **载荷 interval 下限 1000ms（fork-storm 防线）**：带 prompt/command 载荷的
+  interval 任务每触发一次就 fork 一个 `lyon run`/shell 子进程，亚秒级间隔 =
+  每秒几十个子进程。真实事故（2026-10-16）：一个 15ms 测试夹具泄漏进真实
+  `~/.lyon/timers/`，用户 TUI 加载后每 15ms fork 一个真 `lyon run -- x`，
+  机器上堆出 9 个子进程才被杀掉。因此三处设防，全部拒绝入堆：
+  `Add` 直接报错**不落盘**（坏参数无法持久化）；`Start` 加载与 `Enable(true`
+  遇到既有低于下限的任务时**落盘 `enabled=false` + 一行 WARN**
+  （防复活——否则每次启动都会重新卷起风暴）；`Enable` 同样拒绝并保持落盘
+  disabled。`Save` 本身**不钳**：它是存储原语，在飞记账必须原样写回。
+  无载荷的纯 tick 不受限（不 fork 任何东西），once/cron 本就一分钟粒度或
+  一次性；测试经 `scratchHome` 临时调低下限以注入非 fork 的快速 runner。
 
 ## 3. OS 级定时器
 
