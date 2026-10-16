@@ -36,10 +36,12 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.HandleFunc("POST /v1/sessions/{id}/messages", s.handleMessage)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /v1/sessions/{id}/stats", s.handleStats)
-	// Connect RPC (web v1): mounts under /lyon.v1.SessionService/* on the
-	// same mux, so Handler()'s bearer-token wrapper covers it wholesale.
+	// Connect RPC (web v1): mounts under /lyon.v1.*Service/* on the same
+	// mux, so Handler()'s bearer-token wrapper covers them wholesale.
 	sessPath, sessHandler := lyonv1connect.NewSessionServiceHandler(&sessionService{s: s})
 	s.mux.Handle(sessPath, sessHandler)
+	filePath, fileHandler := lyonv1connect.NewFileServiceHandler(&fileService{s: s})
+	s.mux.Handle(filePath, fileHandler)
 	return s
 }
 

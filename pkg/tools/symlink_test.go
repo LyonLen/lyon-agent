@@ -21,7 +21,7 @@ func symlinkOrSkip(t *testing.T, target, link string) {
 }
 
 // TestConfineRejectsSymlinkEscape: the whole point of EvalSymlinks in
-// confine() — a link planted inside the workspace must not let read_file
+// Confine() — a link planted inside the workspace must not let read_file
 // look outside it, and write_file must not follow one out either.
 func TestConfineRejectsSymlinkEscape(t *testing.T) {
 	root := tempDir(t)
@@ -50,8 +50,8 @@ func TestConfineRejectsSymlinkEscape(t *testing.T) {
 		{"abs path through dir link", filepath.Join(root, "out", "secret.txt")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := confine(root, tc.path); err == nil {
-				t.Fatalf("confine(%q) accepted a path that leaves the workspace", tc.path)
+			if _, err := Confine(root, tc.path); err == nil {
+				t.Fatalf("Confine(%q) accepted a path that leaves the workspace", tc.path)
 			}
 		})
 	}
@@ -87,7 +87,7 @@ func TestConfineSymlinkInsideAllowed(t *testing.T) {
 	}
 	symlinkOrSkip(t, filepath.Join("real"), filepath.Join(root, "alias"))
 
-	got, err := confine(root, "alias/a.txt")
+	got, err := Confine(root, "alias/a.txt")
 	if err != nil {
 		t.Fatalf("confine through an inside link: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestConfineWorkspaceRootIsSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := confine(linked, "a.txt")
+	got, err := Confine(linked, "a.txt")
 	if err != nil {
 		t.Fatalf("confine under a linked workspace root: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestConfineWorkspaceRootIsSymlink(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // canonical expands a directory through EvalSymlinks so the paths handed to
-// confine() and the stub's keys agree on spelling.
+// Confine() and the stub's keys agree on spelling.
 func canonical(t *testing.T, dir string) string {
 	t.Helper()
 	if r, err := filepath.EvalSymlinks(dir); err == nil {
@@ -220,8 +220,8 @@ func TestConfineSymlinkEscapeStubbed(t *testing.T) {
 		{"absolute through dir link", filepath.Join(root, "out", "secret.txt")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := confine(root, tc.path); err == nil {
-				t.Fatalf("confine(%q) accepted a path that leaves the workspace", tc.path)
+			if _, err := Confine(root, tc.path); err == nil {
+				t.Fatalf("Confine(%q) accepted a path that leaves the workspace", tc.path)
 			}
 		})
 	}
@@ -237,8 +237,8 @@ func TestConfineDanglingSymlinkRejects(t *testing.T) {
 	fs.dangle[filepath.Join(root, "dangle-abs")] = filepath.Join(root, "..", "abs-escaped.txt")
 
 	for _, p := range []string{"dangle", "dangle-abs"} {
-		if _, err := confine(root, p); err == nil {
-			t.Errorf("confine(%q) accepted a dangling link pointing outside", p)
+		if _, err := Confine(root, p); err == nil {
+			t.Errorf("Confine(%q) accepted a dangling link pointing outside", p)
 		}
 	}
 }
@@ -253,7 +253,7 @@ func TestConfineLinkCycleFailsClosed(t *testing.T) {
 	fs.dangle[a] = "b"
 	fs.dangle[b] = "a"
 
-	_, err := confine(root, "a")
+	_, err := Confine(root, "a")
 	if err == nil {
 		t.Fatal("symlink cycle resolved to an accepted path")
 	}
@@ -275,7 +275,7 @@ func TestConfineInsideLinkAccepted(t *testing.T) {
 	fs := newSymlinkStub(t)
 	fs.links[filepath.Join(root, "alias")] = filepath.Join(root, "real")
 
-	got, err := confine(root, "alias/a.txt")
+	got, err := Confine(root, "alias/a.txt")
 	if err != nil {
 		t.Fatalf("inside link rejected: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestConfineInsideLinkAccepted(t *testing.T) {
 		t.Fatalf("resolved %q escapes %q (rel=%q err=%v)", got, root, rel, err)
 	}
 	// A not-yet-created file under the link resolves through it too.
-	if _, err := confine(root, "alias/brand-new.txt"); err != nil {
+	if _, err := Confine(root, "alias/brand-new.txt"); err != nil {
 		t.Errorf("write target under an inside link rejected: %v", err)
 	}
 }
@@ -301,7 +301,7 @@ func TestConfineLinkedWorkspaceRoot(t *testing.T) {
 	fs := newSymlinkStub(t)
 	fs.links[root] = real
 
-	if _, err := confine(root, "a.txt"); err != nil {
+	if _, err := Confine(root, "a.txt"); err != nil {
 		t.Fatalf("linked workspace root rejected every path: %v", err)
 	}
 	got, ok := resolveExisting(filepath.Join(root, "a.txt"), linkBudget)

@@ -135,7 +135,7 @@ func (s *SearchFiles) Execute(ctx context.Context, input json.RawMessage) ([]ant
 		limit = searchDefaultMax
 	}
 
-	walkRoot, err := confine(s.Root, ".")
+	walkRoot, err := Confine(s.Root, ".")
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func (s *SearchFiles) Execute(ctx context.Context, input json.RawMessage) ([]ant
 		// Every read goes through confine: a symlink planted in the
 		// workspace cannot pull outside content into the results, and the
 		// walk itself never follows directory links out of the root.
-		abs, err := confine(s.Root, rel)
+		abs, err := Confine(s.Root, rel)
 		if err != nil {
 			return nil
 		}

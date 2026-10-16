@@ -66,7 +66,7 @@ func imageDimensions(data []byte) (w, h int, ok bool) {
 // dimension limits, and returns the sniffed media type, raw bytes, and
 // decoded dimensions (0×0 when the format has no stdlib decoder, e.g. webp).
 func loadImage(root, p string) (mt string, data []byte, w, h int, err error) {
-	abs, err := confine(root, p)
+	abs, err := Confine(root, p)
 	if err != nil {
 		return "", nil, 0, 0, err
 	}

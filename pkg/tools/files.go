@@ -29,7 +29,7 @@ var (
 // closed — an unresolvable path is never allowed through.
 const linkBudget = 32
 
-// confine resolves p relative to root and guarantees the result stays inside
+// Confine resolves p relative to root and guarantees the result stays inside
 // root. Absolute paths, ".." traversal, drive-relative paths and UNC paths
 // that would escape are rejected — and so is anything that only *looks*
 // inside the workspace: the path is expanded through symlinks first and
@@ -46,7 +46,7 @@ const linkBudget = 32
 // Residual TOCTOU — a component swapped for a symlink between this check
 // and the open — is inherent to path-based checks; the approval gate and
 // the workspace root are the backstops there.
-func confine(root, p string) (string, error) {
+func Confine(root, p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
 		return "", fmt.Errorf("empty path")
 	}
@@ -151,7 +151,7 @@ func (f *ReadFile) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 	if err := json.Unmarshal(input, &in); err != nil {
 		return nil, fmt.Errorf("invalid input: %w", err)
 	}
-	abs, err := confine(f.Root, in.Path)
+	abs, err := Confine(f.Root, in.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func (f *ReadFile) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 	// for byte — no splitting, so old callers see no change. The session
 	// adapter's ResultCap then trims an oversized slice, as it always has.
 	if in.Offset > 0 || in.Limit > 0 {
-		lines := splitFileLines(text)
+		lines := SplitFileLines(text)
 		start := 0
 		if in.Offset > 0 {
 			start = in.Offset - 1
@@ -193,12 +193,12 @@ func (f *ReadFile) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 	return TextResult(text), nil
 }
 
-// splitFileLines splits text into lines addressed by 1-based offsets: on
+// SplitFileLines splits text into lines addressed by 1-based offsets: on
 // "\n", with a final newline not counted as an extra line ("a\n" is one
 // line, "a\n\n" is two) — the numbering sed/grep use. \r is kept, so
 // joining a full sweep of slices reproduces the original bytes minus that
 // final newline.
-func splitFileLines(text string) []string {
+func SplitFileLines(text string) []string {
 	if text == "" {
 		return nil
 	}
@@ -240,7 +240,7 @@ func (f *WriteFile) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	if err := json.Unmarshal(input, &in); err != nil {
 		return nil, fmt.Errorf("invalid input: %w", err)
 	}
-	abs, err := confine(f.Root, in.Path)
+	abs, err := Confine(f.Root, in.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +311,7 @@ func (f *EditFile) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 	if err := json.Unmarshal(input, &in); err != nil {
 		return nil, fmt.Errorf("invalid input: %w", err)
 	}
-	abs, err := confine(f.Root, in.Path)
+	abs, err := Confine(f.Root, in.Path)
 	if err != nil {
 		return nil, err
 	}

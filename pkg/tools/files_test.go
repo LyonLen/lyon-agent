@@ -26,9 +26,9 @@ func TestConfine(t *testing.T) {
 	}
 	for _, tc := range valid {
 		t.Run("ok/"+tc.name, func(t *testing.T) {
-			got, err := confine(root, tc.in)
+			got, err := Confine(root, tc.in)
 			if err != nil {
-				t.Fatalf("confine(%q) = error %v", tc.in, err)
+				t.Fatalf("Confine(%q) = error %v", tc.in, err)
 			}
 			rel, err := filepath.Rel(root, got)
 			if err != nil || strings.HasPrefix(rel, "..") {
@@ -47,8 +47,8 @@ func TestConfine(t *testing.T) {
 	}
 	for _, in := range escapes {
 		t.Run("reject/"+in, func(t *testing.T) {
-			if got, err := confine(root, in); err == nil {
-				t.Fatalf("confine(%q) = %q, want escape error", in, got)
+			if got, err := Confine(root, in); err == nil {
+				t.Fatalf("Confine(%q) = %q, want escape error", in, got)
 			}
 		})
 	}
@@ -73,16 +73,16 @@ func TestConfineWindowsVolumes(t *testing.T) {
 	}
 	for _, in := range escapes {
 		t.Run("reject/"+in, func(t *testing.T) {
-			if got, err := confine(root, in); err == nil {
-				t.Fatalf("confine(%q) = %q, want escape error", in, got)
+			if got, err := Confine(root, in); err == nil {
+				t.Fatalf("Confine(%q) = %q, want escape error", in, got)
 			}
 		})
 	}
 
 	// An absolute path INSIDE the root stays allowed.
 	inside := filepath.Join(root, "ok.txt")
-	if got, err := confine(root, inside); err != nil {
-		t.Fatalf("confine(inside absolute) = %v", err)
+	if got, err := Confine(root, inside); err != nil {
+		t.Fatalf("Confine(inside absolute) = %v", err)
 	} else if got != inside {
 		t.Fatalf("got %q, want %q", got, inside)
 	}
