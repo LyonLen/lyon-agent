@@ -1,23 +1,20 @@
 package main
 
-// The startup home dashboard (#10). Four module groups render into the
-// transcript right under the commands banner — machine stats, clock +
-// IP location + weather, a personality-profiled news brief, and the
+// The dashboard data layer (#10; display retired — the header widget
+// cells own presentation now). Ten modules — machine stats, clock,
+// IP location + weather, the personality-profiled news brief, and the
 // custom group (ruanyifeng digest, leetcode daily, daily keyword,
-// quotes, oscilloscope). The architecture keeps three promises:
+// quotes, oscilloscope) — refresh into an in-memory cell map that the
+// header reads. The architecture keeps three promises:
 //
-//   - The TUI event loop never fetches. Render reads an in-memory cell
-//     map; background goroutines (one per refreshable module, started
-//     only from runTUI) write cells on each module's own interval, and
-//     a 1s tea.Tick chain re-renders the block while it sits at the
-//     transcript tail.
+//   - The TUI event loop never fetches: background goroutines (one per
+//     refreshable module, started only from runTUI) write cells on each
+//     module's own interval; a 1s tea.Tick chain keeps the header clock
+//     stepping.
 //   - Offline is a first-class state: a failed fetch keeps the
-//     last-success cell with a stale badge; a module with no data ever
-//     renders one dim placeholder row; a render panic is caught per
-//     module. Nothing here can take the TUI down.
-//   - Every kill path is an env var: LYON_DASHBOARD=off reverts to the
-//     banner-only startup view with zero dashboard behavior — no seeds,
-//     no ticks, no refreshers. Config lives at $LYON_HOME/dashboard.json,
+//     last-success cell marked stale instead of dropping it.
+//   - Every kill path is an env var: LYON_DASHBOARD=off starts no
+//     refreshers and no tick. Config lives at $LYON_HOME/dashboard.json,
 //     the last-success cache at $LYON_HOME/dashboard-cache.json.
 
 import (
@@ -26,14 +23,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/charmbracelet/x/ansi"
 )
 
 // dashEnvOff is the hard kill switch, same idiom as LYON_EXAM/LYON_SCORE.
@@ -93,7 +87,7 @@ func defaultDashConfig() dashConfig {
 		},
 		Custom: []string{"ruanyifeng", "leetcode", "keywords", "stocks", "scope"},
 		Intervals: map[string]string{
-			"sysinfo": "5s", "geo": "1h", "weather": "30m", "brief": "30m",
+			"sysinfo": "10s", "geo": "1h", "weather": "30m", "brief": "30m",
 			"ruanyifeng": "1h", "leetcode": "1h", "stocks": "30m",
 		},
 		Feeds:  defaultDashFeeds(),
@@ -378,13 +372,10 @@ type sysSnap struct {
 
 type dashMod struct {
 	id       string
-	group    int // 1 machine · 2 time/place · 3 brief · 4 custom
-	custom   bool
 	defOn    bool
-	interval time.Duration // 0 = render-driven (no fetcher)
+	interval time.Duration // 0 = no fetcher (pure local)
 	refresh  func(ctx context.Context) (any, error)
 	decode   func([]byte) (any, error) // nil → not persisted to the cache
-	render   func(m *tuiModel, cell *dashCell, has bool) []string
 }
 
 var (
@@ -396,29 +387,26 @@ var (
 func dashRegistry() []*dashMod {
 	dashRegistryOnce.Do(func() {
 		dashMods = []*dashMod{
-			{id: "sysinfo", group: 1, defOn: true, interval: 5 * time.Second,
+			{id: "sysinfo", defOn: true, interval: 10 * time.Second,
 				refresh: func(ctx context.Context) (any, error) {
 					return sysProbe(dashWorkspacePath()), nil
-				},
-				render: renderSysinfo},
-			{id: "clock", group: 2, defOn: true, render: renderClock},
-			{id: "geo", group: 2, defOn: true, interval: time.Hour,
+				}},
+			{id: "clock", defOn: true},
+			{id: "geo", defOn: true, interval: time.Hour,
 				refresh: fetchGeo,
 				decode: func(b []byte) (any, error) {
 					var v geoData
 					err := json.Unmarshal(b, &v)
 					return &v, err
-				},
-				render: renderGeo},
-			{id: "weather", group: 2, defOn: true, interval: 30 * time.Minute,
+				}},
+			{id: "weather", defOn: true, interval: 30 * time.Minute,
 				refresh: refreshWeather,
 				decode: func(b []byte) (any, error) {
 					var v weatherData
 					err := json.Unmarshal(b, &v)
 					return &v, err
-				},
-				render: renderWeather},
-			{id: "brief", group: 3, defOn: true, interval: 30 * time.Minute,
+				}},
+			{id: "brief", defOn: true, interval: 30 * time.Minute,
 				refresh: func(ctx context.Context) (any, error) {
 					return fetchBrief(ctx, dashConfigNow().Feeds, dashWorkspacePath())
 				},
@@ -426,9 +414,8 @@ func dashRegistry() []*dashMod {
 					var v briefData
 					err := json.Unmarshal(b, &v)
 					return &v, err
-				},
-				render: renderBrief},
-			{id: "ruanyifeng", group: 4, custom: true, defOn: true, interval: time.Hour,
+				}},
+			{id: "ruanyifeng", defOn: true, interval: time.Hour,
 				refresh: func(ctx context.Context) (any, error) {
 					return fetchDigest(ctx, dashDigestURL)
 				},
@@ -436,18 +423,16 @@ func dashRegistry() []*dashMod {
 					var v digestData
 					err := json.Unmarshal(b, &v)
 					return &v, err
-				},
-				render: renderDigest},
-			{id: "leetcode", group: 4, custom: true, defOn: true, interval: time.Hour,
+				}},
+			{id: "leetcode", defOn: true, interval: time.Hour,
 				refresh: fetchLeetCode,
 				decode: func(b []byte) (any, error) {
 					var v leetcodeData
 					err := json.Unmarshal(b, &v)
 					return &v, err
-				},
-				render: renderLeetcode},
-			{id: "keywords", group: 4, custom: true, render: renderKeywords},
-			{id: "stocks", group: 4, custom: true, interval: 30 * time.Minute,
+				}},
+			{id: "keywords"},
+			{id: "stocks", interval: 30 * time.Minute,
 				refresh: func(ctx context.Context) (any, error) {
 					return fetchStocks(ctx, dashConfigNow().Stocks)
 				},
@@ -455,9 +440,8 @@ func dashRegistry() []*dashMod {
 					var v stocksData
 					err := json.Unmarshal(b, &v)
 					return &v, err
-				},
-				render: renderStocks},
-			{id: "scope", group: 4, custom: true, render: renderScope},
+				}},
+			{id: "scope"},
 		}
 		dashModsByID = map[string]*dashMod{}
 		for _, mod := range dashMods {
@@ -528,57 +512,6 @@ func dashIntervalOf(cfg *dashConfig, mod *dashMod) time.Duration {
 	return mod.interval
 }
 
-// dashRenderOrder: core groups in fixed order, then the custom group in
-// the user's configured order (membership list — an id the user removed
-// from "custom" stops rendering even when enabled).
-func dashRenderOrder(cfg *dashConfig) []*dashMod {
-	var out []*dashMod
-	seen := map[string]bool{}
-	for _, mod := range dashRegistry() {
-		if mod.custom {
-			continue
-		}
-		out = append(out, mod)
-		seen[mod.id] = true
-	}
-	for _, id := range cfg.Custom {
-		if seen[id] {
-			continue
-		}
-		if mod, ok := dashModsByID[id]; ok && mod.custom {
-			out = append(out, mod)
-			seen[id] = true
-		}
-	}
-	return out
-}
-
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-
-// dashLabel pads a bilingual module label to a fixed 9-cell gutter.
-func dashLabel(s string) string {
-	const w = 9
-	switch pad := w - ansi.StringWidth(s); {
-	case pad > 0:
-		return s + strings.Repeat(" ", pad)
-	case pad < 0:
-		return ansi.Truncate(s, w-1, "") + " "
-	}
-	return s
-}
-
-// dashFit truncates over-wide rows; the reset closes any style the cut
-// would otherwise leave open (renderTranscript wraps anything longer,
-// but pre-fitting keeps one logical row one physical row).
-func dashFit(s string, w int) string {
-	if w > 0 && ansi.StringWidth(s) > w {
-		return ansi.Truncate(s, w, "…") + cReset
-	}
-	return s
-}
-
 func dashBytes(v uint64) string {
 	if v < 1024 {
 		return fmt.Sprintf("%dB", v)
@@ -597,323 +530,10 @@ func dashBytes(v uint64) string {
 	return fmt.Sprintf("%.0f%s", val, units[i])
 }
 
-// dashTerminalName best-effort identifies the host terminal from env —
-// the same signals the rest of the ecosystem uses.
-func dashTerminalName() string {
-	if os.Getenv("WT_SESSION") != "" {
-		return "windows-terminal"
-	}
-	if v := os.Getenv("TERM_PROGRAM"); v != "" {
-		return strings.ToLower(strings.TrimSuffix(v, ".app"))
-	}
-	if os.Getenv("ConEmuANSI") == "ON" {
-		return "conemu"
-	}
-	if os.Getenv("ANSICON") != "" {
-		return "ansicon"
-	}
-	if v := os.Getenv("TERM"); v != "" {
-		return v
-	}
-	if runtime.GOOS == "windows" {
-		return "console"
-	}
-	return "tty"
-}
-
 var zhWeekdays = [...]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
 
-func dashPlaceholder() string { return paint(cDim, tr("waiting for data", "等待数据")) }
-
-// dashRows builds the whole dashboard block for the current width. Every
-// module gets a recover guard: one broken renderer degrades to its own
-// placeholder row, never the page.
-func (m *tuiModel) dashRows() []string {
-	w := m.tw
-	if w <= 0 {
-		w = 80
-	}
-	cfg := dashConfigNow()
-	rows := []string{paint(cBold+cCyan, tr("lyon home", "lyon 首页"))}
-	lastGroup := 0
-	for _, mod := range dashRenderOrder(&cfg) {
-		if !dashModEnabled(&cfg, mod.id) {
-			continue
-		}
-		if lastGroup != 0 && mod.group != lastGroup {
-			rows = append(rows, "")
-		}
-		lastGroup = mod.group
-		cell, has := dashGetCell(mod.id)
-		out := dashSafeRender(m, mod, cell, has)
-		if has && cell != nil && (cell.stale || dashAgedStale(&cfg, mod, cell)) && len(out) > 0 {
-			out[len(out)-1] += " " + paint(cYellow, tr("stale", "离线"))
-		}
-		for _, r := range out {
-			rows = append(rows, dashFit(r, w))
-		}
-	}
-	rows = append(rows, "") // the conversation below starts on a clean line
-	return rows
-}
-
-func dashAgedStale(cfg *dashConfig, mod *dashMod, cell *dashCell) bool {
-	iv := dashIntervalOf(cfg, mod)
-	return iv > 0 && time.Since(cell.at) > 2*iv
-}
-
-func dashSafeRender(m *tuiModel, mod *dashMod, cell *dashCell, has bool) (rows []string) {
-	defer func() {
-		if r := recover(); r != nil {
-			rows = []string{dashLabel(mod.id) + paint(cYellow, tr("render error", "渲染错误"))}
-		}
-	}()
-	if mod.render == nil {
-		return nil
-	}
-	return mod.render(m, cell, has)
-}
-
-func renderSysinfo(m *tuiModel, cell *dashCell, has bool) []string {
-	label := dashLabel(tr("machine", "机器"))
-	if !has {
-		return []string{label + dashPlaceholder()}
-	}
-	s, ok := cell.data.(sysSnap)
-	if !ok {
-		return []string{label + dashPlaceholder()}
-	}
-	dim := func(s string) string { return paint(cDim, s) }
-	var r1 []string
-	if s.CPUPct >= 0 {
-		r1 = append(r1, fmt.Sprintf("%s %.0f%%", tr("cpu", "处理器"), s.CPUPct))
-	} else {
-		r1 = append(r1, tr("cpu", "处理器")+" …")
-	}
-	switch {
-	case s.MemTotal > 0 && s.MemUsed > 0:
-		pct := s.MemPct
-		if pct < 0 {
-			pct = float64(s.MemUsed) / float64(s.MemTotal) * 100
-		}
-		r1 = append(r1, fmt.Sprintf("%s %s/%s %.0f%%", tr("mem", "内存"),
-			dashBytes(s.MemUsed), dashBytes(s.MemTotal), pct))
-	case s.MemTotal > 0:
-		r1 = append(r1, fmt.Sprintf("%s %s", tr("mem", "内存"), dashBytes(s.MemTotal)))
-	default:
-		r1 = append(r1, tr("mem", "内存")+" …")
-	}
-	if s.DiskTotal > 0 {
-		used := s.DiskTotal - s.DiskFree
-		r1 = append(r1, fmt.Sprintf("%s %s/%s %.0f%%", tr("disk", "磁盘"),
-			dashBytes(used), dashBytes(s.DiskTotal),
-			float64(used)/float64(s.DiskTotal)*100))
-	} else {
-		r1 = append(r1, tr("disk", "磁盘")+" …")
-	}
-	var r2 []string
-	if s.NetOK {
-		r2 = append(r2, fmt.Sprintf("%s ↑%s/s ↓%s/s", tr("net", "网络"),
-			dashBytes(uint64(s.NetUpBps)), dashBytes(uint64(s.NetDownBps))))
-	} else {
-		r2 = append(r2, tr("net", "网络")+" …")
-	}
-	if s.OS != "" {
-		r2 = append(r2, "os "+s.OS)
-	}
-	r2 = append(r2, fmt.Sprintf("%s %d×%d", dashTerminalName(), m.width, m.height))
-	return []string{
-		label + strings.Join(r1, dim(" · ")),
-		dashLabel("") + strings.Join(r2, dim(" · ")),
-	}
-}
-
-func renderClock(m *tuiModel, cell *dashCell, has bool) []string {
-	now := time.Now()
-	week, _ := now.ISOWeek()
-	en := now.Format("2006-01-02 Mon 15:04:05") + fmt.Sprintf(" · week %d", week)
-	zh := now.Format("2006-01-02") + " " + zhWeekdays[int(now.Weekday())] + " " +
-		now.Format("15:04:05") + fmt.Sprintf(" · 第%d周", week)
-	return []string{dashLabel(tr("time", "时间")) + tr(en, zh)}
-}
-
-func renderGeo(m *tuiModel, cell *dashCell, has bool) []string {
-	label := dashLabel(tr("location", "位置"))
-	if !has {
-		return []string{label + paint(cDim, tr("locating…", "定位中…"))}
-	}
-	g, ok := cell.data.(*geoData)
-	if !ok {
-		return []string{label + paint(cDim, tr("locating…", "定位中…"))}
-	}
-	var parts []string
-	if g.City != "" {
-		parts = append(parts, g.City)
-	}
-	if g.Region != "" && g.Region != g.City {
-		parts = append(parts, g.Region)
-	}
-	if g.Country != "" && g.Country != g.City && g.Country != g.Region {
-		parts = append(parts, g.Country)
-	}
-	line := strings.Join(parts, " · ")
-	if line == "" {
-		line = "—"
-	}
-	if g.IP != "" {
-		line += "  " + paint(cDim, g.IP)
-	}
-	return []string{label + line}
-}
-
-func renderWeather(m *tuiModel, cell *dashCell, has bool) []string {
-	label := dashLabel(tr("weather", "天气"))
-	if !has {
-		_, _, located := dashWeatherCoords()
-		msg := tr("waiting for weather", "等待天气")
-		if !located {
-			msg = tr("waiting for location", "等待位置")
-		}
-		return []string{label + paint(cDim, msg)}
-	}
-	w, ok := cell.data.(*weatherData)
-	if !ok {
-		return []string{label + dashPlaceholder()}
-	}
-	en, zh := weatherDesc(w.Code)
-	line := fmt.Sprintf("%.0f°C %s · %s %.0fkm/h · %.0f/%.0f°",
-		w.Temp, tr(en, zh), tr("wind", "风"), w.Wind, w.Hi, w.Lo)
-	return []string{label + line}
-}
-
-func renderBrief(m *tuiModel, cell *dashCell, has bool) []string {
-	var b *briefData
-	if has {
-		b, _ = cell.data.(*briefData)
-	}
-	profile := "—"
-	var industry string
-	if b != nil && len(b.Profile) > 0 {
-		profile = strings.Join(b.Profile, " · ")
-		industry = classifyIndustry(profile)
-	}
-	row1 := dashLabel(tr("brief", "简报")) + paint(cDim, tr("profile ", "画像 ")) + profile
-	newsLabel := dashLabel("")
-	var news string
-	if b != nil && len(b.Items) > 0 {
-		var titles []string
-		for i, it := range b.Items {
-			if i >= 3 {
-				break
-			}
-			titles = append(titles, ansi.Truncate(it.Title, 40, "…"))
-		}
-		news = strings.Join(titles, paint(cDim, " · "))
-	} else {
-		news = paint(cDim, tr("news offline — local tips below", "新闻离线 — 下为本地提示"))
-	}
-	row2 := newsLabel + news
-	tipEn, tipZh := dashPickTip(industry, time.Now())
-	row3 := dashLabel(tr("tip", "提示")) + tr(tipEn, tipZh)
-	return []string{row1, row2, row3}
-}
-
-func renderDigest(m *tuiModel, cell *dashCell, has bool) []string {
-	label := dashLabel(tr("digest", "摘要"))
-	if !has {
-		return []string{label + dashPlaceholder()}
-	}
-	d, ok := cell.data.(*digestData)
-	if !ok {
-		return []string{label + dashPlaceholder()}
-	}
-	line := d.Title
-	if d.Date != "" {
-		line = d.Date + " · " + d.Title
-	}
-	return []string{label + line}
-}
-
-func renderLeetcode(m *tuiModel, cell *dashCell, has bool) []string {
-	label := dashLabel(tr("daily", "每日"))
-	if !has {
-		return []string{label + dashPlaceholder()}
-	}
-	d, ok := cell.data.(*leetcodeData)
-	if !ok {
-		return []string{label + dashPlaceholder()}
-	}
-	zhTitle := d.Translated
-	if zhTitle == "" {
-		zhTitle = d.Title
-	}
-	zhDiff := map[string]string{"Easy": "简单", "Medium": "中等", "Hard": "困难"}[d.Difficulty]
-	if zhDiff == "" {
-		zhDiff = d.Difficulty
-	}
-	line := fmt.Sprintf("#%s %s (%s)", d.FrontendID, tr(d.Title, zhTitle), tr(d.Difficulty, zhDiff))
-	return []string{label + line}
-}
-
-// dashIndustryNow reads the industry bucket out of the brief cell so the
-// keyword row follows the same profile as the news ranking.
-func dashIndustryNow() string {
-	if c, ok := dashGetCell("brief"); ok {
-		if b, is := c.data.(*briefData); is && len(b.Profile) > 0 {
-			return classifyIndustry(strings.Join(b.Profile, " "))
-		}
-	}
-	return "generic"
-}
-
-func renderKeywords(m *tuiModel, cell *dashCell, has bool) []string {
-	industry := dashIndustryNow()
-	en, zh := dashPickKeyword(industry, time.Now())
-	line := time.Now().Format("2006-01-02") + " · " + industry + " · " + tr(en, zh)
-	return []string{dashLabel(tr("keyword", "关键词")) + line}
-}
-
-func renderStocks(m *tuiModel, cell *dashCell, has bool) []string {
-	label := dashLabel(tr("stocks", "行情"))
-	if !has {
-		return []string{label + dashPlaceholder()}
-	}
-	s, ok := cell.data.(*stocksData)
-	if !ok || len(s.Quotes) == 0 {
-		return []string{label + dashPlaceholder()}
-	}
-	var parts []string
-	for _, q := range s.Quotes {
-		// CN market convention: red rises, green falls.
-		var pct string
-		switch {
-		case q.Pct > 0:
-			pct = paint(cRed, fmt.Sprintf("+%.2f%%", q.Pct))
-		case q.Pct < 0:
-			pct = paint(cGreen, fmt.Sprintf("%.2f%%", q.Pct))
-		default:
-			pct = paint(cDim, "0.00%")
-		}
-		parts = append(parts, fmt.Sprintf("%s %.2f %s", q.Name, q.Price, pct))
-	}
-	return []string{label + strings.Join(parts, paint(cDim, " · "))}
-}
-
-func renderScope(m *tuiModel, cell *dashCell, has bool) []string {
-	w := m.tw
-	if w <= 0 {
-		w = 80
-	}
-	wave := dashWave(w-9, time.Now())
-	return []string{dashLabel(tr("scope", "示波")) + paint(cCyan, wave)}
-}
-
-// ---------------------------------------------------------------------------
-// Transcript block lifecycle: seed at startup, live-refresh at the tail
-// ---------------------------------------------------------------------------
-
 // dashWorkspace feeds the memory profile and the disk probe; set from
-// the model at seed time and from runTUI at refresher start.
+// runTUI at refresher start.
 var (
 	dashWSMu      sync.Mutex
 	dashWorkspace string
@@ -934,120 +554,6 @@ func dashWorkspacePath() string {
 	return dashWorkspace
 }
 
-// dashBlocks maps a model to its live dashboard region so several models
-// (tests build many) never scribble on each other.
-type dashBlock struct {
-	start, n int
-	last     string
-}
-
-var (
-	dashBlockMu sync.Mutex
-	dashBlocks  = map[*tuiModel]*dashBlock{}
-)
-
-func dashPutBlock(m *tuiModel, start, n int, last string) {
-	dashBlockMu.Lock()
-	dashBlocks[m] = &dashBlock{start: start, n: n, last: last}
-	dashBlockMu.Unlock()
-}
-
-func dashGetBlock(m *tuiModel) (*dashBlock, bool) {
-	dashBlockMu.Lock()
-	defer dashBlockMu.Unlock()
-	b, ok := dashBlocks[m]
-	return b, ok
-}
-
-func dashDelBlock(m *tuiModel) {
-	dashBlockMu.Lock()
-	delete(dashBlocks, m)
-	dashBlockMu.Unlock()
-}
-
-// dashSeed appends the dashboard under the startup banner. Called from
-// resetTranscript (new model, /new, /resume) and dashHome.
-func (m *tuiModel) dashSeed() {
-	if dashEnvOff() {
-		return
-	}
-	cfg := dashConfigNow()
-	if !dashGlobalOn(&cfg) {
-		return
-	}
-	dashSetWorkspace(m.workspace)
-	rows := m.dashRows()
-	start := len(m.lines)
-	for _, r := range rows {
-		m.lines = append(m.lines, tline{kind: lineStyled, raw: r})
-	}
-	dashPutBlock(m, start, len(rows), strings.Join(rows, "\n"))
-}
-
-// dashRenderBlock re-renders the live block in place — but only while it
-// still sits at the transcript tail. Once the conversation (or /clear)
-// moves the tail, the seeded dashboard is history and freezes; /home or
-// /new brings a fresh one.
-func (m *tuiModel) dashRenderBlock() {
-	b, ok := dashGetBlock(m)
-	if !ok {
-		return
-	}
-	if b.start+b.n != len(m.lines) {
-		if len(m.lines) == 0 { // /clear wiped the view — the block is gone
-			dashDelBlock(m)
-		}
-		return
-	}
-	if dashEnvOff() {
-		return
-	}
-	cfg := dashConfigNow()
-	if !dashGlobalOn(&cfg) {
-		return
-	}
-	rows := m.dashRows()
-	joined := strings.Join(rows, "\n")
-	if joined == b.last {
-		return // nothing changed since the last second — skip the churn
-	}
-	tlines := make([]tline, len(rows))
-	for i, r := range rows {
-		tlines[i] = tline{kind: lineStyled, raw: r}
-	}
-	m.lines = append(m.lines[:b.start], tlines...)
-	dashPutBlock(m, b.start, len(rows), joined)
-	m.refresh()
-}
-
-// dashStripBlock removes the live block (used by /dash off) without
-// touching anything around it.
-func (m *tuiModel) dashStripBlock() {
-	if b, ok := dashGetBlock(m); ok && b.start+b.n <= len(m.lines) {
-		m.lines = append(m.lines[:b.start], m.lines[b.start+b.n:]...)
-	}
-	dashDelBlock(m)
-}
-
-// dashHome returns the view to the dashboard: banner + fresh block,
-// conversation history kept exactly like /clear keeps it, and the audit
-// panel + plan preserved — this is view navigation, not a session reset.
-func (m *tuiModel) dashHome() {
-	if dashEnvOff() {
-		return
-	}
-	steps, seq, sel, open, outOpen, todos :=
-		m.steps, m.stepSeq, m.stepSel, m.stepOpen, m.stepOutOpen, m.todos
-	m.resetTranscript() // reseeds banner + dashboard
-	if _, ok := dashGetBlock(m); !ok {
-		m.dashSeed() // safety net if the wiring is toggled off
-	}
-	m.steps, m.stepSeq, m.stepSel, m.stepOpen, m.stepOutOpen, m.todos =
-		steps, seq, sel, open, outOpen, todos
-	m.follow = true
-	m.refresh()
-}
-
 // ---------------------------------------------------------------------------
 // The 1s render tick (tea.Tick chain — self-contained, no goroutines)
 // ---------------------------------------------------------------------------
@@ -1061,141 +567,10 @@ func dashTickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg { return dashTickMsg{} })
 }
 
-func (m *tuiModel) dashTick() tea.Cmd {
-	m.dashRenderBlock()
-	return dashTickCmd()
-}
-
-// ---------------------------------------------------------------------------
-// /dash and /home
-// ---------------------------------------------------------------------------
-
-func (m *tuiModel) dashCommand(args string) {
-	args = strings.TrimSpace(args)
-	switch {
-	case dashEnvOff():
-		m.pushCmd(paint(cYellow, tr("dashboard disabled via LYON_DASHBOARD=off",
-			"仪表盘已被 LYON_DASHBOARD=off 关闭")))
-	case args == "":
-		// Bare /dash is both the config panel and the way back home.
-		m.dashHome()
-		m.pushCmd(dashPanelRows()...)
-	case args == "on", args == "off":
-		cfg := dashConfigNow()
-		on := args == "on"
-		cfg.Enabled = &on
-		if err := writeDashConfig(cfg); err != nil {
-			m.pushCmd(paint(cYellow, tr("config write failed: ", "配置写入失败: ")+sanitizeText(err.Error())))
-			return
-		}
-		if on {
-			m.dashHome()
-			m.pushCmd(paint(cGreen, tr("dashboard on", "仪表盘已开启")))
-		} else {
-			m.dashStripBlock()
-			m.pushCmd(paint(cDim, tr("dashboard off", "仪表盘已关闭")))
-		}
-	case strings.HasPrefix(args, "on "), strings.HasPrefix(args, "off "):
-		on := strings.HasPrefix(args, "on ")
-		rest := strings.TrimPrefix(args, "on ")
-		if !on {
-			rest = strings.TrimPrefix(args, "off ")
-		}
-		id := strings.TrimSpace(rest)
-		mod := dashModLookup(id)
-		if mod == nil {
-			m.pushCmd(
-				paint(cRed, tr("unknown module: "+id, "未知模块: "+id)),
-				paint(cDim, tr("known: "+strings.Join(dashModuleIDs(), " "),
-					"已知: "+strings.Join(dashModuleIDs(), " "))),
-			)
-			return
-		}
-		cfg := dashConfigNow()
-		if cfg.Modules == nil {
-			cfg.Modules = map[string]bool{}
-		}
-		cfg.Modules[id] = on
-		if mod.custom && !dashContains(cfg.Custom, id) {
-			cfg.Custom = append(cfg.Custom, id) // toggling a removed custom id rejoins the group
-		}
-		if err := writeDashConfig(cfg); err != nil {
-			m.pushCmd(paint(cYellow, tr("config write failed: ", "配置写入失败: ")+sanitizeText(err.Error())))
-			return
-		}
-		state := tr("off", "关")
-		if on {
-			state = tr("on", "开")
-		}
-		m.pushCmd(paint(cDim, id+" → "+state))
-		m.dashRenderBlock() // re-lays the block when it is still at the tail
-	default:
-		m.dashUsage()
-	}
-}
-
-func dashContains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
-func dashModuleIDs() []string {
-	var ids []string
-	for _, mod := range dashRegistry() {
-		ids = append(ids, mod.id)
-	}
-	return ids
-}
-
-func (m *tuiModel) dashUsage() {
-	m.pushCmd(
-		paint(cYellow, tr("usage: /dash on|off [module] — /dash or /home returns to the dashboard",
-			"用法: /dash on|off [模块] — /dash 或 /home 回到仪表盘")),
-	)
-}
-
-// dashPanelRows is the /dash config panel: per-module state, refresh
-// intervals, the file it persists to, and the env kill switch.
-func dashPanelRows() []string {
-	cfg := dashConfigNow()
-	var on, off []string
-	for _, mod := range dashRegistry() {
-		if dashModEnabled(&cfg, mod.id) {
-			on = append(on, mod.id)
-		} else {
-			off = append(off, mod.id)
-		}
-	}
-	rows := []string{
-		paint(cBold, tr("dashboard", "仪表盘")) + paint(cDim, "  "+dashConfigPath()),
-	}
-	if len(on) > 0 {
-		rows = append(rows, paint(cGreen, tr("on ", "开 "))+
-			strings.Join(on, paint(cDim, " ")))
-	}
-	if len(off) > 0 {
-		rows = append(rows, paint(cDim, tr("off", "关")+" "+
-			strings.Join(off, " ")))
-	}
-	var ivs []string
-	for _, mod := range dashRegistry() {
-		if mod.interval > 0 {
-			ivs = append(ivs, fmt.Sprintf("%s %s", mod.id, dashIntervalOf(&cfg, mod)))
-		}
-	}
-	rows = append(rows, paint(cDim, tr("refresh ", "刷新 "))+strings.Join(ivs, paint(cDim, " · ")))
-	if !dashGlobalOn(&cfg) {
-		rows = append(rows, paint(cYellow, tr("dashboard is off — /dash on re-enables it",
-			"仪表盘当前关闭 — /dash on 重新开启")))
-	}
-	rows = append(rows, paint(cDim, tr("LYON_DASHBOARD=off disables everything · /dash on|off <module> toggles a row",
-		"LYON_DASHBOARD=off 关闭全部 · /dash on|off <模块> 开关单项")))
-	return rows
-}
+// dashTick just rearms the chain: the transcript no longer carries a
+// dashboard block — the tick's per-second Update is what repaints the
+// header clock.
+func (m *tuiModel) dashTick() tea.Cmd { return dashTickCmd() }
 
 // ---------------------------------------------------------------------------
 // Background refreshers: one goroutine per module, all independent

@@ -351,7 +351,6 @@ func (m *tuiModel) resetTranscript() {
 	m.stepOutOpen = false // the band collapses with the audit it reads
 	m.cmdOut = nil
 	m.todos = nil // the plan block dies with the lines; restore re-adds it
-	m.dashSeed()  // startup home dashboard under the banner (#10)
 }
 
 func (m *tuiModel) Init() tea.Cmd { return tea.Batch(m.ti.Focus(), dashTickCmd()) }
@@ -1068,8 +1067,6 @@ func buildSlashCommands() []sugItem {
 		{"/sessions", tr("list this workspace's saved sessions", "列出本工作区的已保存会话"), "session"},
 		{"/resume", tr("restore a saved session — bare /resume opens a picker", "恢复已保存会话 — 裸 /resume 打开选择器"), "session"},
 		{"/new", tr("start a fresh session (current one archived)", "开新会话（当前会话归档）"), "session"},
-		{"/home", tr("back to the startup dashboard", "回到启动仪表盘"), "session"},
-		{"/dash", tr("dashboard: /dash on|off [module] toggles a row", "仪表盘：/dash on|off [模块] 开关单项"), "session"},
 		{"/rollback", tr("undo history to a checkpoint — list, or /rollback N", "回退历史到检查点 — 列出或 /rollback N"), "session"},
 		{"/quit", tr("exit", "退出"), "session"},
 		{"/model", tr("model card: context window, official params, pricing", "模型卡：上下文窗口、官方参数、定价"), "model"},
@@ -2820,10 +2817,6 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 		} else {
 			m.status = tr("usage: /lang zh|en", "用法: /lang zh|en")
 		}
-	case "/home":
-		m.dashHome()
-	case "/dash":
-		m.dashCommand(args)
 	case "/help":
 		m.pushCmd(helpLines()...)
 	default:
@@ -2848,8 +2841,6 @@ func helpLines() []string {
 			"  /memory  分层记忆：团队/个人/项目行，/memory N 切换热词，sync 同步",
 			"  /remember 立即提炼本会话的收获进记忆（退出时也会自动跑）",
 			"  /rollback 回退历史：裸命令列检查点，/rollback N 恢复，/rollback save [text] 打标记",
-			"  /dash    仪表盘：/dash on|off [模块] 开关单项，裸命令回到首页并显示配置",
-			"  /home    回到启动仪表盘（会话历史保留）",
 			"  /model   模型卡：/model current · /model list · /model <id>",
 			"  /mode    执行模式：plan（只读）· bypass（自动批准）· default — shift+tab 循环切换",
 			"  /think   展开/折叠思考块",
@@ -2884,8 +2875,6 @@ func helpLines() []string {
 		"  /memory  layered memory: team/personal/project rows, /memory N toggles hot, sync",
 		"  /remember distill this session's learnings into memory now (auto-runs on exit)",
 		"  /rollback undo history: bare lists checkpoints, /rollback N restores, /rollback save [text] marks one",
-		"  /dash    dashboard: /dash on|off [module] toggles a row, bare returns home",
-		"  /home    back to the startup dashboard (session history kept)",
 		"  /model   model card: /model current · /model list · /model <id>",
 		"  /mode    execution mode: plan (read-only) · bypass (auto-approve) · default — shift+tab cycles",
 		"  /think   expand/collapse thinking blocks",

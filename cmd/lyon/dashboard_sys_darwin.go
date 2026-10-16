@@ -70,3 +70,9 @@ func osName() string {
 	}
 	return runtime.GOOS
 }
+
+// No rate samplers to prime on darwin (CPU/net report unavailable by
+// design) — kept so shared test hooks compile on this platform.
+func sysEnsureBaseline() {}
+
+func sysResetBaseline() {}

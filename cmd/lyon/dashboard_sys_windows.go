@@ -214,7 +214,34 @@ func osName() string {
 	return "windows (ver " + runtime.GOARCH + ")"
 }
 
+// sysEnsureBaseline primes the CPU and net rate samplers when this
+// process has no previous sample: one throwaway read, one sampling
+// window, then the caller's real read lands inside cpuPct/netSample —
+// the first sysProbe after start reports actual rates instead of the
+// -1/false warmup placeholder.
+func sysEnsureBaseline() {
+	sysPrevMu.Lock()
+	need := !sysPrevCPU.ok || !sysPrevNet.ok
+	sysPrevMu.Unlock()
+	if !need {
+		return
+	}
+	_ = cpuPct()
+	_, _, _ = netSample()
+	time.Sleep(120 * time.Millisecond)
+}
+
+// sysResetBaseline drops the primed samples (test hook: re-prove the
+// first-sample warmup).
+func sysResetBaseline() {
+	sysPrevMu.Lock()
+	defer sysPrevMu.Unlock()
+	sysPrevCPU.ok = false
+	sysPrevNet.ok = false
+}
+
 func sysProbe(workspace string) sysSnap {
+	sysEnsureBaseline()
 	pct, used, total, memOK := memorySnap()
 	free, dtot, diskOK := diskSnap(dashDiskRoot(workspace))
 	up, down, netOK := netSample()

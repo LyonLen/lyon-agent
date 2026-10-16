@@ -1,10 +1,10 @@
 package main
 
-// Dashboard tests (#10). Rules of the house: every network fetch runs
-// against httptest stubs (the real endpoints never get touched from the
-// suite), language is pinned to English for deterministic labels, and
-// each test points $LYON_HOME at its own temp dir so config/cache state
-// cannot leak between cases.
+// Dashboard data-layer tests (#10; the chat-area display is retired —
+// header widgets own presentation). Rules of the house: every network
+// fetch runs against httptest stubs (the suite never touches the real
+// network), and each test points $LYON_HOME at its own temp dir so
+// config/cache state cannot leak between cases.
 
 import (
 	"context"
@@ -13,14 +13,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/charmbracelet/x/ansi"
 )
 
 // dashTestHome isolates config + cache under a fresh $LYON_HOME and
@@ -45,101 +42,73 @@ func dashStub(t *testing.T, field, url string) {
 	t.Cleanup(func() { dashSetEndpoint(field, old) })
 }
 
-// dashModel builds a fresh model in an isolated home with its dashboard
-// block in place. The guard keeps it single-seed both before and after
-// the resetTranscript wiring lands.
+// dashModel builds a fresh model in an isolated home.
 func dashModel(t *testing.T) *tuiModel {
 	t.Helper()
 	dashTestHome(t)
-	m := newTestModel(t)
-	if _, ok := dashGetBlock(m); !ok {
-		m.dashSeed()
-	}
-	t.Cleanup(func() { dashDelBlock(m) })
-	return m
+	return newTestModel(t)
 }
 
-func dashBlockRows(m *tuiModel) []string {
-	b, ok := dashGetBlock(m)
-	if !ok || b.start < 0 || b.start+b.n > len(m.lines) {
-		return nil
-	}
-	rows := make([]string, 0, b.n)
-	for _, l := range m.lines[b.start : b.start+b.n] {
-		rows = append(rows, l.raw)
-	}
-	return rows
-}
-
-// TestDashDefaultRender: the four core groups render at startup, every
-// row fits the transcript width, and the row count never depends on
-// width (narrow windows cut columns, never rows).
-func TestDashDefaultRender(t *testing.T) {
-	m := dashModel(t)
-	rows := dashBlockRows(m)
-	if len(rows) == 0 {
-		t.Fatal("no dashboard block after seed")
-	}
-	joined := strings.Join(rows, "\n")
-	for _, want := range []string{
-		"lyon home",
-		"machine",                     // group 1
-		"time", "location", "weather", // group 2
-		"brief",           // group 3
-		"digest", "daily", // group 4 defaults: ruanyifeng + leetcode
-		"commands: /stats", // the banner above the block survives
-	} {
-		if !strings.Contains(joined, want) && !strings.Contains(
-			strings.Join(allTranscript(m), "\n"), want) {
-			t.Errorf("dashboard misses %q", want)
-		}
-	}
-	fullN := len(rows)
-	for _, r := range rows {
-		if w := ansi.StringWidth(r); w > m.tw {
-			t.Errorf("row wider than transcript (%d>%d): %q", w, m.tw, r)
-		}
-	}
-	// The invariant vocabulary other suites pin must never appear here.
-	low := strings.ToLower(joined)
-	for _, banned := range []string{"restored", "second line", "usage table",
-		"replay plan beta", "budget reached"} {
-		if strings.Contains(low, banned) {
-			t.Errorf("dashboard text contains banned phrase %q", banned)
-		}
-	}
-	// Group separators: blanks both between groups and before the tail.
-	empties := 0
-	for _, r := range rows {
-		if r == "" {
-			empties++
-		}
-	}
-	if empties < 3 {
-		t.Errorf("want >=3 separator/blank rows, got %d", empties)
-	}
-
-	// Narrow window: same row count, narrower rows.
-	m.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
-	m.dashRenderBlock()
-	narrow := dashBlockRows(m)
-	if len(narrow) != fullN {
-		t.Fatalf("row count changed with width: %d -> %d", fullN, len(narrow))
-	}
-	for _, r := range narrow {
-		if w := ansi.StringWidth(r); w > m.tw {
-			t.Errorf("narrow row wider than transcript (%d>%d): %q", w, m.tw, r)
-		}
-	}
-}
-
-// allTranscript returns every transcript raw row (banner + block).
 func allTranscript(m *tuiModel) []string {
 	out := make([]string, 0, len(m.lines))
 	for _, l := range m.lines {
 		out = append(out, l.raw)
 	}
 	return out
+}
+
+// TestDashNoTranscriptBlock: the startup transcript carries the banner
+// only — no dashboard block ever seeds, neither at model construction
+// nor through the resetTranscript path (/new, /resume).
+func TestDashNoTranscriptBlock(t *testing.T) {
+	m := dashModel(t)
+	if len(m.lines) != 2 {
+		t.Fatalf("startup transcript has %d lines, want 2 (banner only)", len(m.lines))
+	}
+	joined := strings.Join(allTranscript(m), "\n")
+	if !strings.Contains(joined, "commands: /stats") {
+		t.Error("banner missing from startup transcript")
+	}
+	if strings.Contains(joined, "lyon home") {
+		t.Error("dashboard block seeded into the transcript")
+	}
+	// A conversation grows, then the /new //resume reset runs: still no
+	// dashboard block in either state.
+	m.lines = append(m.lines, tline{kind: lineStyled, raw: "some chat"})
+	m.resetTranscript()
+	if got := strings.Join(allTranscript(m), "\n"); strings.Contains(got, "lyon home") {
+		t.Error("resetTranscript re-seeded a dashboard block")
+	}
+	if len(m.lines) != 2 {
+		t.Errorf("reset transcript has %d lines, want 2", len(m.lines))
+	}
+}
+
+// TestDashIntervalDefaults: sysinfo refreshes every 10s by default —
+// both the built-in registry interval and the default config string —
+// while an explicit user interval still wins over the default.
+func TestDashIntervalDefaults(t *testing.T) {
+	dashTestHome(t)
+	mod := dashModLookup("sysinfo")
+	if mod == nil || mod.interval != 10*time.Second {
+		t.Fatalf("sysinfo registry interval = %v, want 10s", mod.interval)
+	}
+	cfg := defaultDashConfig()
+	if got := cfg.Intervals["sysinfo"]; got != "10s" {
+		t.Errorf("default config interval = %q, want 10s", got)
+	}
+	if got := dashIntervalOf(&cfg, mod); got != 10*time.Second {
+		t.Errorf("dashIntervalOf = %v, want 10s", got)
+	}
+	// A stored dashboard.json with an explicit value keeps its meaning.
+	cfg.Intervals["sysinfo"] = "5s"
+	if got := dashIntervalOf(&cfg, mod); got != 5*time.Second {
+		t.Errorf("explicit interval ignored: got %v", got)
+	}
+	cfg.Intervals["sysinfo"] = "nonsense"
+	if got := dashIntervalOf(&cfg, mod); got != 10*time.Second {
+		t.Errorf("garbage interval must fall back to 10s, got %v", got)
+	}
 }
 
 // TestDashConfig: partial files merge onto defaults, unknown module ids
@@ -208,30 +177,6 @@ func TestDashConfig(t *testing.T) {
 	fresh := readDashConfig(path)
 	if !dashGlobalOn(&fresh) || !dashModEnabled(&fresh, "sysinfo") {
 		t.Error("garbage file must yield defaults")
-	}
-}
-
-// TestDashRenderOrder: core groups keep their fixed order; the custom
-// group follows the config order and membership.
-func TestDashRenderOrder(t *testing.T) {
-	dashTestHome(t)
-	cfg := defaultDashConfig()
-	var ids []string
-	for _, mod := range dashRenderOrder(&cfg) {
-		ids = append(ids, mod.id)
-	}
-	want := "sysinfo clock geo weather brief ruanyifeng leetcode keywords stocks scope"
-	if got := strings.Join(ids, " "); got != want {
-		t.Errorf("default order:\n got %q\nwant %q", got, want)
-	}
-	cfg.Custom = []string{"stocks", "ruanyifeng"}
-	ids = nil
-	for _, mod := range dashRenderOrder(&cfg) {
-		ids = append(ids, mod.id)
-	}
-	want = "sysinfo clock geo weather brief stocks ruanyifeng"
-	if got := strings.Join(ids, " "); got != want {
-		t.Errorf("custom order:\n got %q\nwant %q", got, want)
 	}
 }
 
@@ -339,12 +284,8 @@ func TestDashFetchBrief(t *testing.T) {
 		t.Error("items not sorted by recency")
 	}
 
-	// All feeds down → error, which the refresher turns into a stale badge.
-	err = func() error {
-		_, e := fetchBrief(context.Background(), []string{dead.URL}, t.TempDir())
-		return e
-	}()
-	if err == nil {
+	// All feeds down → error, which the refresher turns into a stale cell.
+	if _, e := fetchBrief(context.Background(), []string{dead.URL}, t.TempDir()); e == nil {
 		t.Error("all-feeds-dead must report an error for the stale path")
 	}
 }
@@ -440,49 +381,19 @@ func TestDashFetchStocks(t *testing.T) {
 	}
 }
 
-// TestDashOfflineRender: with every cell empty the page still renders —
-// placeholders per module, the local tip always present, no panic.
-func TestDashOfflineRender(t *testing.T) {
-	m := dashModel(t)
-	joined := strings.Join(dashBlockRows(m), "\n")
-	for _, want := range []string{
-		"waiting for data",     // digest / daily placeholders
-		"locating…",            // geo placeholder
-		"waiting for location", // weather waits on geo
-		"news offline",         // brief degrades to the tip
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("offline render misses %q", want)
-		}
+// TestDashCellStale: the failure badge lives on the cell itself — a
+// failed refresh keeps the last success and flips stale.
+func TestDashCellStale(t *testing.T) {
+	dashTestHome(t)
+	dashPutCell("geo", &geoData{City: "Fresh"}, time.Now(), false)
+	c, ok := dashGetCell("geo")
+	if !ok || c.stale || c.data.(*geoData).City != "Fresh" {
+		t.Fatalf("fresh cell wrong: ok=%v cell=%+v", ok, c)
 	}
-	// The tip row (3rd brief line) must carry content even with no cell.
-	if !strings.Contains(joined, "profile") {
-		t.Error("brief profile row missing")
-	}
-}
-
-// TestDashStaleBadge: age beyond 2x the interval and a failed refresh
-// both mark the last-success cell as stale in the render.
-func TestDashStaleBadge(t *testing.T) {
-	m := dashModel(t)
-	dashPutCell("geo", &geoData{City: "OldTown"}, time.Now().Add(-3*time.Hour), false)
-	dashPutCell("weather", &weatherData{Temp: 20, Code: 0}, time.Now(), false)
-	dashMarkFail("weather")
-	m.dashRenderBlock()
-	joined := strings.Join(dashBlockRows(m), "\n")
-	if !strings.Contains(joined, "OldTown") {
-		t.Fatal("cached cell not rendered")
-	}
-	if !strings.Contains(joined, "stale") {
-		t.Error("no stale badge for aged/failed cells")
-	}
-	// Fresh geo (just put) must render without the badge on its own row.
-	dashPutCell("geo", &geoData{City: "Freshville"}, time.Now(), false)
-	m.dashRenderBlock()
-	for _, r := range dashBlockRows(m) {
-		if strings.Contains(r, "Freshville") && strings.Contains(r, "stale") {
-			t.Errorf("fresh cell wrongly badged: %q", r)
-		}
+	dashMarkFail("geo")
+	c, _ = dashGetCell("geo")
+	if !c.stale || c.data.(*geoData).City != "Fresh" {
+		t.Errorf("markFail must keep data and flag stale: %+v", c)
 	}
 }
 
@@ -531,145 +442,17 @@ func TestDashCache(t *testing.T) {
 	}
 }
 
-// TestDashEnvOff: the kill switch — no block, banner-only lines, the
-// command reports the switch instead of acting.
+// TestDashEnvOff: the kill switch — no tick chain, no dashboard in the
+// transcript.
 func TestDashEnvOff(t *testing.T) {
 	dashTestHome(t)
 	t.Setenv("LYON_DASHBOARD", "off")
-	m := newTestModel(t)
-	if _, ok := dashGetBlock(m); ok {
-		t.Error("env-off model seeded a block")
-	}
-	if len(m.lines) != 2 {
-		t.Errorf("env-off startup has %d lines, want 2 (banner only)", len(m.lines))
-	}
 	if cmd := dashTickCmd(); cmd != nil {
 		t.Error("env-off tick must be nil")
 	}
-	m.dashCommand("")
-	if !strings.Contains(m.cmdOutText(), "LYON_DASHBOARD=off") {
-		t.Errorf("off-switch report missing: %q", m.cmdOutText())
-	}
-	m.dashHome()
-	if len(m.lines) != 2 {
-		t.Errorf("/home with env off changed lines: %d", len(m.lines))
-	}
-	// Local probe still works under the switch (pure syscall, no state).
-	if s := sysProbe(t.TempDir()); s.CPUPct < -1 || (s.CPUPct > 100) {
-		t.Errorf("cpu pct out of range: %v", s.CPUPct)
-	}
-}
-
-// TestDashCommand: panel + per-module toggles persist to dashboard.json
-// and re-render the live block.
-func TestDashCommand(t *testing.T) {
-	m := dashModel(t)
-
-	m.dashCommand("on stocks")
-	if !strings.Contains(m.cmdOutText(), "stocks") {
-		t.Errorf("status missing: %q", m.cmdOutText())
-	}
-	cfg := readDashConfig(dashConfigPath())
-	if !dashModEnabled(&cfg, "stocks") {
-		t.Error("stocks toggle not persisted")
-	}
-	if !strings.Contains(strings.Join(dashBlockRows(m), "\n"), "stocks") {
-		t.Error("block not re-rendered after toggle")
-	}
-
-	m.cmdOut = nil
-	m.dashCommand("off weather")
-	cfg = readDashConfig(dashConfigPath())
-	if dashModEnabled(&cfg, "weather") {
-		t.Error("weather off not persisted")
-	}
-	if strings.Contains(strings.Join(dashBlockRows(m), "\n"), "weather  ") {
-		t.Error("weather row still rendered after off")
-	}
-
-	m.cmdOut = nil
-	m.dashCommand("bogus")
-	if !strings.Contains(m.cmdOutText(), "usage") {
-		t.Errorf("usage line missing: %q", m.cmdOutText())
-	}
-	m.cmdOut = nil
-	m.dashCommand("on bogus")
-	if !strings.Contains(m.cmdOutText(), "unknown module") {
-		t.Errorf("unknown module report missing: %q", m.cmdOutText())
-	}
-
-	// Bare /dash: back home + config panel.
-	m.cmdOut = nil
-	m.dashCommand("")
-	if !strings.Contains(m.cmdOutText(), "dashboard.json") {
-		t.Errorf("panel path missing: %q", m.cmdOutText())
-	}
-	b, ok := dashGetBlock(m)
-	if !ok || b.start+b.n != len(m.lines) {
-		t.Error("/dash did not leave the block at the tail")
-	}
-}
-
-// TestDashHome: /home rebuilds banner+dashboard while the audit panel,
-// todos and step selection ride through untouched.
-func TestDashHome(t *testing.T) {
-	m := dashModel(t)
-	m.steps = append(m.steps, execStep{})
-	m.stepSeq = 3
-	m.stepSel = 1
-	m.stepOpen = true
-	m.todos = append(m.todos, todoItem{})
-	m.lines = append(m.lines, tline{kind: lineStyled, raw: "chat before home"})
-
-	m.dashHome()
-	if len(m.steps) != 1 || m.stepSeq != 3 || m.stepSel != 1 || !m.stepOpen {
-		t.Errorf("steps not preserved: seq=%d sel=%d", m.stepSeq, m.stepSel)
-	}
-	if len(m.todos) != 1 {
-		t.Error("todos not preserved")
-	}
-	if strings.Contains(strings.Join(allTranscript(m), "\n"), "chat before home") {
-		t.Error("old transcript survived /home")
-	}
-	b, ok := dashGetBlock(m)
-	if !ok || b.start+b.n != len(m.lines) {
-		t.Error("block not at tail after /home")
-	}
-	if c := strings.Count(strings.Join(allTranscript(m), "\n"), "commands: /stats"); c != 1 {
-		t.Errorf("banner count after /home = %d", c)
-	}
-}
-
-// TestDashTick: live rewrite while at the tail; freeze the moment the
-// conversation grows; deletion after the view empties.
-func TestDashTick(t *testing.T) {
-	m := dashModel(t)
-	dashPutCell("geo", &geoData{City: "TickCity"}, time.Now(), false)
-	cmd := m.dashTick()
-	if cmd == nil {
-		t.Fatal("tick must re-arm while enabled")
-	}
-	if !strings.Contains(strings.Join(dashBlockRows(m), "\n"), "TickCity") {
-		t.Error("tick did not rewrite the block")
-	}
-
-	// Conversation after the block → the seeded dashboard freezes.
-	m.lines = append(m.lines, tline{kind: lineStyled, raw: "user said something"})
-	dashPutCell("geo", &geoData{City: "FrozenCity"}, time.Now(), false)
-	m.dashTick()
-	joined := strings.Join(allTranscript(m), "\n")
-	if !strings.Contains(joined, "user said something") {
-		t.Fatal("tick ate a conversation line")
-	}
-	if strings.Contains(joined, "FrozenCity") {
-		t.Error("frozen block rewrote after conversation grew")
-	}
-
-	// View emptied (the /clear semantics) → the block is reaped.
-	m.lines = nil
-	m.dashTick()
-	if _, ok := dashGetBlock(m); ok {
-		t.Error("block entry leaked after the view emptied")
+	m := newTestModel(t)
+	if strings.Contains(strings.Join(allTranscript(m), "\n"), "lyon home") {
+		t.Error("env-off startup contains a dashboard")
 	}
 }
 
@@ -719,11 +502,22 @@ func TestDashRefreshOnce(t *testing.T) {
 	}
 }
 
-// TestDashSysProbe: the local probe runs on this OS without panicking
-// and only reports values inside their domains.
+// TestDashSysProbe: the local probe runs on this OS without panicking,
+// values stay inside their domains, and a cold process warms its rate
+// baselines so the very first probe already reports real CPU/net
+// numbers (the root cause of the user's "cpu … net …" first paint).
 func TestDashSysProbe(t *testing.T) {
 	dashTestHome(t)
+	sysResetBaseline()
 	s := sysProbe(t.TempDir())
+	if runtime.GOOS != "darwin" {
+		if s.CPUPct < 0 {
+			t.Errorf("first probe CPU still warmup (-1): baseline priming failed")
+		}
+		if !s.NetOK {
+			t.Errorf("first probe net still warmup (false): baseline priming failed")
+		}
+	}
 	if s.CPUPct < -1 || s.CPUPct > 100 {
 		t.Errorf("CPUPct out of domain: %v", s.CPUPct)
 	}
@@ -736,14 +530,9 @@ func TestDashSysProbe(t *testing.T) {
 	if s.NetUpBps < 0 || s.NetDownBps < 0 {
 		t.Errorf("negative net rate: up=%v down=%v", s.NetUpBps, s.NetDownBps)
 	}
-	// Render path consumes the value type the registry stores.
-	rows := renderSysinfo(mustModelForProbe(t),
-		&dashCell{data: sysSnap{CPUPct: -1, MemPct: -1, OS: "x"}}, true)
-	if len(rows) != 2 {
-		t.Errorf("sysinfo render rows = %d, want 2", len(rows))
+	// Second probe: no re-warm sleep path, still in domain.
+	s2 := sysProbe(t.TempDir())
+	if s2.CPUPct < -1 || s2.CPUPct > 100 {
+		t.Errorf("second probe CPUPct out of domain: %v", s2.CPUPct)
 	}
 }
-
-// mustModelForProbe reuses dashModel but skips the block assertions —
-// renderSysinfo only needs width fields, which the seed already fixed.
-func mustModelForProbe(t *testing.T) *tuiModel { return dashModel(t) }
