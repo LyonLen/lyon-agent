@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Usage mirrors agent.Usage (pkg/agent/events.go:35).
+message Usage {
+  int64 input = 1;
+  int64 output = 2;
+  int64 cache_read = 3;
+  int64 cache_creation = 4;
+}
+
+// EventType mirrors the agent.EventType string constants 1:1 (pkg/agent/events.go:15-32).
+// Value names carry the EVENT_TYPE_ prefix per lint STANDARD (ENUM_VALUE_PREFIX);
+// the raw wire string lives in SessionEvent.type_name either way.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;  // unknown/new type: read type_name instead
+  EVENT_TYPE_MESSAGE_START = 1;
+  EVENT_TYPE_TEXT_DELTA = 2;
+  EVENT_TYPE_THINKING_DELTA = 3;
+  EVENT_TYPE_TOOL_USE_START = 4;
+  EVENT_TYPE_TOOL_EXEC_START = 5;
+  EVENT_TYPE_TOOL_EXEC_OUTPUT = 6;
+  EVENT_TYPE_TOOL_EXEC_END = 7;
+  EVENT_TYPE_SERVER_TOOL_RESULT = 8;
+  EVENT_TYPE_COMPACTION = 9;
+  EVENT_TYPE_SUBAGENT_START = 10;
+  EVENT_TYPE_SUBAGENT_END = 11;
+  EVENT_TYPE_MEMORY_INJECTED = 12;
+  EVENT_TYPE_QUEUE_INJECTED = 13;
+  EVENT_TYPE_TURN_END = 14;
+  EVENT_TYPE_PROMPT_END = 15;
+  EVENT_TYPE_ERROR = 16;
+  // TODO(#15): plan-tree events — EVENT_TYPE_PLAN_UPDATED,
+  // EVENT_TYPE_PLAN_NODE_STARTED, EVENT_TYPE_PLAN_NODE_FINISHED,
+  // EVENT_TYPE_APPROVAL_REQUEST. Values 17-20 reserved.
+}
+
+// SessionEvent is agent.Event lifted onto the wire plus hub metadata
+// (seq). Mirrors pkg/agent/events.go:44-87 field-for-field. It is a pure
+// data type — RPC response wrappers (WatchEventsResponse) live next to
+// their services so one data shape can serve several RPCs.
+message SessionEvent {
+  int64 seq = 1;         // hub-assigned, monotonic per session, starts at 1
+  EventType type = 2;
+  string type_name = 3;  // raw EventType string; authoritative when type == UNSPECIFIED
+
+  // Stream deltas.
+  string text = 10;
+  string thinking = 11;
+
+  // Tool identification (ToolID = API tool_use id; exec_id = harness-local sequence).
+  string tool_id = 20;
+  int64 exec_id = 21;      // Go uint64; non-negative in practice
+  string tool_name = 22;
+  string input_json = 23;  // Event.Input as a JSON string (protojson requires valid UTF-8;
+                           // the hub sanitizes with strings.ToValidUTF8, same as SSE's json.Marshal)
+  bool server = 24;        // server-side tool (web_search/fetch): no harness exec events follow
+  bool sub = 25;           // happened inside a run_subagent call
+  string sub_id = 26;      // fan-out task node id (#53); "" = legacy single call
+
+  // Execution result.
+  int64 duration_ms = 30;
+  bool is_error = 31;
+  string error = 32;
+
+  // Turn boundaries.
+  int32 turn = 40;
+  string stop_reason = 41;
+  Usage usage = 42;
+  int32 iterations = 43;
+  google.protobuf.Timestamp ts = 44;
+  string detail = 45;      // compaction/subagent human-readable note
+
+  map<string, string> attrs = 90;  // forward-compat sink (reference repo pattern)
+
+  // TODO(#15): node_id / approval_state for plan-tree attribution.
+  reserved 91 to 99;
+  reserved "node_id", "approval_state";
+}

@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// PlanService — TODO(#15): plan horizontal tree, node-level approval/edit,
+// node detail, concurrent/serial step growth, live prompt+output per node,
+// in-progress guidance injection. All methods return
+// codes.Unimplemented until #15 lands; message shapes are frozen now so the
+// web client can be built against them and field numbers never churn.
+// Per-RPC response wrappers keep lint STANDARD happy while PlanTree/PlanNode
+// stay pure data types reused across RPCs.
+service PlanService {
+  rpc GetPlan(GetPlanRequest) returns (GetPlanResponse);
+  rpc WatchPlan(WatchPlanRequest) returns (stream WatchPlanResponse);
+  rpc UpdateNode(UpdateNodeRequest) returns (UpdateNodeResponse);    // edit content pre-run
+  rpc ApproveNode(ApproveNodeRequest) returns (ApproveNodeResponse);  // node-level approval
+  rpc ExecutePlan(ExecutePlanRequest) returns (ExecutePlanResponse);
+  rpc GuideNode(GuideNodeRequest) returns (GuideNodeResponse);        // guidance injection into a running node
+}
+
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  NODE_STATUS_PENDING = 1;
+  NODE_STATUS_READY = 2;
+  NODE_STATUS_RUNNING = 3;
+  NODE_STATUS_DONE = 4;
+  NODE_STATUS_FAILED = 5;
+}
+
+enum ApprovalState {
+  APPROVAL_STATE_UNSPECIFIED = 0;
+  APPROVAL_STATE_NOT_REQUIRED = 1;
+  APPROVAL_STATE_REQUIRED = 2;
+  APPROVAL_STATE_APPROVED = 3;
+  APPROVAL_STATE_REJECTED = 4;
+}
+
+message PlanNode {
+  string node_id = 1;
+  string content = 2;
+  NodeStatus status = 3;
+  ApprovalState approval = 4;
+  repeated string child_ids = 5;   // children reference nodes by id (flat map on the client)
+  int32 order = 6;
+  string prompt = 7;               // the node's run prompt (editable pre-run)
+  repeated ExecStep steps = 8;     // grows while running — concurrent fan-out (#53/#15)
+  string live_output_tail = 9;     // latest tool_exec_output for this node, coalesced
+}
+
+message ExecStep {
+  string step_id = 1;
+  string summary = 2;
+  NodeStatus status = 3;
+  int64 exec_id = 4;
+  bool is_error = 5;
+  string error = 6;
+}
+
+message PlanTree {
+  string session_id = 1;
+  repeated PlanNode nodes = 2;
+  int64 revision = 3;
+}
+
+// WatchPlanResponse is one incremental update (draft name PlanUpdate).
+message WatchPlanResponse {
+  string session_id = 1;
+  int64 revision = 2;
+  PlanNode node = 3;
+}
+
+message GetPlanRequest { string session_id = 1; }
+message GetPlanResponse { PlanTree plan = 1; }
+message WatchPlanRequest { string session_id = 1; }
+message UpdateNodeRequest {
+  string session_id = 1;
+  string node_id = 2;
+  string content = 3;
+}
+message UpdateNodeResponse { PlanNode node = 1; }
+message ApproveNodeRequest {
+  string session_id = 1;
+  string node_id = 2;
+  bool approve = 3;
+}
+message ApproveNodeResponse { PlanNode node = 1; }
+message ExecutePlanRequest { string session_id = 1; }
+message ExecutePlanResponse { PlanTree plan = 1; }
+message GuideNodeRequest {
+  string session_id = 1;
+  string node_id = 2;
+  string guidance = 3;
+}
+message GuideNodeResponse { PlanNode node = 1; }

@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+import "google/protobuf/timestamp.proto";
+import "lyon/v1/event.proto";
+
+// DashboardService: read-only panels over $LYON_HOME on-disk data plus the
+// process aggregates /metrics already computes.
+service DashboardService {
+  rpc GetOverview(GetOverviewRequest) returns (GetOverviewResponse);
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);     // run dumps (#3)
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse); // saved sessions
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+}
+
+message RoutingEntry {                       // pkg/routing Entry (routing.go:23)
+  string class = 1;
+  string agent = 2;
+  string model = 3;
+  double confidence = 4;
+  int32 samples = 5;
+  double mean_score = 6;
+  google.protobuf.Timestamp updated = 7;
+}
+
+message LeaderboardView {                    // pkg/eval View (leaderboard.go:274)
+  string class = 1;
+  string on_duty = 2;                        // "" = open seat
+  int32 rounds = 3;
+  int32 exam_fails = 4;
+  int32 cards = 5;
+  double mean = 6;
+  string last_agent = 7;
+  double last_total = 8;
+  bool last_passed = 9;
+  string last_source = 10;                   // "exam" or "" (production)
+}
+
+message GetOverviewRequest {}
+
+message GetOverviewResponse {
+  int32 sessions = 1;
+  int64 uptime_seconds = 2;
+  string model = 3;
+  double cache_share = 4;
+  repeated RoutingEntry routing = 5;
+  repeated LeaderboardView leaderboard = 6;
+}
+
+message RunRef {                             // run dump header (pkg/agent/dump.go:139)
+  string run_id = 1;                         // "YYYYMMDD-HHMMSS-rand12"; also the file locator
+  string workspace = 2;
+  string model = 3;
+  string prompt = 4;
+  google.protobuf.Timestamp started_at = 5;
+  int64 duration_ms = 6;
+  bool failed = 7;                           // prompt_err != ""
+}
+
+message ListRunsRequest {
+  string day = 1;    // "YYYY-MM-DD"; "" = today
+  int32 limit = 2;   // 0 = default 50, newest first
+}
+message ListRunsResponse { repeated RunRef runs = 1; }
+
+message DumpEvent {                          // dump.go:172 — Event embedded + seq
+  int32 seq = 1;
+  string type = 2;
+  string text = 3;
+  string thinking = 4;
+  string tool_id = 5;
+  int64 exec_id = 6;
+  string tool_name = 7;
+  string input_json = 8;
+  bool server = 9;
+  bool sub = 10;
+  string sub_id = 11;
+  int64 duration_ms = 12;
+  bool is_error = 13;
+  string error = 14;
+  int32 turn = 15;
+  string stop_reason = 16;
+  Usage usage = 17;
+  int32 iterations = 18;
+  google.protobuf.Timestamp ts = 19;
+  string detail = 20;
+}
+
+message GetRunRequest { string run_id = 1; }
+
+// GetRunResponse is the full dump document (was "RunDump" in the draft;
+// renamed for lint STANDARD's RPC_RESPONSE_STANDARD_NAME).
+message GetRunResponse {
+  string run_id = 1;
+  string workspace = 2;
+  string model = 3;
+  string prompt = 4;
+  string first_prompt = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp ended_at = 7;
+  int64 duration_ms = 8;
+  int32 iterations = 9;
+  string stop_reason = 10;
+  string prompt_err = 11;
+  Usage usage = 12;
+  map<string, Usage> sub_usage = 13;
+  repeated DumpEvent events = 14;            // the replayable timeline
+  string history = 15;
+}
+
+message SnapshotRef {
+  string title = 1;
+  int32 messages = 2;
+  google.protobuf.Timestamp saved_at = 3;
+  string path = 4;
+}
+message ListSnapshotsRequest {}
+message ListSnapshotsResponse { repeated SnapshotRef snapshots = 1; }
+
+message AuditRecord {                        // pkg/hooks Record subset (JSONL line)
+  string time = 1;
+  string event = 2;                          // prompt_start / approve_request / security_block / ...
+  string session = 3;
+  string tool = 4;
+  string prompt = 5;
+  string detail = 6;
+  bool is_error = 7;
+  string err = 8;
+  int64 duration_ms = 9;
+}
+message ListAuditRequest {
+  string day = 1;    // "YYYY-MM-DD"; "" = today
+  int32 tail = 2;    // 0 = default 200, newest last
+}
+message ListAuditResponse { repeated AuditRecord records = 1; }

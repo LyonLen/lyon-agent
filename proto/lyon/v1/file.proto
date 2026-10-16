@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// FileService: read-only workspace preview. Every path is workspace-relative
+// and passed through the same containment as the agent's read_file
+// (confine(), pkg/tools/files.go:49) — absolute paths, "..", and symlink
+// escapes are rejected fail-closed. v1 is read-only; write/upload RPCs are
+// TODO(v2) and will ride the existing tool-approval gate.
+service FileService {
+  rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
+  rpc ReadTextFile(ReadTextFileRequest) returns (ReadTextFileResponse);
+  rpc ReadBinaryFile(ReadBinaryFileRequest) returns (ReadBinaryFileResponse);
+  // TODO(v2): stream download for large files.
+}
+
+enum FileKind {
+  FILE_KIND_UNSPECIFIED = 0;
+  FILE_KIND_DIR = 1;
+  FILE_KIND_TEXT = 2;    // utf-8 text
+  FILE_KIND_CODE = 3;    // code/config — rendered <pre> client-side
+  FILE_KIND_MARKDOWN = 4;
+  FILE_KIND_IMAGE = 5;   // png/jpg/jpeg/gif/webp
+  FILE_KIND_PDF = 6;
+  FILE_KIND_OTHER = 7;   // unsupported for preview; download only
+}
+
+message DirEntry {
+  string name = 1;
+  bool is_dir = 2;
+  int64 size_bytes = 3;
+  int64 mtime_unix_ms = 4;
+  FileKind kind = 5;     // extension-allowlist detection server-side (mirror of DocPreview.pickRenderer)
+}
+
+message ListDirectoryRequest {
+  string path = 1;       // workspace-relative; "" = workspace root
+}
+message ListDirectoryResponse {
+  string path = 1;
+  repeated DirEntry entries = 2;
+  bool truncated = 3;    // entry-count cap hit
+}
+
+message ReadTextFileRequest {
+  string path = 1;
+  int32 offset_lines = 2;  // 1-based; 0 = from start (same semantics as tools.ReadFile)
+  int32 limit_lines = 3;   // 0 = no limit
+}
+message ReadTextFileResponse {
+  string path = 1;
+  string content = 2;
+  bool truncated = 3;      // hit the 512KB preview cap
+  int32 total_lines = 4;
+  int64 size_bytes = 5;    // full file size, even when truncated
+  FileKind kind = 6;
+}
+
+message ReadBinaryFileRequest {
+  string path = 1;
+}
+message ReadBinaryFileResponse {
+  string path = 1;
+  string content_type = 2;  // image/png, application/pdf, ...
+  bytes data = 3;           // capped; truncated=true when the cap trimmed it
+  bool truncated = 4;
+  int64 size_bytes = 5;     // full file size
+}

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// ApprovalService — TODO(wire): lyond currently never sets cfg.Approve, so
+// every NeedsApproval tool auto-approves (cmd/lyond/main.go; the adapter gate
+// is pkg/tools/tool.go). When lyond grows an -approve flag, wire
+// tools.ApproveFunc to this service: the approvee parks until Decide or
+// timeout (returning false, matching TUI behavior).
+service ApprovalService {
+  rpc WatchPending(WatchPendingRequest) returns (stream WatchPendingResponse);
+  rpc Decide(DecideRequest) returns (DecideResponse);
+}
+
+// WatchPendingResponse is one pending approval (draft name ApprovalRequest;
+// renamed for lint STANDARD's RPC_RESPONSE_STANDARD_NAME — the message is
+// the streamed response, not a request).
+message WatchPendingResponse {
+  string session_id = 1;
+  int64 exec_id = 2;
+  string tool_name = 3;
+  string input_json = 4;
+  int64 requested_at_ms = 5;
+}
+message WatchPendingRequest {}
+
+message DecideRequest {
+  string session_id = 1;
+  int64 exec_id = 2;
+  bool approve = 3;
+  bool remember = 4;   // TODO(v2): feed policy.json instead of one-shot
+}
+// DecideResponse (draft name ApprovalDecision).
+message DecideResponse {
+  string session_id = 1;
+  int64 exec_id = 2;
+  bool approve = 3;
+}

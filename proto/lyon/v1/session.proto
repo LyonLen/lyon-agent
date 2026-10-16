@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+import "google/protobuf/timestamp.proto";
+import "lyon/v1/event.proto";
+
+// SessionService: lifecycle + prompt injection + event streaming.
+// Response wrappers (rather than returning the Session data type directly)
+// keep lint STANDARD's RPC_RESPONSE_STANDARD_NAME /
+// RPC_REQUEST_RESPONSE_UNIQUE rules clean and leave room to grow each RPC's
+// response without touching shared messages.
+service SessionService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+
+  // SubmitPrompt runs one prompt now (maps to Session.Submit). Busy session
+  // -> codes.FailedPrecondition (client should fall back to EnqueuePrompt).
+  rpc SubmitPrompt(SubmitPromptRequest) returns (SubmitPromptResponse);
+
+  // EnqueuePrompt parks a prompt into the session inbox (#2; maps to
+  // Session.Enqueue). Idle session -> codes.FailedPrecondition
+  // ("not busy; use SubmitPrompt").
+  rpc EnqueuePrompt(EnqueuePromptRequest) returns (EnqueuePromptResponse);
+
+  rpc Interrupt(InterruptRequest) returns (InterruptResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+  rpc SetMode(SetModeRequest) returns (SetModeResponse);
+
+  // WatchEvents is the server-streaming event feed: replay from the hub
+  // ring then go live. Multiple concurrent watchers per session are fine.
+  rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
+}
+
+message Session {
+  string id = 1;
+  string workspace = 2;                     // engine cfg.Workspace
+  string model = 3;
+  string title = 4;                         // Session.Title(); may be empty early
+  string mode = 5;                          // "default" | "plan" | "bypass" (pkg/agent/mode.go)
+  bool busy = 6;                            // needs new Session.Busy() accessor (gap)
+  int32 queue_len = 7;                      // parked prompts; needs new accessor (gap)
+  int32 turns = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp last_active = 10;
+}
+
+message CreateSessionRequest {
+  string model = 1;   // "" = engine default
+  string mode = 2;    // "" = default
+}
+message CreateSessionResponse { Session session = 1; }
+message ListSessionsRequest {}              // live sessions in the store
+message ListSessionsResponse { repeated Session sessions = 1; }
+message GetSessionRequest { string session_id = 1; }
+message GetSessionResponse { Session session = 1; }
+message DeleteSessionRequest { string session_id = 1; }
+message DeleteSessionResponse {}
+
+message SubmitPromptRequest {
+  string session_id = 1;
+  string prompt = 2;
+  string model = 3;   // per-prompt override, "" = session default
+}
+message SubmitPromptResponse { bool started = 1; }
+
+message EnqueuePromptRequest {
+  string session_id = 1;
+  string prompt = 2;
+}
+message EnqueuePromptResponse { int32 queue_len = 1; }
+
+message InterruptRequest { string session_id = 1; }
+message InterruptResponse { bool interrupted = 1; }
+
+message GetStatsRequest { string session_id = 1; }
+message TurnStat {
+  int32 turn = 1;
+  string stop_reason = 2;
+  Usage usage = 3;
+  int64 duration_ms = 4;
+  google.protobuf.Timestamp at = 5;
+}
+message GetStatsResponse { repeated TurnStat turns = 1; }
+
+message SetModeRequest {
+  string session_id = 1;
+  string mode = 2;    // "default" | "plan" | "bypass"
+}
+message SetModeResponse { string mode = 1; }
+
+// One streamed chunk wraps one hub event (SessionEvent stays a pure data
+// type so other surfaces — e.g. run dumps — can share its shape).
+message WatchEventsResponse { SessionEvent event = 1; }
+
+message WatchEventsRequest {
+  string session_id = 1;
+  // 0 = live only; -1 = replay everything still in the ring, then live;
+  // n > 0 = replay ring entries with seq > n, then live. If the ring no
+  // longer holds n+1 the server fails with codes.FailedPrecondition and the
+  // client should re-anchor (snapshot list / run dump) and retry with -1.
+  int64 from_seq = 2;
+}
