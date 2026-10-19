@@ -90,7 +90,7 @@ export type DecideRequest = Message<"lyon.v1.DecideRequest"> & {
   approve: boolean;
 
   /**
-   * TODO(v2): feed policy.json instead of one-shot
+   * grant persists at tool granularity in $LYON_HOME/policy.json
    *
    * @generated from field: bool remember = 4;
    */

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,13 @@ import (
 // a NeedsApproval tool parks until the ApprovalService client decides.
 func newApprovalFixture(t *testing.T, script []mockapi.Turn) (lyonv1connect.SessionServiceClient, lyonv1connect.ApprovalServiceClient) {
 	t.Helper()
+	// Always pin a private LYON_HOME, not just an empty one: TestMain
+	// already sets a package-wide scratch home, so env-sniffing would
+	// leave every fixture sharing one ledger — Decide.remember from an
+	// earlier test would auto-approve later tests' tools before they
+	// ever park. Tests that need to observe the home read it back from
+	// the env after this call.
+	t.Setenv("LYON_HOME", t.TempDir())
 	mock := mockapi.New(mockapi.Config{Script: script, Latency: time.Millisecond})
 	t.Cleanup(mock.Close)
 	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())
@@ -267,6 +276,66 @@ func TestApprovalRememberVouches(t *testing.T) {
 		case <-deadline:
 			late = true
 		}
+	}
+}
+
+// TestApprovalRememberPersists pins the proto Decide.remember contract:
+// a remembered grant lands in $LYON_HOME/policy.json at tool granularity,
+// a fresh bridge over the same home honors it for ANY session, and a
+// corrupt ledger degrades to empty instead of blocking construction.
+func TestApprovalRememberPersists(t *testing.T) {
+	client, apprClient := newApprovalFixture(t, []mockapi.Turn{
+		{Tool: &mockapi.ToolCall{Name: "run_shell", Input: `{"command":"echo one"}`}},
+		{Text: []string{"done"}},
+	})
+	home := os.Getenv("LYON_HOME") // the fixture pinned a scratch home for us
+	ctx := context.Background()
+	cres, err := client.CreateSession(ctx, connect.NewRequest(&lyonv1.CreateSessionRequest{}))
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	sid := cres.Msg.Session.Id
+	arrivals, _ := startApprovalWatch(t, apprClient)
+	if _, err := client.SubmitPrompt(ctx, connect.NewRequest(&lyonv1.SubmitPromptRequest{
+		SessionId: sid, Prompt: "once",
+	})); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	pend := waitPending(t, arrivals, "first run_shell")
+	if _, err := apprClient.Decide(ctx, connect.NewRequest(&lyonv1.DecideRequest{
+		SessionId: pend.SessionId, ExecId: pend.ExecId, Approve: true, Remember: true,
+	})); err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	collectPromptEvents(t, client, sid)
+
+	// The grant hit the ledger, at tool granularity.
+	raw, err := os.ReadFile(filepath.Join(home, "policy.json"))
+	if err != nil {
+		t.Fatalf("policy.json not written: %v", err)
+	}
+	if !strings.Contains(string(raw), "run_shell") {
+		t.Fatalf("policy.json = %s, want a run_shell grant", raw)
+	}
+
+	// A fresh bridge (the restart case) honors the ledger for any seat —
+	// that is the whole point of persisting past the process.
+	b2 := NewApprovalBridge()
+	if !b2.remembered("some-other-session", "run_shell") {
+		t.Fatal("fresh bridge did not honor the persisted run_shell grant")
+	}
+	if b2.remembered("some-other-session", "write_file") {
+		t.Fatal("fresh bridge vouched an unrelated tool")
+	}
+
+	// Corrupt ledger: construction still succeeds, policy empty, and the
+	// next grant overwrites the damage.
+	if err := os.WriteFile(filepath.Join(home, "policy.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("corrupt the ledger: %v", err)
+	}
+	b3 := NewApprovalBridge()
+	if b3.remembered("any", "run_shell") {
+		t.Fatal("corrupt ledger silently granted a tool")
 	}
 }
 

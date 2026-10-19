@@ -145,7 +145,7 @@ type DecideRequest struct {
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	ExecId        int64                  `protobuf:"varint,2,opt,name=exec_id,json=execId,proto3" json:"exec_id,omitempty"`
 	Approve       bool                   `protobuf:"varint,3,opt,name=approve,proto3" json:"approve,omitempty"`
-	Remember      bool                   `protobuf:"varint,4,opt,name=remember,proto3" json:"remember,omitempty"` // TODO(v2): feed policy.json instead of one-shot
+	Remember      bool                   `protobuf:"varint,4,opt,name=remember,proto3" json:"remember,omitempty"` // grant persists at tool granularity in $LYON_HOME/policy.json
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

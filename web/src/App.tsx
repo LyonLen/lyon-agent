@@ -46,6 +46,14 @@ export default function App() {
     pendingRef.current = pending;
   }, [pending]);
 
+  // flash is the App-wide 3s toast (approval events and slash commands
+  // share it); the timer resets so a newer message always gets its slot.
+  const flash = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 3000);
+  };
+
   // Live sessions and the saved snapshot store are independent reads —
   // fetch both concurrently, each with its own error so one failing
   // channel doesn't blank the other.
@@ -55,8 +63,19 @@ export default function App() {
       dashboardClient.listSnapshots({}),
     ]);
     if (live.status === "fulfilled") {
-      setSessions([...live.value.sessions].reverse()); // oldest first; newest active sits at the bottom near the chat
+      const list = [...live.value.sessions].reverse(); // oldest first; newest active sits at the bottom near the chat
+      setSessions(list);
       setListErr("");
+      // A selected seat that fell out of the live list was reaped or
+      // deleted under us (the "click a ghost" hole): clear the selection
+      // instead of parking the chat on not_found. Create/restore never
+      // trip this — their session is already in the store when the id
+      // becomes selected.
+      const sel = selectedRef.current;
+      if (sel && !list.some((s) => s.id === sel)) {
+        setSelectedId("");
+        flash("session gone from the list (reaped?) — list refreshed");
+      }
     } else {
       setListErr(errText(live.reason));
     }
@@ -191,14 +210,6 @@ export default function App() {
   const onTokenCommit = () => {
     setToken(tokenInput.trim());
     void refresh();
-  };
-
-  // flash is the App-wide 3s toast (approval events and slash commands
-  // share it); the timer resets so a newer message always gets its slot.
-  const flash = (msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 3000);
   };
 
   // rollback rewinds the seat to its newest checkpoint: the server

@@ -57,9 +57,11 @@ function StepsPanel({ steps }: { steps: StepRow[] }) {
   }
   return (
     <div className="steps-list">
-      {steps.map((s) => (
+      {steps.map((s, i) => (
         <details
-          key={s.execId.toString()}
+          // execId is 0 (null) for tool cards that haven't started an
+          // exec yet — index in the key keeps those rows unique.
+          key={`${i}:${s.execId.toString()}`}
           className={"step-row" + (s.status === "failed" ? " failed" : "")}
         >
           <summary className="step-head">

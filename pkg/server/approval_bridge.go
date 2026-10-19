@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -44,24 +47,30 @@ type ApprovalBridge struct {
 	mu      sync.Mutex
 	store   *Store // for sess→sid back-resolution; nil until SetApproval
 	pending map[parkKey]*park
-	// rem memoizes "this tool, this seat" grants (TUI allowAll semantics:
-	// the "a" key vouches for the tool for the rest of the session, never
-	// across sessions, never persisted — proto Decide.remember TODO(v2)
-	// grows policy.json for the real thing).
-	rem    map[string]bool // sid + "\x00" + tool name → granted
-	subs   map[uint64]chan *lyonv1.WatchPendingResponse
-	subSeq uint64
+	// rem memoizes "this tool, this seat" grants for the live process
+	// (TUI allowAll semantics: the "a" key vouches for the tool for the
+	// rest of the session). policy is the durable layer proto
+	// Decide.remember feeds: tool-name grants persisted in
+	// $LYON_HOME/policy.json, honored across sessions and restarts.
+	// remembered() consults rem first, then policy.
+	rem        map[string]bool // sid + "\x00" + tool name → granted
+	policy     map[string]bool // tool name → granted, from policy.json
+	policyPath string          // "" = home unresolvable; persistence off
+	subs       map[uint64]chan *lyonv1.WatchPendingResponse
+	subSeq     uint64
 }
 
 // NewApprovalBridge creates an empty bridge. Wire cfg.Approve =
 // bridge.ApproveFunc() only under -approve; unattached RPCs stay
 // Unimplemented via approvalService.
 func NewApprovalBridge() *ApprovalBridge {
-	return &ApprovalBridge{
+	b := &ApprovalBridge{
 		pending: make(map[parkKey]*park),
 		rem:     make(map[string]bool),
 		subs:    make(map[uint64]chan *lyonv1.WatchPendingResponse),
 	}
+	b.policy, b.policyPath = loadPolicy()
+	return b
 }
 
 // ApproveFunc is the engine-wide approver. The driving session is read off
@@ -139,6 +148,8 @@ func (b *ApprovalBridge) decide(sid string, exec uint64, approve, remember bool)
 	delete(b.pending, key)
 	if remember && approve {
 		b.rem[sid+"\x00"+p.resp.ToolName] = true
+		b.policy[p.resp.ToolName] = true
+		b.savePolicyLocked() // best-effort: failure only costs durability
 	}
 	b.broadcastLocked(&lyonv1.WatchPendingResponse{SessionId: sid, ExecId: int64(exec)})
 	b.mu.Unlock()
@@ -203,5 +214,50 @@ func (b *ApprovalBridge) broadcastLocked(ev *lyonv1.WatchPendingResponse) {
 func (b *ApprovalBridge) remembered(sid, tool string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.rem[sid+"\x00"+tool]
+	return b.rem[sid+"\x00"+tool] || b.policy[tool]
+}
+
+// policyFileName is the durable approval ledger under $LYON_HOME: tools
+// the user vouched with Decide.remember ("a" in TUI terms), surviving
+// restarts and honored for every session.
+const policyFileName = "policy.json"
+
+// loadPolicy reads $LYON_HOME/policy.json. Absent or corrupt file →
+// empty policy, best-effort by design: a broken ledger must not stop
+// the approver from running (fail-closed is Decide's job, not the
+// storage layer's). Returns the path even on a corrupt read so later
+// grants overwrite the damage.
+func loadPolicy() (map[string]bool, string) {
+	home, err := dashHome()
+	if err != nil {
+		return map[string]bool{}, ""
+	}
+	path := filepath.Join(home, policyFileName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]bool{}, path
+	}
+	var tools map[string]bool
+	if err := json.Unmarshal(raw, &tools); err != nil || tools == nil {
+		return map[string]bool{}, path
+	}
+	return tools, path
+}
+
+// savePolicyLocked persists the grant map — caller holds b.mu. Atomic
+// best-effort (temp file + rename); a failure only costs durability,
+// the in-memory rem/policy grants still vouch for this process.
+func (b *ApprovalBridge) savePolicyLocked() {
+	if b.policyPath == "" {
+		return
+	}
+	raw, err := json.Marshal(b.policy)
+	if err != nil {
+		return
+	}
+	tmp := b.policyPath + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, b.policyPath)
 }

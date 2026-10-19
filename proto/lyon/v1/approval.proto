@@ -34,7 +34,7 @@ message DecideRequest {
   string session_id = 1;
   int64 exec_id = 2;
   bool approve = 3;
-  bool remember = 4;   // TODO(v2): feed policy.json instead of one-shot
+  bool remember = 4;   // grant persists at tool granularity in $LYON_HOME/policy.json
 }
 // DecideResponse (draft name ApprovalDecision).
 message DecideResponse {

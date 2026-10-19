@@ -463,6 +463,10 @@ export default function ChatView(props: {
           const ce = ConnectError.from(e);
           if (ce.code !== Code.Canceled) {
             setErr(errText(e));
+            // NotFound = the seat left the store (reaped while the list
+            // was stale); nudge App to refresh so the ghost row goes and
+            // the selection clears.
+            if (ce.code === Code.NotFound) props.onChanged();
           }
           return;
         }
