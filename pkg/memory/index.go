@@ -36,44 +36,140 @@ type docEntry struct {
 	len  float64
 }
 
-// index is rebuilt wholesale on every mutation — at our scale (thousands
-// of facts, not millions) a full rebuild is a millisecond and has zero
-// invalidation bugs compared with incremental posting updates.
+// index supports incremental upsert: Save replaces one document's
+// postings in place (or appends a new one) instead of rebuilding
+// everything; the full build path stays for rescans and deletes, where
+// wholesale reconstruction is still the cheapest correct move — at our
+// scale (thousands of facts) it is a millisecond with zero invalidation
+// bugs.
 type index struct {
-	docs   []docEntry
-	terms  map[string][]posting
-	avgLen float64
+	docs     []docEntry
+	terms    map[string][]posting
+	avgLen   float64
+	total    float64        // sum of doc lengths; kept hot so upsert can re-derive avgLen
+	docByKey map[string]int // factKey -> doc slot (scope + lowercased name)
+	docTerm  [][]string     // per-doc term list, so a replace can drop exactly its own postings
+}
+
+// factKey is the index key for one fact: its scope plus lowercased name.
+func factKey(f *Fact) string {
+	return f.Scope + "\x00" + strings.ToLower(f.Name)
+}
+
+// docTerms splits one fact into weighted term frequencies (name 3.0,
+// tags 2.5, description 2.0, body 1.0) and its document length.
+func docTerms(f *Fact) (map[string]float64, float64) {
+	tfs := map[string]float64{}
+	addField := func(text string, w float64) {
+		for _, t := range tokenize(text) {
+			tfs[t] += w
+		}
+	}
+	addField(f.Name, weightName)
+	addField(strings.Join(f.Tags, " "), weightTags)
+	addField(f.Description, weightDesc)
+	addField(f.Body, weightBody)
+	var dl float64
+	for _, tf := range tfs {
+		dl += tf
+	}
+	return tfs, dl
+}
+
+// termKeys returns the map's terms as a slice for docTerm bookkeeping.
+func termKeys(tfs map[string]float64) []string {
+	out := make([]string, 0, len(tfs))
+	for t := range tfs {
+		out = append(out, t)
+	}
+	return out
 }
 
 func (ix *index) build(facts []*Fact) {
 	ix.docs = ix.docs[:0]
 	ix.terms = make(map[string][]posting, 2048)
+	ix.docByKey = make(map[string]int, len(facts))
+	ix.docTerm = ix.docTerm[:0]
 	var total float64
 	for _, f := range facts {
 		doc := len(ix.docs)
-		var dl float64
-		addField := func(text string, w float64) {
-			tfs := map[string]float64{}
-			for _, t := range tokenize(text) {
-				tfs[t] += w
-			}
-			for t, tf := range tfs {
-				ix.terms[t] = append(ix.terms[t], posting{doc: doc, tf: tf})
-				dl += tf
-			}
+		tfs, dl := docTerms(f)
+		for t, tf := range tfs {
+			ix.terms[t] = append(ix.terms[t], posting{doc: doc, tf: tf})
 		}
-		addField(f.Name, weightName)
-		addField(strings.Join(f.Tags, " "), weightTags)
-		addField(f.Description, weightDesc)
-		addField(f.Body, weightBody)
 		ix.docs = append(ix.docs, docEntry{fact: f, len: dl})
+		ix.docTerm = append(ix.docTerm, termKeys(tfs))
+		ix.docByKey[factKey(f)] = doc
 		total += dl
 	}
+	ix.total = total
 	if len(ix.docs) > 0 {
 		ix.avgLen = total / float64(len(ix.docs))
 	} else {
 		ix.avgLen = 1
 	}
+}
+
+// upsert indexes f, replacing the existing doc for the same scope+name
+// in place, or appending a new one. Only this document's postings are
+// touched — the O(N) tokenize+rebuild every Save used to pay is gone.
+func (ix *index) upsert(f *Fact) {
+	// A zero-value index (never built) is legal: the maps and the
+	// per-doc bookkeeping are created here so upsert is the only
+	// initializer a caller has to know about.
+	if ix.docByKey == nil {
+		ix.docByKey = make(map[string]int, 64)
+	}
+	if ix.terms == nil {
+		ix.terms = make(map[string][]posting, 64)
+	}
+	key := factKey(f)
+	tfs, dl := docTerms(f)
+	if doc, ok := ix.docByKey[key]; ok {
+		ix.dropPostings(doc)
+		old := ix.docs[doc]
+		for t, tf := range tfs {
+			ix.terms[t] = append(ix.terms[t], posting{doc: doc, tf: tf})
+		}
+		ix.docTerm[doc] = termKeys(tfs)
+		ix.docs[doc] = docEntry{fact: f, len: dl}
+		ix.total += dl - old.len
+	} else {
+		doc := len(ix.docs)
+		for t, tf := range tfs {
+			ix.terms[t] = append(ix.terms[t], posting{doc: doc, tf: tf})
+		}
+		ix.docs = append(ix.docs, docEntry{fact: f, len: dl})
+		ix.docTerm = append(ix.docTerm, termKeys(tfs))
+		ix.docByKey[key] = doc
+		ix.total += dl
+	}
+	if len(ix.docs) > 0 {
+		ix.avgLen = ix.total / float64(len(ix.docs))
+	} else {
+		ix.avgLen = 1
+	}
+}
+
+// dropPostings removes every posting that points at doc (each doc
+// contributes at most one posting per term, so the first hit per term
+// is the only one).
+func (ix *index) dropPostings(doc int) {
+	for _, t := range ix.docTerm[doc] {
+		ps := ix.terms[t]
+		for i, p := range ps {
+			if p.doc == doc {
+				ps = append(ps[:i], ps[i+1:]...)
+				break
+			}
+		}
+		if len(ps) == 0 {
+			delete(ix.terms, t)
+		} else {
+			ix.terms[t] = ps
+		}
+	}
+	ix.docTerm[doc] = nil
 }
 
 // Hit is one search result.

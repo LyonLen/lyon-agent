@@ -30,6 +30,12 @@ type Store struct {
 var (
 	storesMu sync.Mutex
 	stores   = map[string]*Store{}
+	// loaders serializes first-open per workspace key so two goroutines
+	// never build the same store twice. The mutex lives outside
+	// storesMu and is only held by openers of that one workspace:
+	// loading does disk I/O (scan + legacy migration) and must not
+	// block Open() for every other workspace behind storesMu.
+	loaders = map[string]*sync.Mutex{}
 )
 
 // Open returns the cached store for a workspace, loading all three scopes
@@ -41,10 +47,28 @@ func Open(workspace string) *Store {
 		key = workspace
 	}
 	storesMu.Lock()
-	defer storesMu.Unlock()
 	if s := stores[key]; s != nil {
+		storesMu.Unlock()
 		return s
 	}
+	loader := loaders[key]
+	if loader == nil {
+		loader = &sync.Mutex{}
+		loaders[key] = loader
+	}
+	storesMu.Unlock()
+
+	loader.Lock() // only concurrent opens of *this* workspace wait here
+	defer loader.Unlock()
+
+	// Double-check: the goroutine we waited for may have just published it.
+	storesMu.Lock()
+	if s := stores[key]; s != nil {
+		storesMu.Unlock()
+		return s
+	}
+	storesMu.Unlock()
+
 	s := &Store{
 		workspace: key,
 		dirs:      map[string]string{},
@@ -57,9 +81,13 @@ func Open(workspace string) *Store {
 		s.dirs[ScopePersonal] = filepath.Join(home, "memory", "personal")
 	}
 	s.dirs[ScopeProject] = filepath.Join(key, ".lyon", "memory")
+	// Disk I/O happens with storesMu released — publish only after the
+	// store is fully built so readers never see a half-loaded store.
 	s.rescanLocked()
 	migrateLegacy(key, s)
+	storesMu.Lock()
 	stores[key] = s
+	storesMu.Unlock()
 	return s
 }
 
@@ -194,20 +222,16 @@ func (s *Store) Save(f Fact) (Fact, error) {
 	return f, nil
 }
 
-// insertLocked indexes one fact without a full rescan.
+// insertLocked indexes one fact without a full rescan: the index slot
+// for this scope+name is replaced in place (or appended), so Save costs
+// O(this fact) instead of O(all facts).
 func (s *Store) insertLocked(f Fact) {
 	if s.facts[f.Scope] == nil {
 		s.facts[f.Scope] = map[string]*Fact{}
 	}
 	cp := f
 	s.facts[f.Scope][strings.ToLower(f.Name)] = &cp
-	var all []*Fact
-	for _, m := range s.facts {
-		for _, fp := range m {
-			all = append(all, fp)
-		}
-	}
-	s.ix.build(all)
+	s.ix.upsert(&cp)
 	if st, err := os.Stat(s.dirs[f.Scope]); err == nil {
 		s.dirTime[f.Scope] = st.ModTime()
 	}
