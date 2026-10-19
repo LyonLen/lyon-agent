@@ -186,12 +186,14 @@ func TestMemoryFactsInjection(t *testing.T) {
 	if err := RegisterMemory(reg, ws); err != nil {
 		t.Fatal(err)
 	}
-	if got := MemoryFacts(ws); got != "" {
-		t.Fatalf("empty workspace must render nothing, got %q", got)
+	// Empty store still renders the write-path guidance (cold-start
+	// deadlock fix) and carries no facts.
+	if got := MemoryFacts(ws); !strings.Contains(got, "save_memory") || strings.Contains(got, "## (") {
+		t.Fatalf("empty workspace must render guidance only, got %q", got)
 	}
-	// Non-hot facts stay out of the injected tier.
+	// Non-hot facts stay out of the injected tier (guidance still ships).
 	mustCall(t, reg, "save_memory", `{"title":"cold fact","content":"not resident"}`)
-	if got := MemoryFacts(ws); got != "" {
+	if got := MemoryFacts(ws); strings.Contains(got, "not resident") {
 		t.Fatalf("cold fact leaked into hot tier: %q", got)
 	}
 	// hot=true pins it; MemoryFacts renders name and body.

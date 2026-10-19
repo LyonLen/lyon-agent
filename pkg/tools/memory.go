@@ -21,17 +21,37 @@ const (
 	memoryHotBytes   = 4096
 )
 
+// memoryGuidance is the standing instruction line, injected whether or
+// not any hot fact exists. An empty store used to render nothing at all,
+// so the prompt carried no write-path guidance and the hot tier stayed
+// empty forever — nothing told the model to save the first fact
+// (cold-start deadlock, 2026-10-19: 86-turn sessions with zero saves).
+const memoryGuidance = "Durable facts across sessions. Use read_memory with a query to search the cold tiers (team/personal/project), save_memory to persist new facts, forget_memory to delete. /memory in the TUI shows and manages the store."
+
+// injectionSentinel prefixes every MemoryFacts output, hot or empty.
+const injectionSentinel = "[persistent-memory"
+
+// IsInjection reports whether text is a MemoryFacts block rather than
+// real conversation content. Snapshot replay (restore/rollback synth)
+// uses this so an injected memory note never resurfaces as a user
+// message in a rewound transcript.
+func IsInjection(text string) bool {
+	return strings.HasPrefix(text, injectionSentinel)
+}
+
 // MemoryFacts renders the hot tier for injection into a session's first
-// prompt; "" when no fact is marked hot.
+// prompt. Always non-empty: the guidance line ships even when no fact is
+// hot, so the model can learn the write path from an empty store.
 func MemoryFacts(workspace string) string {
 	st := memory.Open(workspace)
 	hot := st.HotText(memoryHotBytes)
-	if hot == "" {
-		return ""
-	}
 	var b strings.Builder
 	b.WriteString("[persistent-memory — hot tier, always in context]\n")
-	b.WriteString("Durable facts across sessions. Use read_memory with a query to search the cold tiers (team/personal/project), save_memory to persist new facts, forget_memory to delete. /memory in the TUI shows and manages the store.\n")
+	b.WriteString(memoryGuidance + "\n")
+	if hot == "" {
+		b.WriteString("(no hot facts yet — when a conversation produces something durable, save_memory it so future sessions inherit it)\n")
+		return b.String()
+	}
 	b.WriteString(hot)
 	return b.String()
 }

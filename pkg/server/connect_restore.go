@@ -12,6 +12,7 @@ import (
 
 	lyonv1 "lyon-agent/gen/go/lyon/v1"
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/tools"
 )
 
 // RestoreSession re-opens a stored snapshot as a live session (web plan
@@ -132,7 +133,10 @@ func synthSnapshotEvents(msgs []anthropic.BetaMessageParam) []agent.Event {
 			for _, b := range m.Content {
 				switch {
 				case b.OfText != nil:
-					if b.OfText.Text != "" {
+					// Memory injections ride the user message as a leading
+					// text block; they are context, not conversation — never
+					// replay them as a user_message.
+					if b.OfText.Text != "" && !tools.IsInjection(b.OfText.Text) {
 						out = append(out, agent.Event{Type: evUserMessage, Text: b.OfText.Text})
 					}
 				case b.OfToolResult != nil:

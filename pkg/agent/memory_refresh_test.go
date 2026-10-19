@@ -52,10 +52,11 @@ func TestSaveMemoryVisibleNextTurn(t *testing.T) {
 		t.Fatalf("submit 1: %v", err)
 	}
 	waitPromptEnd(t, sess)
-	// Round 1's history was assembled from an empty store, so no memory
-	// block rode into it (the fact body itself is in there via the
-	// tool_use echo — the injection header is what must be absent).
-	if b := string(mock.LastBody()); strings.Contains(b, "[persistent-memory") {
+	// Round 1's history was assembled from an empty store: the injected
+	// block is guidance-only since the cold-start fix, and must not carry
+	// the not-yet-saved fact (the fact body itself is in there via the
+	// tool_use echo — the rendered-fact marker is what must be absent).
+	if b := string(mock.LastBody()); strings.Contains(b, "## (project)") {
 		t.Fatalf("round-1 request carries the not-yet-saved fact as an injection: %s", b)
 	}
 
@@ -190,7 +191,9 @@ func TestMemoryCallbackSeamDirect(t *testing.T) {
 		t.Fatalf("forget note = %q", got)
 	}
 	_ = sess.buildHistory("", "q2")
-	if sess.memoryText != "" {
+	// Since the cold-start fix the snapshot falls back to guidance-only
+	// text, not "" — the fact itself must be gone either way.
+	if strings.Contains(sess.memoryText, "DEPLOY-CODE-7749") {
 		t.Fatalf("memoryText not emptied after forget: %q", sess.memoryText)
 	}
 
