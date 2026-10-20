@@ -322,6 +322,23 @@ button:focus-visible,
 
 /* markdown transcript (assistant prose) */
 .blk-text.md { line-height: 1.55; }
+/* turn wall-time stamp under the finished reply */
+.turn-ms { margin-top: 4px; text-align: right; color: var(--dim); font-size: 11px; }
+
+/* file-list context menu (SCC FileExplorer parity) */
+.ctx-menu {
+  position: fixed; z-index: 90; min-width: 170px; padding: 4px;
+  background: #141a21; border: 1px solid var(--line);
+  border-radius: var(--radius-2); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.ctx-menu button {
+  display: block; width: 100%; text-align: left; padding: 6px 10px;
+  font-size: 12px; color: var(--fg); background: none;
+  border: 0; border-radius: var(--radius-1); cursor: pointer;
+}
+.ctx-menu button:hover { background: rgba(77, 163, 255, 0.12); }
+.ctx-menu button.danger { color: var(--danger); }
+.ctx-sep { height: 1px; margin: 4px 2px; background: var(--line); }
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
 .md h1, .md h2, .md h3, .md h4 { margin: 14px 0 6px; line-height: 1.3; }

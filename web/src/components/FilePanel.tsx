@@ -48,6 +48,62 @@ export default function FilePanel({
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [moving, setMoving] = useState<null | { name: string; from: string }>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Context menu (SCC FileExplorer parity): right-click a row or the list
+  // background. `entry` null = background (new file/folder only); `copied`
+  // briefly flips a menu label to confirm a clipboard write.
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    entry: DirEntry | null;
+    copied?: "rel" | "abs";
+  } | null>(null);
+  // Workspace absolute path (for copy-absolute-path) rides /healthz.
+  const wsRoot = useRef("");
+  useEffect(() => {
+    let live = true;
+    fetch("/healthz")
+      .then((r) => r.json())
+      .then((j: { workspace?: string }) => {
+        if (live && j.workspace) wsRoot.current = j.workspace;
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const absOf = (rel: string) =>
+    wsRoot.current ? `${wsRoot.current}\\${rel.split("/").join("\\")}` : rel;
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+  const copyTo = (text: string, which: "rel" | "abs") => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setMenu((m) => (m ? { ...m, copied: which } : m));
+      window.setTimeout(
+        () =>
+          setMenu((m) =>
+            m && m.copied === which ? { ...m, copied: undefined } : m,
+          ),
+        900,
+      );
+    });
+  };
+  const startRename = (e: DirEntry) => {
+    setRenaming(e.name);
+    setRenameTo(e.name);
+    setNewKind(null);
+    setMenu(null);
+  };
   const dragDepth = useRef(0); // enter/leave fires on child boundaries too
   const [hideDot, setHideDot] = useState<boolean>(() => {
     try {
@@ -370,6 +426,10 @@ export default function FilePanel({
           setDragOver(false);
           void uploadFiles(e.dataTransfer.files);
         }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY, entry: null });
+        }}
       >
         {newKind && (
           <div className="file-inline">
@@ -408,6 +468,11 @@ export default function FilePanel({
               <div
                 key={e.name}
                 className={"file-row" + (moving?.name === e.name && moving.from === path ? " moving" : "")}
+                onContextMenu={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  setMenu({ x: ev.clientX, y: ev.clientY, entry: e });
+                }}
               >
                 {renaming === e.name ? (
                   <div className="file-inline">
@@ -472,6 +537,99 @@ export default function FilePanel({
           </>
         )}
       </div>
+      {menu && (
+        <div
+          className="ctx-menu"
+          style={{ left: menu.x, top: menu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {menu.entry ? (
+            <>
+              <button
+                onClick={() => {
+                  const en = menu.entry!;
+                  setMenu(null);
+                  if (en.isDir) gotoDir(joinPath(path, en.name));
+                  else openFile(en);
+                }}
+              >
+                {menu.entry.isDir ? "打开目录" : "打开"}
+              </button>
+              {menu.entry.isDir && (
+                <>
+                  <button
+                    onClick={() => {
+                      setMenu(null);
+                      setNewKind("file");
+                      setNewName("");
+                    }}
+                  >
+                    新建文件
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenu(null);
+                      setNewKind("dir");
+                      setNewName("");
+                    }}
+                  >
+                    新建文件夹
+                  </button>
+                </>
+              )}
+              <div className="ctx-sep" />
+              <button onClick={() => startRename(menu.entry!)}>重命名</button>
+              <button
+                onClick={() =>
+                  copyTo(joinPath(path, menu.entry!.name), "rel")
+                }
+              >
+                {menu.copied === "rel" ? "✓ 已复制路径" : "复制路径"}
+              </button>
+              <button
+                onClick={() =>
+                  copyTo(absOf(joinPath(path, menu.entry!.name)), "abs")
+                }
+              >
+                {menu.copied === "abs" ? "✓ 已复制绝对路径" : "复制绝对路径"}
+              </button>
+              <div className="ctx-sep" />
+              <button
+                className="danger"
+                onClick={() => {
+                  const en = menu.entry!;
+                  setMenu(null);
+                  askDelete(en);
+                }}
+              >
+                删除
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  setNewKind("file");
+                  setNewName("");
+                }}
+              >
+                新建文件
+              </button>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  setNewKind("dir");
+                  setNewName("");
+                }}
+              >
+                新建文件夹
+              </button>
+            </>
+          )}
+        </div>
+      )}
       {confirm && (
         <ConfirmSheet confirm={confirm} onCancel={() => setConfirm(null)} />
       )}
