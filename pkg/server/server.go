@@ -43,6 +43,8 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(sessPath, sessHandler)
 	filePath, fileHandler := lyonv1connect.NewFileServiceHandler(&fileService{s: s})
 	s.mux.Handle(filePath, fileHandler)
+	memPath, memHandler := lyonv1connect.NewMemoryServiceHandler(&memoryService{s: s})
+	s.mux.Handle(memPath, memHandler)
 	dashPath, dashHandler := lyonv1connect.NewDashboardServiceHandler(&dashboardService{s: s})
 	s.mux.Handle(dashPath, dashHandler)
 	// Approval: mounted with the server so the handler can see whether

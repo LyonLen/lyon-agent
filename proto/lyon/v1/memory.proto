@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// MemoryService: the three-layer memory store (team / personal in
+// $LYON_HOME, project in the workspace) over the server-side pkg/memory
+// handle. The browser can only reach project facts through FileService —
+// this RPC is what makes every scope readable and editable from the web
+// panel. Handlers run against the same process-wide Store the agent's
+// save_memory tool uses (memory.Open caches per workspace), so panel
+// edits and model writes share one index.
+service MemoryService {
+  rpc ListMemory(ListMemoryRequest) returns (ListMemoryResponse);
+  rpc UpdateMemory(UpdateMemoryRequest) returns (UpdateMemoryResponse);
+  rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
+}
+
+// MemoryFact mirrors pkg/memory.Fact (no timestamps — the panel shows
+// name/description/scope/hits, not when they were written).
+message MemoryFact {
+  string name = 1;
+  string description = 2;
+  string scope = 3; // team | personal | project
+  repeated string tags = 4;
+  bool hot = 5;
+  int32 hits = 6;
+  string body = 7;
+}
+
+message ListMemoryRequest {}
+
+message ListMemoryResponse {
+  repeated MemoryFact facts = 1; // project first, then personal, then team; name-ascending within
+}
+
+// UpdateMemory patches one fact. Unset optional fields stay untouched.
+// hot is a set (not a flip): the handler only toggles when the target
+// differs from the stored value (pkg/memory moves hot exclusively through
+// ToggleHot — Save always preserves the stored flag).
+message UpdateMemoryRequest {
+  string scope = 1;
+  string name = 2;
+  optional string description = 3;
+  optional string body = 4;
+  optional bool hot = 5;
+}
+
+message UpdateMemoryResponse {
+  MemoryFact fact = 1;
+}
+
+message DeleteMemoryRequest {
+  string scope = 1;
+  string name = 2;
+}
+
+message DeleteMemoryResponse {}
