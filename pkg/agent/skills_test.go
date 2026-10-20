@@ -159,8 +159,8 @@ func TestSessionSystemPromptCarriesSkills(t *testing.T) {
 		t.Fatalf("skillsText = %q, want the env skill listed", sess.skillsText)
 	}
 	got := sess.baseParams(nil).System[0].Text
-	if got != cfg.SystemPrompt+sess.skillsText {
-		t.Fatalf("system prompt must be frozen base + skills block (cache-stable suffix)")
+	if got != cfg.SystemPrompt+sess.skillsText+sess.shellText {
+		t.Fatalf("system prompt must be frozen base + skills block + shell marker (cache-stable suffix)")
 	}
 	if !strings.Contains(got, "## Skills available (use read_file for full text)") {
 		t.Fatalf("skills header missing from system prompt")

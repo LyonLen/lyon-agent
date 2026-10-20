@@ -253,6 +253,26 @@ func TestShellAllowlistPathQualifiedNames(t *testing.T) {
 	}
 }
 
+// TestShellNameAndDescription: the shell marker the model reads before
+// writing a command must be a bare lowercase word — never a path, never
+// a .exe remnant — and Description() must advertise exactly that word
+// (or stay bare when detection found nothing).
+func TestShellNameAndDescription(t *testing.T) {
+	n := ShellName()
+	if n != strings.ToLower(n) || strings.ContainsAny(n, `/\. `) {
+		t.Fatalf("ShellName() = %q, want bare lowercase word", n)
+	}
+	d := (&Shell{}).Description()
+	switch {
+	case n == "":
+		if strings.Contains(d, "syntax") {
+			t.Fatalf("no detected shell, Description() must not claim syntax: %q", d)
+		}
+	case !strings.Contains(d, n+" syntax"):
+		t.Fatalf("Description() must name the %q shell, got %q", n, d)
+	}
+}
+
 // funcTool is a test double implementing Tool.
 type funcTool struct {
 	name     string

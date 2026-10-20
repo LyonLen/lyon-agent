@@ -131,6 +131,13 @@ type Session struct {
 	// no skills exist (nothing is injected).
 	skillsText string
 
+	// shellText is the one-line default-shell marker (shellEnvSection)
+	// riding right after skillsText: the model writes shell commands
+	// before ever executing one, so it has to know whether that means
+	// bash or powershell up front. tools detects the shell once per
+	// process, so the line is byte-stable — the cache prefix holds.
+	shellText string
+
 	// compactArmed defers an already-triggered compaction until the next
 	// turn has run its pending tool calls, so the summary covers their
 	// results before the history is replaced.
@@ -223,6 +230,7 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		extObs:     obs,
 		memoryText: tools.MemoryFacts(e.cfg.Workspace),
 		skillsText: skillsSection(),
+		shellText:  shellEnvSection(),
 	}
 	s.streamCtx = context.WithValue(ctx, sessionCtxKey{}, s)
 	// D1: save_memory/forget_memory report successes through this seam
@@ -489,9 +497,10 @@ func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMe
 		Messages:  msgs,
 		System: []anthropic.BetaTextBlockParam{{
 			// Frozen base first, then this session's skills block
-			// (skills.go) — both byte-stable per session, so the cache
-			// prefix holds for the whole conversation.
-			Text:         s.systemWithMode(cfg.SystemPrompt) + s.skillsText,
+			// (skills.go) and shell marker — all byte-stable per
+			// session, so the cache prefix holds for the whole
+			// conversation.
+			Text:         s.systemWithMode(cfg.SystemPrompt) + s.skillsText + s.shellText,
 			CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 		}},
 		OutputConfig: anthropic.BetaOutputConfigParam{
@@ -501,6 +510,18 @@ func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMe
 		Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		Fallbacks:    anthropic.BetaFallbacksParamOfDefault(),
 	}
+}
+
+// shellEnvSection renders the one-line default-shell marker appended after
+// the skills block ("Default shell: powershell — write commands in its
+// syntax."). tools probes candidates eagerly on first call, so the answer
+// is ready before the model produces its first command. "" when no shell
+// could be probed — then nothing is injected and Description() stays bare.
+func shellEnvSection() string {
+	if n := tools.ShellName(); n != "" {
+		return fmt.Sprintf("\nDefault shell: %s — write commands in its syntax.\n", n)
+	}
+	return ""
 }
 
 // drive runs one prompt through the full tool loop. Runner rule: exactly one

@@ -38,7 +38,24 @@ type Shell struct {
 func (s *Shell) Name() string { return "run_shell" }
 
 func (s *Shell) Description() string {
-	return "Run a shell command in the workspace directory. Returns the exit code and combined stdout+stderr (truncated to 32KB). Use for file operations, builds, and anything better expressed as a command."
+	d := "Run a shell command in the workspace directory. Returns the exit code and combined stdout+stderr (truncated to 32KB). Use for file operations, builds, and anything better expressed as a command."
+	if n := ShellName(); n != "" {
+		d += " Commands run in " + n + " syntax."
+	}
+	return d
+}
+
+// ShellName reports the detected shell's basename — lowercased, .exe
+// stripped ("powershell", "bash", "cmd", …) — or "" when detection has
+// no working candidate. Detection runs eagerly here rather than on the
+// first Execute: the model must know which shell it is writing for BEFORE
+// it produces a command, not after the command has already failed.
+func ShellName() string {
+	sh, _, err := detectShell()
+	if err != nil || sh == "" {
+		return ""
+	}
+	return strings.TrimSuffix(strings.ToLower(filepath.Base(sh)), ".exe")
 }
 
 func (s *Shell) ParallelSafe() bool { return false }
