@@ -10,6 +10,7 @@ export type PaneKind =
   | "steps"
   | "plan"
   | "preview"
+  | "terminal"
   | "memory";
 
 export const PANE_KINDS: readonly PaneKind[] = [
@@ -19,6 +20,7 @@ export const PANE_KINDS: readonly PaneKind[] = [
   "steps",
   "plan",
   "preview",
+  "terminal",
   "memory",
 ];
 

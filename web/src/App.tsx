@@ -11,6 +11,7 @@ import PlanPane from "./components/PlanPane";
 import StepsPane from "./components/StepsPane";
 import FilePanel from "./components/FilePanel";
 import PreviewPane from "./components/PreviewPane";
+import TerminalPane from "./components/TerminalPane";
 import MemoryPanel from "./components/MemoryPanel";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
@@ -514,6 +515,13 @@ export default function App() {
           />
         );
       },
+    },
+    {
+      kind: "terminal",
+      // The leaf's nodeId doubles as the server-side PTY session id, so
+      // the shell and its output ring persist with the layout.
+      title: "terminal",
+      render: ({ leafId }) => <TerminalPane leafId={leafId} />,
     },
     {
       kind: "memory",

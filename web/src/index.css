@@ -171,6 +171,10 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
 .tile-body > .plan-corner { flex: 1; overflow-y: auto; border-bottom: 0; }
 .tile-body > .plan-corner.empty { display: flex; align-items: center; }
 
+/* terminal pane: xterm host fills the tile body (no padding — the fit
+   addon measures the container and padding makes it overshoot) */
+.term-host { flex: 1; min-height: 0; background: var(--bg); }
+
 /* preview panes: per-leaf tab strip over the fetched content */
 .tile-body > .pv { background: transparent; }
 .pv { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
