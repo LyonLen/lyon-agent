@@ -1248,7 +1248,6 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
     case "user":
       return (
         <div className="blk-user">
-          <span className="user-caret">❯</span>
           <div className="user-text">{block.text}</div>
         </div>
       );

@@ -4,16 +4,24 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { getToken } from "../api";
 
-// Web terminal pane (#26): xterm.js over the /terminal WebSocket. The
-// WS session id IS the chat session id — every chat session owns one
-// shell, so switching sessions switches terminals and parallel tasks
-// never share (or clobber) a prompt. The server keeps the shell while
-// nobody is attached (256KB output ring) and replays the tail on
-// reconnect, so a refresh, a pane close, or a hop to another session
-// never costs the shell; only 30min idle reaping or lyond exiting ends
-// it. Mirrors SCC's Terminal.tsx: fit on tile resize, exponential
-// reconnect backoff 1s→30s, app-level ping (no WS ping API in browsers).
-export default function TerminalPane({ sessionId }: { sessionId: string }) {
+// Web terminal pane (#26): xterm.js over the /terminal WebSocket. One
+// shell per (chat session, pane): the WS keys the server hub as
+// sid~leafId, so a session may keep several terminal panes open at once
+// (each with its own shell) while hopping chat sessions still swaps in
+// that session's shells — parallel tasks never share a prompt. The
+// server keeps each shell while nobody is attached (256KB output ring)
+// and replays the tail on reconnect, so a refresh, a pane close, or a
+// hop to another session never costs the shell; only 30min idle
+// reaping, deleting the chat session, or lyond exiting ends it. Mirrors
+// SCC's Terminal.tsx: fit on tile resize, exponential reconnect backoff
+// 1s→30s, app-level ping (no WS ping API in browsers).
+export default function TerminalPane({
+  sessionId,
+  paneId,
+}: {
+  sessionId: string;
+  paneId: string;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,7 +62,7 @@ export default function TerminalPane({ sessionId }: { sessionId: string }) {
       if (closed || fatal) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(
-        `${proto}://${location.host}/terminal?session=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(getToken())}`,
+        `${proto}://${location.host}/terminal?session=${encodeURIComponent(sessionId)}&pane=${encodeURIComponent(paneId)}&token=${encodeURIComponent(getToken())}`,
       );
       ws.binaryType = "arraybuffer";
       ws.onopen = () => {
@@ -150,7 +158,7 @@ export default function TerminalPane({ sessionId }: { sessionId: string }) {
       ws?.close();
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, paneId]);
 
   if (!sessionId) {
     return (

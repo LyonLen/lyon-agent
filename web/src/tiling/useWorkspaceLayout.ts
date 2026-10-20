@@ -138,8 +138,9 @@ export function useWorkspaceLayout(sessionId: string): WorkspaceLayout {
 
   // Session switch: flush the outgoing session's layout to its key
   // synchronously (the closure still holds the old tree), then hydrate the
-  // new session's key — or, when it has none yet, inherit the on-screen
-  // layout and persist it as that session's starting point.
+  // new session's key — or, when it has none yet, drop to the DEFAULT
+  // layout. A fresh task starts from a clean workspace; the previous
+  // session's arrangement stays saved under its own key for its return.
   const prevSid = useRef(sessionId);
   useEffect(() => {
     if (prevSid.current === sessionId) return;
@@ -149,7 +150,7 @@ export function useWorkspaceLayout(sessionId: string): WorkspaceLayout {
     const loaded = loadStored(keyRef.current);
     setMaximized(null);
     if (loaded) setState(loaded);
-    else saveStored(keyRef.current, root, focus); // inherit current
+    else setState({ root: defaultLayout(), focus: null });
   }, [sessionId]); // root/focus intentionally captured at switch time
 
   const setFocus = useCallback((leafId: string | null) => {

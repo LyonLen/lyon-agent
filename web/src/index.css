@@ -318,7 +318,6 @@ button:focus-visible,
   border-left: 3px solid var(--accent); padding: 4px 8px;
   background: var(--bg-row); border-radius: 0 var(--radius-2) var(--radius-2) 0;
 }
-.blk-user .user-caret { color: var(--accent); font-weight: 700; line-height: 1.5; }
 .blk-user .user-text { white-space: pre-wrap; word-break: break-word; flex: 1; }
 
 /* markdown transcript (assistant prose) */

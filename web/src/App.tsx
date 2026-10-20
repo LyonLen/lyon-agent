@@ -522,7 +522,9 @@ export default function App() {
       // session (switch = switch terminal; the server replays the ring),
       // so parallel tasks never share a prompt.
       title: "terminal",
-      render: () => <TerminalPane sessionId={selectedId ?? ""} />,
+      render: ({ leafId }) => (
+        <TerminalPane sessionId={selectedId ?? ""} paneId={leafId} />
+      ),
     },
     {
       kind: "memory",
