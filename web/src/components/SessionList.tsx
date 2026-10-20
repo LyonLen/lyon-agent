@@ -37,7 +37,12 @@ export default function SessionList(props: {
           <span className="title">{s.title || "(untitled)"}</span>
           <span className="meta">
             {s.mode}
-            {s.busy ? " · running" : ""}
+            {s.busy ? (
+              <>
+                {" · "}
+                <span className="run-badge">running</span>
+              </>
+            ) : null}
             {s.queueLen > 0 ? ` · queued ${s.queueLen}` : ""} · {s.turns} turns
           </span>
         </button>

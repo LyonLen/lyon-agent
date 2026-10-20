@@ -403,9 +403,10 @@ export default function App() {
   // block itself), context gauge pinned bottom-right.
   const curSession = sessions.find((s) => s.id === selectedId);
   const ctxWin = Number(curSession?.contextWindow ?? 0);
-  // Gauge shows the moment a session is selected (its Session snapshot
-  // carries ctx_used/cost) — an untouched session reads 0.0%, not hidden.
+  // HP-bar gauge (#49): fill by load, color by band — green under 20%,
+  // amber through 70%, soft red beyond (digits only, no percentage).
   const ctxPct = ctxWin > 0 ? Math.min(100, (ctxTok / ctxWin) * 100) : 0;
+  const ctxBand = ctxPct < 20 ? "" : ctxPct <= 70 ? " warn" : " hot";
   // TUI fmtCost twin (cmd/lyon/usage.go): three decimals under $10 —
   // prompts often cost cents — two above.
   const fmtUSD = (usd: number) =>
@@ -441,10 +442,16 @@ export default function App() {
       <span className="chat-hint">/ for commands · shift+tab mode · ↑ history</span>
       {ctxWin > 0 && (
         <span
-          className={"ctx-gauge" + (ctxPct >= 85 ? " hot" : ctxPct >= 60 ? " warn" : "")}
-          title="context window load — same thresholds as the TUI corner gauge (cyan < 60 ≤ yellow ≤ 85 < red)"
+          className={"ctx-gauge" + ctxBand}
+          title="context window as an HP bar — green < 20% ≤ amber ≤ 70% < soft red"
         >
-          ctx {ctxPct.toFixed(1)}% · {ctxTok.toLocaleString("en-US")}/{ctxWin.toLocaleString("en-US")}
+          <span className="ctx-bar">
+            <span
+              className="ctx-fill"
+              style={{ width: `${ctxTok > 0 ? Math.max(ctxPct, 1.5) : 0}%` }}
+            />
+          </span>
+          {ctxTok.toLocaleString("en-US")}/{ctxWin.toLocaleString("en-US")}
           {ctxCost !== undefined && ctxCost > 0 && (
             <span className="ctx-cost"> · {fmtUSD(ctxCost)}</span>
           )}
@@ -460,7 +467,7 @@ export default function App() {
     {
       kind: "sessions",
       title: "sessions",
-      desc: "会话列表、新建与恢复",
+      desc: "session list — create & restore",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden>
           <rect x="2" y="2.5" width="10" height="3" rx="1" />
@@ -485,7 +492,7 @@ export default function App() {
       title: selectedId
         ? `chat — ${sessions.find((s) => s.id === selectedId)?.title || selectedId.slice(0, 8)}`
         : "chat",
-      desc: "与模型对话",
+      desc: "conversation with the model",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M2 3.5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H5.5L3 12V9.5H3a1 1 0 0 1-1-1z" />
@@ -520,7 +527,7 @@ export default function App() {
     {
       kind: "files",
       title: "files",
-      desc: "浏览与管理文件",
+      desc: "browse & manage workspace files",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M1.8 4.5a1 1 0 0 1 1-1h2.4l1.2 1.5h4.8a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z" />
@@ -531,7 +538,7 @@ export default function App() {
     {
       kind: "steps",
       title: "steps",
-      desc: "工具执行实时流",
+      desc: "live tool execution stream",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M2 3.5h1.5M2 7h1.5M2 10.5h1.5M5.5 3.5H12M5.5 7H12M5.5 10.5H12" />
@@ -542,7 +549,7 @@ export default function App() {
     {
       kind: "plan",
       title: "plan",
-      desc: "任务清单与进度",
+      desc: "task checklist & progress",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <rect x="2.5" y="2" width="9" height="10" rx="1" />
@@ -556,7 +563,7 @@ export default function App() {
       // PaneDef is looked up per kind, so the header title is static; the
       // open file names live on the per-leaf tab strip inside the pane.
       title: "preview",
-      desc: "预览与编辑文件内容",
+      desc: "view & edit file contents",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M3.5 2h5L11 4.5V12h-7.5z" />
@@ -581,7 +588,7 @@ export default function App() {
       // One shell per (chat session, pane): switching sessions switches
       // terminals, and a session may keep several terminal panes open.
       title: "terminal",
-      desc: "在终端中执行命令",
+      desc: "shell in the workspace",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <rect x="1.8" y="2.5" width="10.4" height="9" rx="1" />
@@ -595,7 +602,7 @@ export default function App() {
     {
       kind: "memory",
       title: "memory — project",
-      desc: "项目记忆浏览与整理",
+      desc: "project memory — browse & curate",
       icon: (
         <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M4.5 3.2a2.2 2.2 0 0 0-1.7 3.6 2.2 2.2 0 0 0 1 3.9c.5 1.1 1.9 1.5 2.9.8.4.4 1 .6 1.6.5a2.2 2.2 0 0 0 1.9-2.6 2.2 2.2 0 0 0 1.3-3.3c-.3-1-1.2-1.7-2.3-1.7-.3-1-1.3-1.7-2.4-1.5-.8.1-1.5.7-1.8 1.4z" />
