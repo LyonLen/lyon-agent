@@ -381,17 +381,21 @@ func (x *SaveCheckpointResponse) GetCheckpoint() *Checkpoint {
 }
 
 type Session struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Workspace     string                 `protobuf:"bytes,2,opt,name=workspace,proto3" json:"workspace,omitempty"` // engine cfg.Workspace
-	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
-	Title         string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`                        // Session.Title(); may be empty early
-	Mode          string                 `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`                          // "default" | "plan" | "bypass" (pkg/agent/mode.go)
-	Busy          bool                   `protobuf:"varint,6,opt,name=busy,proto3" json:"busy,omitempty"`                         // needs new Session.Busy() accessor (gap)
-	QueueLen      int32                  `protobuf:"varint,7,opt,name=queue_len,json=queueLen,proto3" json:"queue_len,omitempty"` // parked prompts; needs new accessor (gap)
-	Turns         int32                  `protobuf:"varint,8,opt,name=turns,proto3" json:"turns,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	LastActive    *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=last_active,json=lastActive,proto3" json:"last_active,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Workspace  string                 `protobuf:"bytes,2,opt,name=workspace,proto3" json:"workspace,omitempty"` // engine cfg.Workspace
+	Model      string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	Title      string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`                        // Session.Title(); may be empty early
+	Mode       string                 `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`                          // "default" | "plan" | "bypass" (pkg/agent/mode.go)
+	Busy       bool                   `protobuf:"varint,6,opt,name=busy,proto3" json:"busy,omitempty"`                         // needs new Session.Busy() accessor (gap)
+	QueueLen   int32                  `protobuf:"varint,7,opt,name=queue_len,json=queueLen,proto3" json:"queue_len,omitempty"` // parked prompts; needs new accessor (gap)
+	Turns      int32                  `protobuf:"varint,8,opt,name=turns,proto3" json:"turns,omitempty"`
+	CreatedAt  *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastActive *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=last_active,json=lastActive,proto3" json:"last_active,omitempty"`
+	// Model context window (pkg/models knowledge base, engine
+	// cfg.ContextWindow fallback) — the denominator of the web ctx gauge,
+	// mirroring cmd/lyon/usage.go windowFor so both surfaces read alike.
+	ContextWindow int64 `protobuf:"varint,11,opt,name=context_window,json=contextWindow,proto3" json:"context_window,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -494,6 +498,13 @@ func (x *Session) GetLastActive() *timestamppb.Timestamp {
 		return x.LastActive
 	}
 	return nil
+}
+
+func (x *Session) GetContextWindow() int64 {
+	if x != nil {
+		return x.ContextWindow
+	}
+	return 0
 }
 
 type CreateSessionRequest struct {
@@ -1717,7 +1728,7 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\x16SaveCheckpointResponse\x123\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x13.lyon.v1.CheckpointR\n" +
-	"checkpoint\"\xb6\x02\n" +
+	"checkpoint\"\xdd\x02\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x14\n" +
@@ -1731,7 +1742,8 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12;\n" +
 	"\vlast_active\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"lastActive\"@\n" +
+	"lastActive\x12%\n" +
+	"\x0econtext_window\x18\v \x01(\x03R\rcontextWindow\"@\n" +
 	"\x14CreateSessionRequest\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\"C\n" +

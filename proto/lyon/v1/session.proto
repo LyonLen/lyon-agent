@@ -99,6 +99,10 @@ message Session {
   int32 turns = 8;
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp last_active = 10;
+  // Model context window (pkg/models knowledge base, engine
+  // cfg.ContextWindow fallback) — the denominator of the web ctx gauge,
+  // mirroring cmd/lyon/usage.go windowFor so both surfaces read alike.
+  int64 context_window = 11;
 }
 
 message CreateSessionRequest {

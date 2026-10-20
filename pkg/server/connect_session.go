@@ -11,6 +11,7 @@ import (
 	lyonv1 "lyon-agent/gen/go/lyon/v1"
 	"lyon-agent/gen/go/lyon/v1/lyonv1connect"
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/models"
 )
 
 // sessionService is the Connect implementation of lyon.v1.SessionService,
@@ -282,7 +283,22 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 		Turns:      int32(len(sess.Stats())),
 		CreatedAt:  timestamppb.New(ref.Created),
 		LastActive: timestamppb.New(ref.LastActive),
+		// windowFor (cmd/lyon/usage.go) twin: knowledge window when the
+		// model is on file, the configured fallback otherwise — the ctx
+		// gauge's denominator.
+		ContextWindow: windowForModel(s.eng.Config()),
 	}
+}
+
+// windowForModel resolves the context-window denominator for the gauge.
+func windowForModel(cfg agent.Config) int64 {
+	if info := models.Lookup(cfg.Model); info != nil && info.Context > 0 {
+		return info.Context
+	}
+	if cfg.ContextWindow > 0 {
+		return cfg.ContextWindow
+	}
+	return 0
 }
 
 func protoUsage(u agent.Usage) *lyonv1.Usage {
