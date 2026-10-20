@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirEntry } from "../gen/lyon/v1/file_pb";
 import { FileKind } from "../gen/lyon/v1/file_pb";
 import { errText, fileClient } from "../api";
 import { joinPath } from "../filePreview";
 import SkeletonRows from "./Skeleton";
+
+// Dotfile visibility, remembered per browser (SCC FileExplorer's
+// scc_file_explorer_hide_dotfiles): default hidden like `ls` without -a.
+const HIDE_DOTFILES_KEY = "lyon_files_hide_dot_v1";
 
 // FilePanel is the workspace browser shell (plan Phase B): navigate,
 // CRUD, upload, move. The embedded 45% preview moved out to standalone
@@ -45,6 +49,40 @@ export default function FilePanel({
   const [moving, setMoving] = useState<null | { name: string; from: string }>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0); // enter/leave fires on child boundaries too
+  const [hideDot, setHideDot] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(HIDE_DOTFILES_KEY);
+      return v == null ? true : v === "1";
+    } catch {
+      return true;
+    }
+  });
+  const toggleHideDot = () => {
+    setHideDot((h) => {
+      const next = !h;
+      try {
+        localStorage.setItem(HIDE_DOTFILES_KEY, next ? "1" : "0");
+      } catch {
+        // storage blocked: the toggle just won't survive reloads
+      }
+      return next;
+    });
+  };
+
+  // What the list shows: dotfiles filtered (when the eye is off), then
+  // folders above files, name ascending within each group — the classic
+  // browser order; the server's raw order only feeds the rename/move/create
+  // logic, never the pixels.
+  const visible = useMemo(() => {
+    const list = entries.filter((e) => !(hideDot && e.name.startsWith(".")));
+    return [...list].sort((a, b) =>
+      a.isDir === b.isDir
+        ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+        : a.isDir
+          ? -1
+          : 1,
+    );
+  }, [entries, hideDot]);
 
   const load = useCallback(async (p: string) => {
     setLoading(true);
@@ -283,6 +321,13 @@ export default function FilePanel({
         >
           + dir
         </button>
+        <button
+          className="ghost"
+          title={hideDot ? "show dotfiles (. prefix)" : "hide dotfiles (. prefix)"}
+          onClick={toggleHideDot}
+        >
+          {hideDot ? "show ." : "hide ."}
+        </button>
         {moving ? (
           <span className="move-banner">
             moving <b>{moving.name}</b> →{" "}
@@ -346,7 +391,7 @@ export default function FilePanel({
         )}
         {loading ? (
           <SkeletonRows n={8} />
-        ) : entries.length === 0 && path === "" ? null : (
+        ) : visible.length === 0 && path === "" ? null : (
           <>
             {path !== "" && (
               <button
@@ -356,10 +401,10 @@ export default function FilePanel({
                 ..
               </button>
             )}
-            {entries.length === 0 && (
+            {visible.length === 0 && (
               <div className="placeholder file-empty">目录为空</div>
             )}
-            {entries.map((e) => (
+            {visible.map((e) => (
               <div
                 key={e.name}
                 className={"file-row" + (moving?.name === e.name && moving.from === path ? " moving" : "")}
