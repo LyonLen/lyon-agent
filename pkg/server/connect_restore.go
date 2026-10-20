@@ -39,6 +39,21 @@ func (c *sessionService) RestoreSession(_ context.Context, req *connect.Request[
 			fmt.Errorf("no snapshot at %s", path))
 	}
 
+	// Idempotent restore: the same snapshot maps to ONE live session.
+	// Double-clicking a SAVED row focuses that session instead of minting
+	// a fresh copy per click (the "四个会话都是同一个" bug).
+	c.s.restoreMu.Lock()
+	defer c.s.restoreMu.Unlock()
+	if id, ok := c.s.restored[path]; ok {
+		if ref, err := c.s.store.Ref(id); err == nil {
+			return connect.NewResponse(&lyonv1.RestoreSessionResponse{
+				Session:          protoSession(c.s, ref),
+				RestoredMessages: int32(len(snap.Messages)),
+			}), nil
+		}
+		delete(c.s.restored, path) // session was deleted meanwhile
+	}
+
 	sess := c.s.eng.NewSession(c.s.obs)
 	// No in-flight prompt on a brand-new session — Restore's settle
 	// precondition is trivially met.
@@ -54,6 +69,7 @@ func (c *sessionService) RestoreSession(_ context.Context, req *connect.Request[
 		return nil, rpcErr(err)
 	}
 	h.injectAll(synthSnapshotEvents(snap.Messages))
+	c.s.restored[path] = id
 
 	ref, err := c.s.store.Ref(id)
 	if err != nil {

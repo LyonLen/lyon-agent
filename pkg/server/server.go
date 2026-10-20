@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"lyon-agent/gen/go/lyon/v1/lyonv1connect"
@@ -27,14 +29,22 @@ type Server struct {
 	term  *termHub        // web terminal PTY sessions (terminal.go)
 	start time.Time
 	token string // bearer token; empty = no auth (loopback-only deployments)
+
+	// RestoreSession idempotency: snapshot path → live session id, so
+	// double-clicking a SAVED row focuses the existing restore instead of
+	// minting copies. Guarded by restoreMu; entries are validated against
+	// the store on read (a deleted session just restores fresh).
+	restoreMu sync.Mutex
+	restored  map[string]string
 }
 
 // New builds the server and its routes.
 func New(eng *agent.Engine, store *Store) *Server {
 	s := &Server{
 		eng: eng, store: store, mux: http.NewServeMux(),
-		term:  newTermHub(eng.Config().Workspace),
-		start: time.Now(),
+		term:     newTermHub(eng.Config().Workspace),
+		start:    time.Now(),
+		restored: map[string]string{},
 	}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
@@ -157,10 +167,18 @@ func writeErr(w http.ResponseWriter, status int, err error) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	// Resolved absolute so "copy absolute path" in the files pane never
+	// depends on how lyond was launched (a bare -workspace . would
+	// otherwise stringify as ".").
+	ws := s.eng.Config().Workspace
+	if abs, err := filepath.Abs(ws); err == nil {
+		ws = abs
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":   "ok",
-		"sessions": s.store.Len(),
-		"model":    s.eng.Config().Model,
+		"status":    "ok",
+		"sessions":  s.store.Len(),
+		"model":     s.eng.Config().Model,
+		"workspace": ws, // the files pane's copy-absolute-path menu
 	})
 }
 
