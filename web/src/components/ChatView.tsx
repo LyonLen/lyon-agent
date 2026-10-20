@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
@@ -272,6 +272,12 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
   }
 }
 
+// One display line for a parked prompt (TUI oneLine): the queue list is a
+// list of rows, not a transcript, so newlines collapse.
+function oneLine(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
 // Pretty-print tool input JSON when it is JSON; pass anything else through.
 function prettyInput(raw: string): string {
   try {
@@ -336,6 +342,20 @@ export default function ChatView(props: {
   const [cmdOut, setCmdOut] = useState<string[] | null>(null);
   // @ file completion (TUI atfiles.go): the trailing @token's entries.
   const [atEntries, setAtEntries] = useState<Array<{ cmd: string; desc: string; dir: boolean }>>([]);
+  // queued mirrors this pane's own Enqueue'd prompts (TUI m.queued): the
+  // server exposes only QueueLen, so the text is client-side. Entries leave
+  // on the matching queue_injected (FIFO, first equal string — same rule as
+  // queueInjected in tui.go); whatever is left at prompt_end was dropped by
+  // the session (#2) and is re-submitted here, exactly like kickQueued.
+  const [queued, setQueuedState] = useState<string[]>([]);
+  const queuedRef = useRef<string[]>([]);
+  const setQueued = useCallback(
+    (upd: (q: string[]) => string[]) => {
+      queuedRef.current = upd(queuedRef.current);
+      setQueuedState(queuedRef.current);
+    },
+    [],
+  );
   const [atSel, setAtSel] = useState(0);
   const [atOff, setAtOff] = useState(false); // Esc dismissed until the input changes
   // /resume and /rollback open a numbered pick list in the pane; the
@@ -537,8 +557,35 @@ export default function ChatView(props: {
             const ev = msg.event;
             if (!ev) continue;
             if (ev.typeName === "prompt_end") {
-              setBusy(false);
+              // Undelivered parked lines were dropped by the session in the
+              // same critical section that cleared busy (#2). Mirror the
+              // TUI's kickQueued: re-send the head as the next prompt (one
+              // per prompt_end, so the chain paces itself); the rest stay
+              // parked. No head → the seat is genuinely idle again.
+              const [head, ...rest] = queuedRef.current;
+              if (head !== undefined) {
+                setQueued(() => rest);
+                sessionClient
+                  .submitPrompt({ sessionId: props.sessionId, prompt: head })
+                  .then(() => props.onChanged())
+                  .catch((e) => {
+                    if (!live) return;
+                    setErr(errText(e));
+                    setBusy(false);
+                  });
+              } else {
+                setBusy(false);
+              }
               props.onPromptEnd?.();
+            }
+            // A parked line joined the run: take its display row down.
+            // FIFO on both sides means the first equal string is the one
+            // that arrived (tui.go queueInjected).
+            if (ev.typeName === "queue_injected" && ev.text) {
+              setQueued((q) => {
+                const i = q.indexOf(ev.text);
+                return i < 0 ? q : [...q.slice(0, i), ...q.slice(i + 1)];
+              });
             }
             // todo_write: exec_start (not sub) carries the COMPLETE list —
             // replace the whole plan (cmd/lyon/todos.go semantics). On the
@@ -905,15 +952,17 @@ export default function ChatView(props: {
     setErr("");
     try {
       if (busy) {
-        const res = await sessionClient.enqueuePrompt({
+        await sessionClient.enqueuePrompt({
           sessionId: props.sessionId,
           prompt,
         });
         setBusy(true);
-        setBlocks((b) => [
-          ...b,
-          { kind: "notice", text: `queued (position ${res.queueLen})` },
-        ]);
+        // Show the line itself, not just its depth (TUI queueRows): the
+        // point of parking a prompt is seeing what will join the run. The
+        // RPC's queueLen is admission only — it counts lines other clients
+        // also parked, which this pane cannot render, so the list is our
+        // own mirror.
+        setQueued((q) => [...q, prompt]);
       } else {
         setBusy(true);
         // No local echo: SubmitPrompt injects the prompt as a
@@ -1088,6 +1137,19 @@ export default function ChatView(props: {
               <span className="pick-num">{i + 1}</span>
               <span className="pick-main">{r.main}</span>
               <span className="slash-desc">{r.sub}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {queued.length > 0 && (
+        <div className="queue-list">
+          <div className="queue-head">queued ({queued.length}):</div>
+          {queued.map((q, i) => (
+            <div className="queue-row" key={`${i}:${q}`}>
+              <span className="queue-num">{i + 1}›</span>
+              <span className="queue-text" title={q}>
+                {oneLine(q)}
+              </span>
             </div>
           ))}
         </div>

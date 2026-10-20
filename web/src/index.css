@@ -811,6 +811,19 @@ button:focus-visible,
 .sl-appr { color: var(--warn); white-space: nowrap; }
 .sl-hint { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 
+/* queue list: the parked prompts themselves (TUI queueRows), above the
+   draft preview so what was already sent stays distinguishable */
+.queue-list {
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 12px 5px;
+  font-size: 12px; color: var(--dim); background: var(--bg-row);
+  border-top: 1px dashed var(--line);
+  max-height: 30vh; overflow-y: auto;
+}
+.queue-head { color: var(--dim); }
+.queue-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.queue-num { color: var(--accent); font-variant-numeric: tabular-nums; }
+.queue-row .queue-text { color: var(--fg); opacity: 0.85; }
+
 /* queue preview: a non-empty line while busy reads as a pending send */
 .queue-preview {
   display: flex; align-items: baseline; gap: 8px; padding: 5px 12px;
