@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,8 +27,13 @@ import (
 //	text    server→client: {"type":"exited"} | {"type":"pong"} |
 //	                        {"type":"error","message"}
 //
-// Session lifecycle IS the session cache (#27): the id is the pane's
-// stable nodeId, so layout persistence doubles as terminal persistence.
+// One shell per (chat session, terminal pane): ?session=<sid>&pane=<leafId>
+// keys the hub as sid~pane, so a session may open any number of terminal
+// panes without them stealing each other. The shell belongs to that pair —
+// closing the pane, a refresh, or hopping sessions never kills it (ring
+// replay on return); only idle reaping, session deletion, or lyond exiting
+// does. The pane param is optional: without it the bare session id keys a
+// single shell (tests, single-pane clients).
 // Detaching does NOT kill the shell — output rings in a bounded buffer
 // and a reconnect replays the tail. Only idle reaping, an explicit
 // close, or lyond exiting ends the shell.
@@ -70,10 +76,11 @@ type termNote struct {
 // PTY I/O is exempt: reads happen only in pump, stdin/resize only in the
 // session's handler goroutine, and those are different pipe ends.
 type termSession struct {
-	id  string
-	hub *termHub
-	pty pty.Pty
-	cmd *pty.Cmd
+	id      string
+	hub     *termHub
+	pty     pty.Pty
+	cmd     *pty.Cmd
+	ptyOnce sync.Once // closePTY: go-pty's Close is not idempotent
 
 	mu      sync.Mutex
 	conn    *websocket.Conn // attached browser; nil = detached
@@ -81,6 +88,17 @@ type termSession struct {
 	exited  bool            // shell process ended
 	closing bool            // explicit teardown in flight
 	idle    *time.Timer     // armed while detached
+}
+
+// closePTY closes the PTY exactly once. go-pty's conPty.Close is NOT
+// idempotent: a second call re-enters ClosePseudoConsole with the stale
+// handle — a use-after-free in conhost that corrupts heaps under churn
+// (the test-suite killer; a production crash waiting for the right
+// exit-vs-kill race). Both kill() and awaitExit() legitimately reach the
+// close (a naturally exited shell is later killLocked'd by the reapper
+// or the reconnect rebuild), so the once-guard lives here.
+func (s *termSession) closePTY() {
+	s.ptyOnce.Do(func() { _ = s.pty.Close() })
 }
 
 // termHub owns the session map. Lock order everywhere: hub.mu → sess.mu
@@ -238,6 +256,32 @@ func (h *termHub) closeSess(s *termSession) {
 	h.killLocked(s)
 }
 
+// closeAll kills every session — lyond itself is exiting. A ConPTY child
+// does not die with its parent on Windows (no kill-on-close job object),
+// so without this each lyond exit leaves orphaned shells nobody owns.
+func (h *termHub) closeAll() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, s := range h.sess {
+		h.killLocked(s) // deletes from the map; safe during range
+	}
+}
+
+// killBySession tears down every shell a chat session owns — one per
+// (session, pane) pair, so a session that opened three terminal panes
+// leaves three shells. Called when the chat session is deleted; the idle
+// reaper would otherwise keep them warm for another 30 minutes.
+func (h *termHub) killBySession(sid string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	prefix := sid + "~"
+	for id, s := range h.sess {
+		if strings.HasPrefix(id, prefix) {
+			h.killLocked(s)
+		}
+	}
+}
+
 // killLocked tears a session down while holding h.mu (kill itself only
 // takes sess.mu — the hub → sess order holds).
 func (h *termHub) killLocked(s *termSession) {
@@ -263,7 +307,7 @@ func (s *termSession) kill() {
 	if s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
-	_ = s.pty.Close() // unblocks pump and awaitExit; go-pty finalizes ConPTY
+	s.closePTY() // unblocks pump and awaitExit; go-pty finalizes ConPTY
 }
 
 // pump owns PTY→client. Every chunk lands in the ring (replay material
@@ -302,7 +346,7 @@ func (s *termSession) awaitExit() {
 		_ = writeWithTimeout(s.conn, websocket.MessageText, mustJSON(termNote{Type: "exited"}))
 	}
 	s.mu.Unlock()
-	_ = s.pty.Close()
+	s.closePTY()
 }
 
 // stdin writes client input to the PTY. Handler-goroutine only (with
@@ -359,10 +403,22 @@ func mustJSON(v any) []byte {
 // a WebSocket handshake — the same constraint SCC works around the same
 // way).
 func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("session")
-	if !termIDPat.MatchString(id) {
+	sid := r.URL.Query().Get("session")
+	if !termIDPat.MatchString(sid) {
 		writeErr(w, http.StatusBadRequest, errors.New("session id must match [A-Za-z0-9_-]{1,64}"))
 		return
+	}
+	// One shell per (session, pane): the same chat session may open any
+	// number of terminal panes, each with its own ConPTY. The composite
+	// key keeps them apart; without a pane param the id is the bare
+	// session (single-shell clients and the tests).
+	id := sid
+	if pane := r.URL.Query().Get("pane"); pane != "" {
+		if !termIDPat.MatchString(pane) {
+			writeErr(w, http.StatusBadRequest, errors.New("pane id must match [A-Za-z0-9_-]{1,64}"))
+			return
+		}
+		id = sid + "~" + pane
 	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// The dev vite proxy rewrites Host, so Origin (localhost:5183) and

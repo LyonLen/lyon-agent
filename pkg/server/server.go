@@ -69,6 +69,20 @@ func New(eng *agent.Engine, store *Store) *Server {
 // every session's tool executions. Call before serving.
 func (s *Server) SetObserver(obs tools.Observer) { s.obs = obs }
 
+// CloseTerminal kills every web terminal shell — wired into lyond's
+// shutdown path. Detached ConPTY shells do not die with the process on
+// Windows, so an exit without this strands them as orphans.
+func (s *Server) CloseTerminal() { s.term.closeAll() }
+
+// dropSession deletes a chat session AND its terminal shells. Every
+// deletion path goes through here: a deleted session's shells have no
+// owner left, and the idle reaper would keep them warm another 30 min.
+func (s *Server) dropSession(id string) bool {
+	ok := s.store.Delete(id)
+	s.term.killBySession(id)
+	return ok
+}
+
 // SetToken installs the bearer token that every route except GET /healthz
 // will require. Empty disables auth (safe only behind loopback or a proxy).
 // Call before Handler.
@@ -269,7 +283,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	// frames (they only ever pass through once).
 	h, err := s.store.Hub(id)
 	if err != nil {
-		s.store.Delete(id)
+		s.dropSession(id)
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -277,7 +291,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	defer h.unsubscribe(sub)
 
 	if err := sess.Submit(req.Message); err != nil {
-		s.store.Delete(id)
+		s.dropSession(id)
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -293,7 +307,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		// mid-prompt with nobody reading its bounded buffer — close the
 		// session so it stops. Headers are already out, so the client just
 		// sees the stream end without prompt_end.
-		s.store.Delete(id)
+		s.dropSession(id)
 		return
 	}
 }
@@ -341,13 +355,13 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	// or slow-client kick) the session would wedge mid-prompt with nobody
 	// watching, so a failure tears the session down.
 	if err := streamPrompt(w, r, sub); err != nil {
-		s.store.Delete(id)
+		s.dropSession(id)
 		return
 	}
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.store.Delete(r.PathValue("id")) {
+	if !s.dropSession(r.PathValue("id")) {
 		writeErr(w, http.StatusNotFound, ErrNotFound)
 		return
 	}

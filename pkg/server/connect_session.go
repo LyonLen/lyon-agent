@@ -123,7 +123,7 @@ func (c *sessionService) GetHistory(_ context.Context, req *connect.Request[lyon
 }
 
 func (c *sessionService) DeleteSession(_ context.Context, req *connect.Request[lyonv1.DeleteSessionRequest]) (*connect.Response[lyonv1.DeleteSessionResponse], error) {
-	if !c.s.store.Delete(req.Msg.SessionId) {
+	if !c.s.dropSession(req.Msg.SessionId) {
 		return nil, rpcErr(ErrNotFound)
 	}
 	return connect.NewResponse(&lyonv1.DeleteSessionResponse{}), nil

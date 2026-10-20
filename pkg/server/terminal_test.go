@@ -120,6 +120,89 @@ func TestTerminalEchoDetachReplayClose(t *testing.T) {
 	c2.CloseNow()
 }
 
+// TestTerminalCloseAll: lyond's shutdown kills every shell, attached or
+// not — a Windows ConPTY child would otherwise outlive the process.
+func TestTerminalCloseAll(t *testing.T) {
+	s, ts := newTermTestServer(t)
+	ctx := context.Background()
+
+	// One attached session plus one detached (the orphan-in-waiting).
+	c1, resp, err := websocket.Dial(ctx, termWSURL(ts.URL, "?session=close-1&token=e2e-tok"), nil)
+	if err != nil {
+		t.Fatalf("dial 1: %v (resp %v)", err, resp)
+	}
+	c2, resp, err := websocket.Dial(ctx, termWSURL(ts.URL, "?session=close-2&token=e2e-tok"), nil)
+	if err != nil {
+		t.Fatalf("dial 2: %v (resp %v)", err, resp)
+	}
+	if err := c1.Write(ctx, websocket.MessageBinary, []byte("printf close-all-$((2*5))\n")); err != nil {
+		t.Fatalf("stdin: %v", err)
+	}
+	termReadUntil(t, c1, "close-all-10", 20*time.Second)
+	c2.CloseNow()
+
+	s.term.closeAll()
+
+	s.term.mu.Lock()
+	n := len(s.term.sess)
+	s.term.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("hub still holds %d sessions after closeAll", n)
+	}
+	// The attached client sees the shutdown as a closed socket.
+	pctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, _, err = c1.Read(pctx)
+	cancel()
+	if err == nil {
+		t.Fatal("attached conn still readable after closeAll")
+	}
+	c1.CloseNow()
+}
+
+// TestTerminalMultiPane: one chat session, two panes, two independent
+// shells — neither stealing (replaced-kick) nor sharing output.
+func TestTerminalMultiPane(t *testing.T) {
+	s, ts := newTermTestServer(t)
+	ctx := context.Background()
+
+	dial := func(pane string) *websocket.Conn {
+		t.Helper()
+		c, resp, err := websocket.Dial(ctx, termWSURL(ts.URL, "?session=multi-1&pane="+pane+"&token=e2e-tok"), nil)
+		if err != nil {
+			t.Fatalf("dial pane %s: %v (resp %v)", pane, err, resp)
+		}
+		return c
+	}
+	cA, cB := dial("pane-a"), dial("pane-b")
+
+	if err := cA.Write(ctx, websocket.MessageBinary, []byte("printf shell-a-$((2*3))\n")); err != nil {
+		t.Fatalf("stdin a: %v", err)
+	}
+	termReadUntil(t, cA, "shell-a-6", 20*time.Second)
+	if err := cB.Write(ctx, websocket.MessageBinary, []byte("printf shell-b-$((4*4))\n")); err != nil {
+		t.Fatalf("stdin b: %v", err)
+	}
+	termReadUntil(t, cB, "shell-b-16", 20*time.Second)
+
+	// If the two dials shared one shell, B's attach would have kicked A
+	// ("replaced"). A still live: a fresh marker round-trips.
+	if err := cA.Write(ctx, websocket.MessageBinary, []byte("printf still-a-$((7*7))\n")); err != nil {
+		t.Fatalf("stdin a2: %v", err)
+	}
+	termReadUntil(t, cA, "still-a-49", 10*time.Second)
+
+	// Deleting the chat session takes both shells with it.
+	s.term.killBySession("multi-1")
+	s.term.mu.Lock()
+	n := len(s.term.sess)
+	s.term.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("hub still holds %d shells after killBySession", n)
+	}
+	cA.CloseNow()
+	cB.CloseNow()
+}
+
 func TestTerminalAuthAndValidation(t *testing.T) {
 	_, ts := newTermTestServer(t)
 	ctx := context.Background()

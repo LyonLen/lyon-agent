@@ -167,7 +167,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "shutdown: %v\n", err)
 	}
 	store.CloseAll()
-	eng.Close() // retire the hooks writer goroutine
+	srv.CloseTerminal() // ConPTY shells don't die with the process — kill them
+	eng.Close()         // retire the hooks writer goroutine
 }
 
 // loopbackOnly reports whether addr binds solely to the loopback interface.
