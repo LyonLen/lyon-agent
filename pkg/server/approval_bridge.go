@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,17 +49,17 @@ type ApprovalBridge struct {
 	mu      sync.Mutex
 	store   *Store // for sess→sid back-resolution; nil until SetApproval
 	pending map[parkKey]*park
-	// rem memoizes "this tool, this seat" grants for the live process
-	// (TUI allowAll semantics: the "a" key vouches for the tool for the
-	// rest of the session). policy is the durable layer proto
-	// Decide.remember feeds: tool-name grants persisted in
-	// $LYON_HOME/policy.json, honored across sessions and restarts.
-	// remembered() consults rem first, then policy.
-	rem        map[string]bool // sid + "\x00" + tool name → granted
-	policy     map[string]bool // tool name → granted, from policy.json
-	policyPath string          // "" = home unresolvable; persistence off
-	subs       map[uint64]chan *lyonv1.WatchPendingResponse
-	subSeq     uint64
+	// grants is the vouch layer, both live and durable: the "a" key in TUI
+	// and "always" in the web card vouch for one tool on one seat — that
+	// session only. It is kept in memory for the process and mirrored to
+	// $LYON_HOME/approvals.json so a restart mid-session does not re-ask.
+	// It is deliberately NOT policy.json: that file is the operator's
+	// security gate (hooks.Policy: allow_tools/deny_tools/deny_patterns),
+	// and a vouch must never be mistaken for one.
+	grants    map[string]bool // sid + "\x00" + tool name → granted
+	grantPath string          // "" = home unresolvable; persistence off
+	subs      map[uint64]chan *lyonv1.WatchPendingResponse
+	subSeq    uint64
 }
 
 // NewApprovalBridge creates an empty bridge. Wire cfg.Approve =
@@ -66,10 +68,9 @@ type ApprovalBridge struct {
 func NewApprovalBridge() *ApprovalBridge {
 	b := &ApprovalBridge{
 		pending: make(map[parkKey]*park),
-		rem:     make(map[string]bool),
 		subs:    make(map[uint64]chan *lyonv1.WatchPendingResponse),
 	}
-	b.policy, b.policyPath = loadPolicy()
+	b.grants, b.grantPath = loadGrants()
 	return b
 }
 
@@ -147,9 +148,8 @@ func (b *ApprovalBridge) decide(sid string, exec uint64, approve, remember bool)
 	}
 	delete(b.pending, key)
 	if remember && approve {
-		b.rem[sid+"\x00"+p.resp.ToolName] = true
-		b.policy[p.resp.ToolName] = true
-		b.savePolicyLocked() // best-effort: failure only costs durability
+		b.grants[sid+"\x00"+p.resp.ToolName] = true
+		b.saveGrantsLocked() // best-effort: failure only costs durability
 	}
 	b.broadcastLocked(&lyonv1.WatchPendingResponse{SessionId: sid, ExecId: int64(exec)})
 	b.mu.Unlock()
@@ -214,50 +214,80 @@ func (b *ApprovalBridge) broadcastLocked(ev *lyonv1.WatchPendingResponse) {
 func (b *ApprovalBridge) remembered(sid, tool string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.rem[sid+"\x00"+tool] || b.policy[tool]
+	return b.grants[sid+"\x00"+tool]
 }
 
-// policyFileName is the durable approval ledger under $LYON_HOME: tools
-// the user vouched with Decide.remember ("a" in TUI terms), surviving
-// restarts and honored for every session.
-const policyFileName = "policy.json"
+// grantFileName is the durable vouch ledger under $LYON_HOME. It is
+// deliberately NOT policy.json: that file is the operator's security gate
+// (hooks.Policy: allow_tools/deny_tools/deny_patterns), and writing a
+// bare {"run_shell":true} map over it would both clobber the gate and be
+// unreadable by it. A vouch remembers one tool for one seat — the
+// "always" key in both UIs.
+const grantFileName = "approvals.json"
 
-// loadPolicy reads $LYON_HOME/policy.json. Absent or corrupt file →
-// empty policy, best-effort by design: a broken ledger must not stop
-// the approver from running (fail-closed is Decide's job, not the
-// storage layer's). Returns the path even on a corrupt read so later
-// grants overwrite the damage.
-func loadPolicy() (map[string]bool, string) {
+// grantRecord is one line of the ledger: the seat a human vouched on and
+// the tool they vouched for. Kept explicit (not just a map key) so the
+// file is self-describing when an operator opens it.
+type grantRecord struct {
+	SessionId string `json:"session_id"`
+	Tool      string `json:"tool"`
+}
+
+// loadGrants reads $LYON_HOME/approvals.json. Absent or corrupt file →
+// empty ledger, best-effort by design: a broken ledger must not stop the
+// approver from running (it just asks again). Returns the path even on a
+// corrupt read so later grants overwrite the damage.
+func loadGrants() (map[string]bool, string) {
+	out := map[string]bool{}
 	home, err := dashHome()
 	if err != nil {
-		return map[string]bool{}, ""
+		return out, ""
 	}
-	path := filepath.Join(home, policyFileName)
+	path := filepath.Join(home, grantFileName)
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return map[string]bool{}, path
+		return out, path
 	}
-	var tools map[string]bool
-	if err := json.Unmarshal(raw, &tools); err != nil || tools == nil {
-		return map[string]bool{}, path
+	var recs []grantRecord
+	if err := json.Unmarshal(raw, &recs); err != nil {
+		return out, path
 	}
-	return tools, path
+	for _, r := range recs {
+		if r.SessionId != "" && r.Tool != "" {
+			out[r.SessionId+"\x00"+r.Tool] = true
+		}
+	}
+	return out, path
 }
 
-// savePolicyLocked persists the grant map — caller holds b.mu. Atomic
-// best-effort (temp file + rename); a failure only costs durability,
-// the in-memory rem/policy grants still vouch for this process.
-func (b *ApprovalBridge) savePolicyLocked() {
-	if b.policyPath == "" {
+// saveGrantsLocked persists the ledger — caller holds b.mu. Atomic
+// best-effort (temp file + rename); a failure only costs durability, the
+// in-memory grants still hold for this process.
+func (b *ApprovalBridge) saveGrantsLocked() {
+	if b.grantPath == "" {
 		return
 	}
-	raw, err := json.Marshal(b.policy)
+	recs := make([]grantRecord, 0, len(b.grants))
+	for k := range b.grants {
+		sid, tool, ok := strings.Cut(k, "\x00")
+		if !ok {
+			continue
+		}
+		recs = append(recs, grantRecord{SessionId: sid, Tool: tool})
+	}
+	sort.Slice(recs, func(i, j int) bool {
+		if recs[i].SessionId != recs[j].SessionId {
+			return recs[i].SessionId < recs[j].SessionId
+		}
+		return recs[i].Tool < recs[j].Tool
+	})
+	raw, err := json.MarshalIndent(recs, "", "  ")
 	if err != nil {
 		return
 	}
-	tmp := b.policyPath + ".tmp"
+	tmp := b.grantPath + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
 		return
 	}
-	_ = os.Rename(tmp, b.policyPath)
+	_ = os.Rename(tmp, b.grantPath)
 }

@@ -90,7 +90,7 @@ export type DecideRequest = Message<"lyon.v1.DecideRequest"> & {
   approve: boolean;
 
   /**
-   * grant persists at tool granularity in $LYON_HOME/policy.json
+   * grant persists for this seat in $LYON_HOME/approvals.json
    *
    * @generated from field: bool remember = 4;
    */

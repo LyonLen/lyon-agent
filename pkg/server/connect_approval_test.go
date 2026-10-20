@@ -285,15 +285,22 @@ func TestApprovalRememberVouches(t *testing.T) {
 }
 
 // TestApprovalRememberPersists pins the proto Decide.remember contract:
-// a remembered grant lands in $LYON_HOME/policy.json at tool granularity,
-// a fresh bridge over the same home honors it for ANY session, and a
-// corrupt ledger degrades to empty instead of blocking construction.
+// a remembered vouch lands in $LYON_HOME/approvals.json for the seat it
+// was decided on, a fresh bridge over the same home honors that seat (the
+// restart case) and only that seat, and a corrupt ledger degrades to empty
+// instead of blocking construction. policy.json — the operator's security
+// gate — must stay untouched.
 func TestApprovalRememberPersists(t *testing.T) {
 	client, apprClient := newApprovalFixture(t, []mockapi.Turn{
 		{Tool: &mockapi.ToolCall{Name: "run_shell", Input: `{"command":"echo one"}`}},
 		{Text: []string{"done"}},
 	})
 	home := os.Getenv("LYON_HOME") // the fixture pinned a scratch home for us
+	// An operator-authored gate must survive the vouch untouched.
+	gate := []byte(`{"allow_tools":["run_shell"],"deny_tools":["bash"]}`)
+	if err := os.WriteFile(filepath.Join(home, "policy.json"), gate, 0o644); err != nil {
+		t.Fatalf("seed policy.json: %v", err)
+	}
 	ctx := context.Background()
 	cres, err := client.CreateSession(ctx, connect.NewRequest(&lyonv1.CreateSessionRequest{}))
 	if err != nil {
@@ -314,32 +321,43 @@ func TestApprovalRememberPersists(t *testing.T) {
 	}
 	collectPromptEvents(t, client, sid)
 
-	// The grant hit the ledger, at tool granularity.
-	raw, err := os.ReadFile(filepath.Join(home, "policy.json"))
+	// The vouch hit its own ledger, scoped to the seat.
+	raw, err := os.ReadFile(filepath.Join(home, "approvals.json"))
 	if err != nil {
-		t.Fatalf("policy.json not written: %v", err)
+		t.Fatalf("approvals.json not written: %v", err)
 	}
-	if !strings.Contains(string(raw), "run_shell") {
-		t.Fatalf("policy.json = %s, want a run_shell grant", raw)
+	if !strings.Contains(string(raw), sid) || !strings.Contains(string(raw), "run_shell") {
+		t.Fatalf("approvals.json = %s, want the seat+run_shell vouch", raw)
+	}
+	got, err := os.ReadFile(filepath.Join(home, "policy.json"))
+	if err != nil {
+		t.Fatalf("policy.json disappeared: %v", err)
+	}
+	if string(got) != string(gate) {
+		t.Fatalf("policy.json was rewritten: %s", got)
 	}
 
-	// A fresh bridge (the restart case) honors the ledger for any seat —
-	// that is the whole point of persisting past the process.
+	// A fresh bridge (the restart case) honors the ledger for THAT seat.
 	b2 := NewApprovalBridge()
-	if !b2.remembered("some-other-session", "run_shell") {
-		t.Fatal("fresh bridge did not honor the persisted run_shell grant")
+	if !b2.remembered(sid, "run_shell") {
+		t.Fatal("fresh bridge did not honor the persisted run_shell vouch")
 	}
-	if b2.remembered("some-other-session", "write_file") {
+	// A vouch is a decision about one run: it must not leak to another
+	// session, nor cover a different tool.
+	if b2.remembered("some-other-session", "run_shell") {
+		t.Fatal("vouch leaked to another seat")
+	}
+	if b2.remembered(sid, "write_file") {
 		t.Fatal("fresh bridge vouched an unrelated tool")
 	}
 
-	// Corrupt ledger: construction still succeeds, policy empty, and the
+	// Corrupt ledger: construction still succeeds, ledger empty, and the
 	// next grant overwrites the damage.
-	if err := os.WriteFile(filepath.Join(home, "policy.json"), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "approvals.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatalf("corrupt the ledger: %v", err)
 	}
 	b3 := NewApprovalBridge()
-	if b3.remembered("any", "run_shell") {
+	if b3.remembered(sid, "run_shell") {
 		t.Fatal("corrupt ledger silently granted a tool")
 	}
 }
