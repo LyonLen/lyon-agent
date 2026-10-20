@@ -175,6 +175,32 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
    addon measures the container and padding makes it overshoot) */
 .term-host { flex: 1; min-height: 0; background: var(--bg); }
 
+/* quick-command strip under the shell (#35): click = type + Enter */
+.term-snips {
+  flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; overflow-x: auto;
+  background: var(--bg); border-top: 1px solid var(--line);
+}
+.term-snip {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  padding: 2px 8px; border: 1px solid var(--line);
+  border-radius: var(--radius-1);
+  font-size: 11px; color: var(--dim); cursor: pointer; white-space: nowrap;
+  transition: color var(--dur-1), border-color var(--dur-1);
+}
+.term-snip:hover { color: var(--fg); border-color: var(--accent-line); }
+.term-snip code { font-family: inherit; }
+.term-snip .snip-x { display: none; padding: 0 1px; color: var(--dim); }
+.term-snip:hover .snip-x { display: inline; }
+.term-snip .snip-x:hover { color: var(--danger); }
+.term-snip.add { font-size: 13px; line-height: 1; padding: 1px 7px; }
+.snip-input {
+  flex-shrink: 0; width: 170px; padding: 2px 8px;
+  font-size: 11px; font-family: inherit; color: var(--fg);
+  background: var(--bg-raise, #141a21); border: 1px solid var(--accent-line);
+  border-radius: var(--radius-1); outline: none;
+}
+
 /* preview panes: per-leaf tab strip over the fetched content */
 .tile-body > .pv { background: transparent; }
 .pv { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }

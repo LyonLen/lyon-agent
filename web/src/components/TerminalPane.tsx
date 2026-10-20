@@ -1,8 +1,27 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { getToken } from "../api";
+
+// Quick-command strip under the viewport (#35): click a chip and the text
+// (+ Enter) rides the WS stdin frames. User-extensible — "+" appends a
+// command, hover "×" removes one — stored per browser, not per session.
+const SNIPS_KEY = "lyon_term_snippets_v1";
+const DEFAULT_SNIPS = ["git status", "git log --oneline -5", "ls -la", "pwd"];
+
+function loadSnips(): string[] {
+  try {
+    const raw = localStorage.getItem(SNIPS_KEY);
+    if (raw) {
+      const v: unknown = JSON.parse(raw);
+      if (Array.isArray(v) && v.every((s) => typeof s === "string")) return v;
+    }
+  } catch {
+    // corrupt storage falls back to the defaults below
+  }
+  return [...DEFAULT_SNIPS];
+}
 
 // Web terminal pane (#26): xterm.js over the /terminal WebSocket. One
 // shell per (chat session, pane): the WS keys the server hub as
@@ -23,6 +42,21 @@ export default function TerminalPane({
   paneId: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // The chip strip lives outside the xterm effect; it writes stdin
+  // through here (null while no socket exists — a click is a no-op).
+  const sendRef = useRef<((data: string) => void) | null>(null);
+  const [snips, setSnips] = useState(loadSnips);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const persistSnips = (next: string[]) => {
+    setSnips(next);
+    try {
+      localStorage.setItem(SNIPS_KEY, JSON.stringify(next));
+    } catch {
+      // private-mode storage failure: kept for this mount only
+    }
+  };
 
   useEffect(() => {
     if (!sessionId) return; // no chat session selected yet
@@ -57,6 +91,14 @@ export default function TerminalPane({
     };
     const sendResize = () =>
       sendCtl({ type: "resize", cols: term.cols, rows: term.rows });
+
+    // Quick-command chips: same binary stdin frames as typed keys.
+    // Closures over `ws` see the current socket (let rebinding in connect).
+    sendRef.current = (data: string) => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(data));
+      }
+    };
 
     const connect = () => {
       if (closed || fatal) return;
@@ -149,6 +191,7 @@ export default function TerminalPane({
 
     return () => {
       closed = true;
+      sendRef.current = null;
       if (ping !== undefined) clearInterval(ping);
       ro.disconnect();
       // Deliberately NO close frame: the shell belongs to the chat
@@ -165,5 +208,61 @@ export default function TerminalPane({
       <div className="placeholder">select a session — its shell lives here</div>
     );
   }
-  return <div className="term-host" ref={hostRef} />;
+  const run = (cmd: string) => sendRef.current?.(cmd + "\n");
+  return (
+    <>
+      <div className="term-host" ref={hostRef} />
+      <div className="term-snips">
+        {snips.map((s, i) => (
+          <div
+            key={`${i}-${s}`}
+            className="term-snip"
+            title={s}
+            onClick={() => run(s)}
+          >
+            <code>{s}</code>
+            <span
+              className="snip-x"
+              title="移除"
+              onClick={(e) => {
+                e.stopPropagation();
+                persistSnips(snips.filter((_, j) => j !== i));
+              }}
+            >
+              ×
+            </span>
+          </div>
+        ))}
+        {adding ? (
+          <input
+            className="snip-input"
+            autoFocus
+            value={draft}
+            placeholder="命令 + Enter"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                setDraft("");
+                setAdding(false);
+              } else if (e.key === "Enter") {
+                const v = draft.trim();
+                if (v) persistSnips([...snips, v]);
+                setDraft("");
+                setAdding(false);
+              }
+            }}
+          />
+        ) : (
+          <button
+            className="term-snip add"
+            title="添加快捷指令"
+            onClick={() => setAdding(true)}
+          >
+            +
+          </button>
+        )}
+      </div>
+    </>
+  );
 }
