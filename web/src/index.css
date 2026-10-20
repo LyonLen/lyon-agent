@@ -773,8 +773,8 @@ button:focus-visible,
   white-space: nowrap; color: var(--fg); font-size: 13px;
 }
 
-/* memory pane: project-scope fact rows (frontmatter parity with
-   pkg/memory/fact.go — hot is the amber dot, forget is two-step) */
+/* memory pane: all three scopes over MemoryService (group heads carry the
+   per-scope badge — hot is the amber dot, forget is two-step) */
 .mem-panel { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
 .mem-head {
   display: flex; align-items: center; gap: 10px;
@@ -786,6 +786,18 @@ button:focus-visible,
   font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
 }
 .mem-flash { flex: 1; font-size: 11px; color: var(--ok); }
+.mem-group-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px 3px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.mem-badge {
+  min-width: 16px; text-align: center;
+  font-size: 10px; line-height: 14px; padding: 0 4px;
+  color: var(--accent); background: var(--accent-a10);
+  border: 1px solid var(--accent-line); border-radius: 7px;
+}
 .mem-row {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 10px; border-bottom: 1px solid var(--line);

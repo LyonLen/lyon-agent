@@ -9,6 +9,7 @@ import {
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "./gen/lyon/v1/session_pb";
 import { FileService } from "./gen/lyon/v1/file_pb";
+import { MemoryService } from "./gen/lyon/v1/memory_pb";
 import { DashboardService } from "./gen/lyon/v1/dashboard_pb";
 import { ApprovalService } from "./gen/lyon/v1/approval_pb";
 
@@ -44,6 +45,7 @@ export const transport = createConnectTransport({
 
 export const sessionClient = createClient(SessionService, transport);
 export const fileClient = createClient(FileService, transport);
+export const memoryClient = createClient(MemoryService, transport);
 export const dashboardClient = createClient(DashboardService, transport);
 // ApprovalService answers Unimplemented until lyond starts with -approve;
 // the pending watcher in App.tsx stops its retry loop on exactly that code.
