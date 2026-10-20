@@ -202,6 +202,11 @@ type Session struct {
 	// prompts — the interval summarizer's input (IntervalTitle). Not
 	// snapshotted; a restored session falls back to firstPrompt.
 	recentPrompts []string
+	// prompts counts THIS session's submitted prompts (SubmitOn plus each
+	// injected gap line) — the interval title beat's input. The engine's
+	// hooks Stats().Prompts is process-wide and drifts across sessions,
+	// so a multi-session server can never hit beats 1/6/26 with it.
+	prompts int64
 
 	// uiState is an opaque renderer-side blob (the TUI's steps panel)
 	// riding into snapshots so /resume restores the audit trail. The
@@ -284,6 +289,16 @@ func (s *Session) QueueLen() int {
 	return len(s.inbox)
 }
 
+// PromptCount reports how many prompts THIS session has submitted
+// (SubmitOn plus injected gap lines) — the interval title beat's input.
+// Deliberately not the engine hooks' Stats().Prompts: that counter is
+// process-wide and useless as a per-session cadence.
+func (s *Session) PromptCount() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.prompts
+}
+
 // Submit queues a prompt for execution. It returns nil once the prompt is
 // accepted; completion is signaled by EventPromptEnd on Events().
 func (s *Session) Submit(prompt string) error {
@@ -312,6 +327,7 @@ func (s *Session) SubmitOn(prompt, model string) error {
 			s.firstPrompt = prompt
 		}
 		s.recentPrompts = appendPromptTail(s.recentPrompts, prompt)
+		s.prompts++
 		s.mu.Unlock()
 		s.eng.hooks.Fire(hooks.Record{Event: hooks.EvPromptStart, Prompt: prompt})
 		return nil
@@ -362,10 +378,11 @@ func (s *Session) injectQueuedGap() {
 		s.lastPrompt = last
 	}
 	// Each injected line is a user prompt (and counts as one in the hook
-	// stats below) — the summarizer tail must see them too.
+	// stats below) — the summarizer tail and the beat counter see them too.
 	for _, line := range lines {
 		s.recentPrompts = appendPromptTail(s.recentPrompts, line)
 	}
+	s.prompts += int64(len(lines))
 	s.mu.Unlock()
 
 	for _, line := range lines {

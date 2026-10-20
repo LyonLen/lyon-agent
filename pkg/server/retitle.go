@@ -29,12 +29,15 @@ var titleInFlight sync.Map // *agent.Session → struct{}
 
 // maybeIntervalTitle checks the beat and, on a hit, runs the summary on
 // its own goroutine — the hub's consumer goroutine calls this and must
-// never wait on an LLM round trip. The hook stats are the prompt count:
-// EvPromptStart fires once per submitted prompt (queued gap lines
-// included). Failures keep the previous title (IntervalTitle's contract);
-// LYON_TITLE=off is honored inside IntervalTitle itself.
+// never wait on an LLM round trip. The cadence input is the SESSION's
+// prompt count (SubmitOn plus injected gap lines). It used to read the
+// engine hooks' Stats().Prompts — that counter is process-wide, so on a
+// multi-session lyond it drifts and almost no session ever lands on
+// beats 1/6/26 (every row stayed "(untitled)"). Failures keep the
+// previous title (IntervalTitle's contract); LYON_TITLE=off is honored
+// inside IntervalTitle itself.
 func maybeIntervalTitle(sess *agent.Session) {
-	if !titleBeat(sess.Hooks().Stats().Prompts) {
+	if !titleBeat(sess.PromptCount()) {
 		return
 	}
 	if _, loaded := titleInFlight.LoadOrStore(sess, struct{}{}); loaded {

@@ -119,6 +119,11 @@ func TestTitleRecorder(t *testing.T) {
 	if len(s.recentPrompts) != 2 || s.recentPrompts[0] != "第一个话题" || s.recentPrompts[1] != "换话题了" {
 		t.Fatalf("recentPrompts = %q", s.recentPrompts)
 	}
+	// The beat counter tracks THIS session's prompts (not the engine-wide
+	// hooks total) — two submissions means beat position 2.
+	if s.prompts != 2 {
+		t.Fatalf("prompts = %d, want 2", s.prompts)
+	}
 }
 
 func TestAppendPromptTail(t *testing.T) {
