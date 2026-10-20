@@ -14,8 +14,9 @@ import PreviewPane from "./components/PreviewPane";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
 import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
-import { collectLeaves } from "./tiling/types";
+import { collectLeaves, findParentSplit } from "./tiling/types";
 import { useFileTabs } from "./useFileTabs";
+import { LEGEND } from "./keys";
 
 // Dashboard is a separate route-level view — lazy so the chat pane's
 // first paint doesn't pay for replay/audit rendering (Phase F chunking).
@@ -299,11 +300,28 @@ export default function App() {
       case "/mode":
         await cycleMode();
         break;
-      case "/steps":
-        // Open-or-focus the steps pane (tiling: no fixed column to switch).
+      case "/steps": {
+        // "/steps width N" resizes the pane (TUI alt+←→ parity); bare
+        // /steps opens-or-focuses it (tiling: no fixed column to switch).
+        const m = cmd.match(/^\/steps\s+width\s+(\d+(?:\.\d+)?)$/i);
+        if (m) {
+          const pct = Math.min(90, Math.max(10, parseFloat(m[1])));
+          const leaf = ws.leafOf("steps");
+          const split = leaf && findParentSplit(ws.root, leaf, "h");
+          if (split) {
+            const ratio = pct / 100;
+            ws.updateRatio(split.splitId, split.isFirst ? ratio : 1 - ratio);
+            flash(`steps width ${pct}%`);
+          } else {
+            ws.openPane("steps");
+            flash("steps pane opened — width needs a horizontal split");
+          }
+          break;
+        }
         ws.openPane("steps");
         flash("steps pane");
         break;
+      }
       default:
         flash(`unknown command ${cmd}`);
     }
@@ -429,6 +447,39 @@ export default function App() {
     };
   }, [modeMenu]);
 
+  // alt+arrows resize the focused pane (TUI alt+←→ width parity,
+  // extended to vertical). Guard chain per D2: defaultPrevented first,
+  // then never while typing — the textarea owns its keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (!e.altKey || e.key.startsWith("Arrow") === false) return;
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
+      const leafId = ws.focus;
+      if (!leafId) return;
+      const map: Record<string, { dir: "h" | "v"; delta: number }> = {
+        // TUI physical intuition: ← widens (gutter moves left), → narrows.
+        ArrowLeft: { dir: "h", delta: +0.04 },
+        ArrowRight: { dir: "h", delta: -0.04 },
+        ArrowUp: { dir: "v", delta: +0.04 },
+        ArrowDown: { dir: "v", delta: -0.04 },
+      };
+      const act = map[e.key];
+      if (!act) return;
+      e.preventDefault();
+      const split = findParentSplit(ws.root, leafId, act.dir);
+      if (!split) {
+        flash(`no ${act.dir === "h" ? "horizontal" : "vertical"} split on this pane`);
+        return;
+      }
+      const ratio = split.ratio + (split.isFirst ? act.delta : -act.delta);
+      ws.updateRatio(split.splitId, ratio);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }); // no deps: always reads the latest focus/root
+
   // The selected session's mode feeds both the dock chip and ChatView's
   // badge (kept until the dock replaced the in-chat controls entirely).
   const curMode = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
@@ -494,36 +545,39 @@ export default function App() {
           panes={panes}
         />
       )}
-      {/* Mode dock — persistent bottom-left control (TUI status bar
-          parity): the chip always shows the active mode, click expands a
-          checkable picker, shift+tab cycles regardless of focus. */}
+      {/* Resident status footer (TUI idleStatus parity): the mode chip
+          sits bottom-left — click expands the checkable picker, shift+tab
+          cycles regardless of focus — then the key legend. */}
       {view === "chat" && (
-        <div className="mode-dock" ref={modeDockRef}>
-          {modeMenu && (
-            <div className="mode-menu">
-              {(["default", "plan", "bypass"] as const).map((m) => (
-                <button
-                  key={m}
-                  className={"mode-item" + (curMode === m ? " active" : "")}
-                  onClick={() => {
-                    setModeMenu(false);
-                    void pickMode(m);
-                  }}
-                >
-                  <span className="mode-check">{curMode === m ? "✓" : ""}</span>
-                  <span>{m}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <button
-            className={`mode-chip ${curMode}`}
-            title="execution mode — click to pick, shift+tab cycles"
-            onClick={() => setModeMenu((v) => !v)}
-          >
-            {curMode}
-          </button>
-        </div>
+        <footer className="app-footer">
+          <div className="mode-dock" ref={modeDockRef}>
+            {modeMenu && (
+              <div className="mode-menu">
+                {(["default", "plan", "bypass"] as const).map((m) => (
+                  <button
+                    key={m}
+                    className={"mode-item" + (curMode === m ? " active" : "")}
+                    onClick={() => {
+                      setModeMenu(false);
+                      void pickMode(m);
+                    }}
+                  >
+                    <span className="mode-check">{curMode === m ? "✓" : ""}</span>
+                    <span>{m}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              className={`mode-chip ${curMode}`}
+              title="execution mode — click to pick, shift+tab cycles"
+              onClick={() => setModeMenu((v) => !v)}
+            >
+              {curMode}
+            </button>
+          </div>
+          <span className="app-legend">{LEGEND}</span>
+        </footer>
       )}
       {toast && <div className="toast">{toast}</div>}
     </div>

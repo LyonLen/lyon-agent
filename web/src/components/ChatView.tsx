@@ -2,11 +2,13 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
-import { errText, sessionClient } from "../api";
+import { errText, fileClient, sessionClient } from "../api";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
 import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
+import OutputDrawer from "./OutputDrawer";
+import { KEY_TABLE } from "../keys";
 
 // The markdown parser rides its own chunk — Suspense fallback shows the
 // raw text until it lands (Phase F split).
@@ -263,9 +265,18 @@ export default function ChatView(props: {
   const [thinkOpen, setThinkOpen] = useState(false);
   const [cmdNote, setCmdNote] = useState(""); // local command receipt, 3s
   const [slashSel, setSlashSel] = useState(0);
+  // Bare "/" browses one category tab at a time (TUI sugCat parity);
+  // a typed prefix still searches across every category.
+  const [slashCat, setSlashCat] = useState(0);
   const [hist, setHist] = useState<string[]>([]);
   const [histIdx, setHistIdx] = useState(-1); // -1 = editing a fresh line
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Output drawer: multi-line command results land here (TUI cmdOutView).
+  const [cmdOut, setCmdOut] = useState<string[] | null>(null);
+  // @ file completion (TUI atfiles.go): the trailing @token's entries.
+  const [atEntries, setAtEntries] = useState<Array<{ cmd: string; desc: string; dir: boolean }>>([]);
+  const [atSel, setAtSel] = useState(0);
+  const [atOff, setAtOff] = useState(false); // Esc dismissed until the input changes
 
   // FIFO by ask time; the stream may replay snapshots in any order.
   const pendings = useMemo(
@@ -326,6 +337,28 @@ export default function ChatView(props: {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [pendings, sel, props]);
+
+  // Output drawer + thinking fold are app-wide gestures (TUI esc / ctrl+o):
+  // they must fire while the prompt textarea is focused, so there is no
+  // TEXTAREA guard here — only defaultPrevented, i.e. a popup that already
+  // claimed the key (slash panel Esc, @ popup Esc) wins, and a second Esc
+  // then closes the drawer. ctrl+o is preventDefault()ed so Chrome's
+  // Ctrl+O file dialog never opens over the workspace.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape") {
+        setCmdOut((v) => (v === null ? v : null));
+        return;
+      }
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        setThinkOpen((v) => !v);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // One WatchEvents stream per selected session — but the transcript
   // renders from the unary GetHistory batch first: history no longer
@@ -500,15 +533,87 @@ export default function ChatView(props: {
   }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The slash panel only matches a single bare token ("/sta"), so a
-  // command with args falls through to send()'s dispatcher.
+  // command with args falls through to send()'s dispatcher. Bare "/"
+  // browses the current category tab (TUI sugCat parity); a prefix
+  // searches across every category.
+  const SLASH_CATS: SlashKind[] = ["session", "model", "panel", "misc"];
   const slashOpen = input.startsWith("/") && !/\s/.test(input);
+  const slashBare = input === "/";
   const slashMatches = useMemo(() => {
     if (!slashOpen) return [];
     const q = input.trim().toLowerCase();
+    if (q === "/") {
+      return SLASH.filter((c) => c.kind === SLASH_CATS[slashCat]);
+    }
     return SLASH.filter((c) => c.cmd.startsWith(q));
-  }, [slashOpen, input]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slashOpen, input, slashCat]);
   const ssel = Math.min(slashSel, Math.max(0, slashMatches.length - 1));
-  useEffect(() => setSlashSel(0), [input]);
+  useEffect(() => setSlashSel(0), [input, slashCat]);
+
+  // @ file completion (TUI atfiles.go atToken): the trailing whitespace-
+  // separated field iff it starts with "@" and holds no space/quote after
+  // the sigil. Directory part stays inside the workspace — the popup
+  // only claims bare tokens.
+  const atTok = useMemo(() => {
+    if (input === "") return null;
+    const start = input.lastIndexOf(" ") + 1;
+    const tok = input.slice(start);
+    if (!tok.startsWith("@") || /[\s"]/.test(tok.slice(1))) return null;
+    return { rel: tok.slice(1), start };
+  }, [input]);
+  const atOpen = atTok !== null && !atOff;
+  useEffect(() => {
+    setAtOff(false);
+    setAtSel(0);
+  }, [input]);
+  useEffect(() => {
+    if (!atOpen || !atTok) {
+      setAtEntries([]);
+      return;
+    }
+    // Split the token into the directory to list and the name prefix to
+    // filter ("pkg/rea" lists "pkg" filtering "rea").
+    const slash = atTok.rel.lastIndexOf("/");
+    const dirPart = slash >= 0 ? atTok.rel.slice(0, slash) : "";
+    const prefix = (slash >= 0 ? atTok.rel.slice(slash + 1) : atTok.rel).toLowerCase();
+    let live = true;
+    void (async () => {
+      try {
+        const res = await fileClient.listDirectory({ path: dirPart });
+        if (!live) return;
+        const dirs: Array<{ cmd: string; desc: string; dir: boolean }> = [];
+        const files: typeof dirs = [];
+        if (dirPart !== "") {
+          dirs.push({ cmd: `@${dirPart}/../`, desc: "up", dir: true });
+        }
+        for (const e of res.entries) {
+          if (e.name.startsWith(".") && !prefix.startsWith(".")) continue;
+          if (prefix !== "" && !e.name.toLowerCase().startsWith(prefix)) continue;
+          if (e.isDir) dirs.push({ cmd: `@${dirPart}${dirPart ? "/" : ""}${e.name}/`, desc: "dir", dir: true });
+          else files.push({ cmd: `@${dirPart}${dirPart ? "/" : ""}${e.name}`, desc: `${Number(e.sizeBytes)}B`, dir: false });
+        }
+        // dirs first, alphabetical within each group; cap so a huge
+        // directory can't drown the input line
+        dirs.sort((a, b) => a.cmd.localeCompare(b.cmd));
+        files.sort((a, b) => a.cmd.localeCompare(b.cmd));
+        setAtEntries([...dirs, ...files].slice(0, 40));
+      } catch {
+        if (live) setAtEntries([]);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [atOpen, atTok?.rel]); // eslint-disable-line react-hooks/exhaustive-deps
+  const asel = Math.min(atSel, Math.max(0, atEntries.length - 1));
+  const atInsert = (item: { cmd: string; dir: boolean }) => {
+    if (!atTok) return;
+    // Replace the @token in place; dirs keep the popup open for further
+    // typing, files get a trailing space (the TUI insertion form).
+    const head = input.slice(0, atTok.start);
+    setInput(item.dir ? `${head}${item.cmd}` : `${head}${item.cmd} `);
+  };
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
@@ -555,16 +660,28 @@ export default function ChatView(props: {
             cr += Number(u.cacheRead);
             cw += Number(u.cacheCreation);
           }
-          note(
-            `stats: ${res.turns.length} turns · in=${inT} out=${outT} cache_r=${cr} cache_w=${cw}`,
-          );
+          // A table lands in the drawer so it stays re-readable (TUI
+          // cmdOutView); single-line receipts still use note().
+          setCmdOut([
+            `turns       ${res.turns.length}`,
+            `input       ${inT} tok`,
+            `output      ${outT} tok`,
+            `cache read  ${cr} tok`,
+            `cache write ${cw} tok`,
+          ]);
         } catch (e) {
           note(errText(e));
         }
         break;
       }
       case "/help":
-        note(`${SLASH.map((c) => c.cmd).join(" ")} · shift+tab mode · ↑ history`);
+        setCmdOut([
+          "commands:",
+          ...SLASH.map((c) => `  ${c.cmd.padEnd(14)}${c.desc}`),
+          "",
+          "keys:",
+          ...KEY_TABLE.map((k) => `  ${k.keys.padEnd(10)}${k.what}`),
+        ]);
         break;
       default:
         void props.onCommand(cmd);
@@ -692,6 +809,18 @@ export default function ChatView(props: {
       )}
       {slashOpen && slashMatches.length > 0 && (
         <div className="slash-panel">
+          <div className="slash-tabs">
+            {SLASH_CATS.map((c, i) => (
+              <button
+                key={c}
+                className={"slash-tab" + (i === slashCat ? " active" : "")}
+                onMouseDown={(e) => e.preventDefault()} // keep textarea focus
+                onClick={() => setSlashCat(i)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
           {slashMatches.map((c, i) => (
             <div
               key={c.cmd}
@@ -709,6 +838,23 @@ export default function ChatView(props: {
           ))}
         </div>
       )}
+      {atOpen && atEntries.length > 0 && (
+        <div className="slash-panel at-panel">
+          {atEntries.map((en, i) => (
+            <div
+              key={en.cmd}
+              className={"slash-row" + (i === asel ? " sel" : "")}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep focus; insert in place
+                atInsert(en);
+              }}
+            >
+              <span className="slash-cmd">{en.cmd}</span>
+              <span className="slash-desc">{en.desc}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {busy && input.trim() && (
         <div className="queue-preview">
           <span className="queue-caret">⏎</span>
@@ -716,6 +862,7 @@ export default function ChatView(props: {
           <span className="queue-hint">Enter queues for the next turn gap</span>
         </div>
       )}
+      {cmdOut && <OutputDrawer lines={cmdOut} onClose={() => setCmdOut(null)} />}
       <div className="status-line">
         {todos.length > 0 && (
           <span className="sl-plan">
@@ -753,8 +900,33 @@ export default function ChatView(props: {
           placeholder={busy ? "busy — Enter queues for the next turn gap" : "prompt (Enter to send) · / for commands"}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            // Slash panel first: it is open only while the input is one
-            // bare token, so these keys never fight prose editing.
+            // @ popup first: it owns the keys while a trailing "@…" token
+            // has entries. (It and the slash panel are mutually exclusive —
+            // a bare "/…" token can never be an @token.)
+            if (atOpen && atEntries.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setAtSel((s) => (s + 1) % atEntries.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setAtSel((s) => (s - 1 + atEntries.length) % atEntries.length);
+                return;
+              }
+              if ((e.key === "Tab" || e.key === "Enter") && !e.shiftKey) {
+                e.preventDefault(); // insert the pick in place
+                atInsert(atEntries[asel]);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setAtOff(true); // dismissed until the input changes
+                return;
+              }
+            }
+            // Slash panel: it is open only while the input is one bare
+            // token, so these keys never fight prose editing.
             if (slashOpen && slashMatches.length > 0) {
               if (e.key === "ArrowDown") {
                 e.preventDefault();
@@ -766,6 +938,20 @@ export default function ChatView(props: {
                 setSlashSel(
                   (s) => (s - 1 + slashMatches.length) % slashMatches.length,
                 );
+                return;
+              }
+              // ←/→ flip category tabs on a bare "/" (TUI sugCat); with a
+              // prefix typed they stay plain cursor movement.
+              if (e.key === "ArrowLeft" && slashBare) {
+                e.preventDefault();
+                setSlashCat(
+                  (c) => (c - 1 + SLASH_CATS.length) % SLASH_CATS.length,
+                );
+                return;
+              }
+              if (e.key === "ArrowRight" && slashBare) {
+                e.preventDefault();
+                setSlashCat((c) => (c + 1) % SLASH_CATS.length);
                 return;
               }
               if (e.key === "Tab" && !e.shiftKey) {

@@ -122,6 +122,21 @@ export function findLeafByPane(root: TileNode, pane: PaneKind): TileLeaf | null 
   return findLeafByPane(root.first, pane) ?? findLeafByPane(root.second, pane);
 }
 
+/** The deepest ancestor split of `leafId` with the given orientation. */
+export function findParentSplit(
+  root: TileNode,
+  leafId: string,
+  dir: Dir,
+): { splitId: string; ratio: number; isFirst: boolean } | null {
+  if (root.type === "leaf") return null;
+  const inFirst = getLeaf(root.first, leafId) !== null;
+  if (!inFirst && getLeaf(root.second, leafId) === null) return null;
+  const deeper = findParentSplit(inFirst ? root.first : root.second, leafId, dir);
+  if (deeper) return deeper; // nearest matching-dir ancestor wins
+  if (root.dir === dir) return { splitId: root.nodeId, ratio: root.ratio, isFirst: inFirst };
+  return null;
+}
+
 export function countLeaves(node: TileNode): number {
   if (node.type === "leaf") return 1;
   return countLeaves(node.first) + countLeaves(node.second);
