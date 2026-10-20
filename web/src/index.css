@@ -671,6 +671,9 @@ button:focus-visible,
 }
 .ctx-gauge.warn { color: var(--warn); }
 .ctx-gauge.hot { color: var(--danger); }
+/* cumulative cost stays green in any heat state — dollars, not load
+   (TUI keeps cGreen on the cost segment too) */
+.ctx-cost { color: var(--ok); }
 /* mode dock: the chip shows the active mode, click expands the
    checkable picker above it */
 .mode-dock { position: relative; }

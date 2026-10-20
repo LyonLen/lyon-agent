@@ -50,6 +50,8 @@ export default function App() {
   // ChatView; the denominator is the session's context_window (reset to 0
   // on session/rollback reseeds, so no stale gauge across switches).
   const [ctxTok, setCtxTok] = useState(0);
+  // Session-cumulative USD (undefined = no unit price on file → hide $)
+  const [ctxCost, setCtxCost] = useState<number | undefined>(undefined);
   const modeDockRef = useRef<HTMLDivElement>(null);
   // Layout and preview tab stacks are session-bound: switching the selected
   // session restores that session's own pane tree and open tabs (each
@@ -401,7 +403,13 @@ export default function App() {
   // block itself), context gauge pinned bottom-right.
   const curSession = sessions.find((s) => s.id === selectedId);
   const ctxWin = Number(curSession?.contextWindow ?? 0);
-  const ctxPct = ctxTok > 0 && ctxWin > 0 ? (ctxTok / ctxWin) * 100 : 0;
+  // Gauge shows the moment a session is selected (its Session snapshot
+  // carries ctx_used/cost) — an untouched session reads 0.0%, not hidden.
+  const ctxPct = ctxWin > 0 ? Math.min(100, (ctxTok / ctxWin) * 100) : 0;
+  // TUI fmtCost twin (cmd/lyon/usage.go): three decimals under $10 —
+  // prompts often cost cents — two above.
+  const fmtUSD = (usd: number) =>
+    usd < 10 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(2)}`;
   const chatFooter = (
     <footer className="chat-footer">
       <div className="mode-dock" ref={modeDockRef}>
@@ -431,12 +439,15 @@ export default function App() {
         </button>
       </div>
       <span className="chat-hint">/ for commands · shift+tab mode · ↑ history</span>
-      {ctxTok > 0 && ctxWin > 0 && (
+      {ctxWin > 0 && (
         <span
           className={"ctx-gauge" + (ctxPct >= 85 ? " hot" : ctxPct >= 60 ? " warn" : "")}
           title="context window load — same thresholds as the TUI corner gauge (cyan < 60 ≤ yellow ≤ 85 < red)"
         >
           ctx {ctxPct.toFixed(1)}% · {ctxTok.toLocaleString("en-US")}/{ctxWin.toLocaleString("en-US")}
+          {ctxCost !== undefined && ctxCost > 0 && (
+            <span className="ctx-cost"> · {fmtUSD(ctxCost)}</span>
+          )}
         </span>
       )}
     </footer>
@@ -494,6 +505,7 @@ export default function App() {
               onCommand={runCommand}
               onPromptEnd={scheduleTitleRefresh}
               onCtx={setCtxTok}
+              onCost={setCtxCost}
               reloadKey={reloadKey}
               snapshots={saved}
               onRestore={(p) => void restore(p)}

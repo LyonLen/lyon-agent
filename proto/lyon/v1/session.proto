@@ -103,6 +103,11 @@ message Session {
   // cfg.ContextWindow fallback) — the denominator of the web ctx gauge,
   // mirroring cmd/lyon/usage.go windowFor so both surfaces read alike.
   int64 context_window = 11;
+  // Gauge snapshot at read time (cmd/lyon/usage.go contextUsed): what the
+  // web footer shows the moment a session opens, before any turn_end
+  // streams. cost_usd absent = no unit price on file (tokens only).
+  int64 ctx_used = 12;
+  optional double cost_usd = 13;  // session-cumulative USD (main + subagents)
 }
 
 message CreateSessionRequest {

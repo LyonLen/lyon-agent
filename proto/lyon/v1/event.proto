@@ -76,6 +76,12 @@ message SessionEvent {
   google.protobuf.Timestamp ts = 44;
   string detail = 45;      // compaction/subagent human-readable note
 
+  // turn_end gauge snapshot (server-computed, mirrors cmd/lyon/usage.go
+  // contextUsed + session-cumulative cost): the web footer reads these
+  // instead of re-deriving usage locally. Absent cost = no price on file.
+  optional double cost_usd = 46;
+  int64 ctx_used = 47;
+
   map<string, string> attrs = 90;  // forward-compat sink (reference repo pattern)
 
   // TODO(#15): node_id / approval_state for plan-tree attribution.

@@ -396,6 +396,11 @@ type Session struct {
 	// cfg.ContextWindow fallback) — the denominator of the web ctx gauge,
 	// mirroring cmd/lyon/usage.go windowFor so both surfaces read alike.
 	ContextWindow int64 `protobuf:"varint,11,opt,name=context_window,json=contextWindow,proto3" json:"context_window,omitempty"`
+	// Gauge snapshot at read time (cmd/lyon/usage.go contextUsed): what the
+	// web footer shows the moment a session opens, before any turn_end
+	// streams. cost_usd absent = no unit price on file (tokens only).
+	CtxUsed       int64    `protobuf:"varint,12,opt,name=ctx_used,json=ctxUsed,proto3" json:"ctx_used,omitempty"`
+	CostUsd       *float64 `protobuf:"fixed64,13,opt,name=cost_usd,json=costUsd,proto3,oneof" json:"cost_usd,omitempty"` // session-cumulative USD (main + subagents)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -503,6 +508,20 @@ func (x *Session) GetLastActive() *timestamppb.Timestamp {
 func (x *Session) GetContextWindow() int64 {
 	if x != nil {
 		return x.ContextWindow
+	}
+	return 0
+}
+
+func (x *Session) GetCtxUsed() int64 {
+	if x != nil {
+		return x.CtxUsed
+	}
+	return 0
+}
+
+func (x *Session) GetCostUsd() float64 {
+	if x != nil && x.CostUsd != nil {
+		return *x.CostUsd
 	}
 	return 0
 }
@@ -1728,7 +1747,7 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\x16SaveCheckpointResponse\x123\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x13.lyon.v1.CheckpointR\n" +
-	"checkpoint\"\xdd\x02\n" +
+	"checkpoint\"\xa5\x03\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x14\n" +
@@ -1743,7 +1762,10 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\vlast_active\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"lastActive\x12%\n" +
-	"\x0econtext_window\x18\v \x01(\x03R\rcontextWindow\"@\n" +
+	"\x0econtext_window\x18\v \x01(\x03R\rcontextWindow\x12\x19\n" +
+	"\bctx_used\x18\f \x01(\x03R\actxUsed\x12\x1e\n" +
+	"\bcost_usd\x18\r \x01(\x01H\x00R\acostUsd\x88\x01\x01B\v\n" +
+	"\t_cost_usd\"@\n" +
 	"\x14CreateSessionRequest\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\"C\n" +
@@ -1944,6 +1966,7 @@ func file_lyon_v1_session_proto_init() {
 		return
 	}
 	file_lyon_v1_event_proto_init()
+	file_lyon_v1_session_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -298,10 +298,13 @@ export default function ChatView(props: {
    *  session titles asynchronously on its interval beats, so App re-reads
    *  the list a beat later. */
   onPromptEnd?: () => void;
-  /** Last turn's prompt load (input + cache read + cache creation) — App
-   *  draws the footer's bottom-right ctx gauge (TUI corner-gauge parity);
-   *  history replay and session switches re-seed it too, 0 on reset. */
+  /** Live context load — App draws the footer's bottom-right ctx gauge
+   *  (TUI corner-gauge parity). Server-computed (Session.ctx_used on
+   *  open, turn_end's ctx_used live); 0 on reset. */
   onCtx?: (tok: number) => void;
+  /** Session-cumulative USD, undefined = no price on file (hide $).
+   *  Same two sources as onCtx; reset to undefined on session switch. */
+  onCost?: (usd: number | undefined) => void;
   reloadKey: number; // bump re-anchors the stream (rollback rewrote the ring)
   // Saved-session store feed for the /resume /rollback pickers, plus the
   // two restore paths that need App state (restore swaps the selection,
@@ -443,6 +446,7 @@ export default function ChatView(props: {
     setErr("");
     setTodos([]);
     props.onCtx?.(0);
+    props.onCost?.(undefined);
     void (async () => {
       // Both reads are unary (content-length) responses — they arrive
       // even while a streaming socket would sit unread. Parallel:
@@ -471,9 +475,11 @@ export default function ChatView(props: {
               props.onTodos(t);
             }
           }
-          if (ev.typeName === "turn_end" && ev.usage) {
-            const u = ev.usage;
-            props.onCtx?.(Number(u.input + u.cacheRead + u.cacheCreation));
+          if (ev.typeName === "turn_end") {
+            // Server stamp wins (contextUsed includes output + compaction
+            // special-case — the raw-usage sum below drifted from TUI).
+            if (ev.ctxUsed) props.onCtx?.(Number(ev.ctxUsed));
+            if (ev.costUsd !== undefined) props.onCost?.(Number(ev.costUsd));
           }
           seeded = reduce(seeded, ev);
         }
@@ -482,6 +488,15 @@ export default function ChatView(props: {
       }
       if (sres?.session) {
         setBusy(sres.session.busy);
+        // Open-time gauge: ctx_used/cost_usd ride the Session snapshot so
+        // an untouched (or restored) session shows its load before any
+        // turn_end streams (#42 — "打开会话不请求就不展示").
+        props.onCtx?.(Number(sres.session.ctxUsed ?? 0));
+        props.onCost?.(
+          sres.session.costUsd !== undefined
+            ? Number(sres.session.costUsd)
+            : undefined,
+        );
       }
       // First-byte watchdog (the stream sitting on a connection that
       // never delivers): during the observed hang every other request
@@ -536,11 +551,11 @@ export default function ChatView(props: {
                 props.onTodos(t);
               }
             }
-            // turn_end carries the turn's usage — the TUI ctx gauge reads
-            // prompt load (input + cache read + cache creation).
-            if (ev.typeName === "turn_end" && ev.usage) {
-              const u = ev.usage;
-              props.onCtx?.(Number(u.input + u.cacheRead + u.cacheCreation));
+            // turn_end's server-stamped gauge: context load + cumulative
+            // cost (cmd/lyon/usage.go twins — one definition, both surfaces).
+            if (ev.typeName === "turn_end") {
+              if (ev.ctxUsed) props.onCtx?.(Number(ev.ctxUsed));
+              if (ev.costUsd !== undefined) props.onCost?.(Number(ev.costUsd));
             }
             setBlocks((b) => reduce(b, ev));
             // Advance the retry anchor with every processed event: a

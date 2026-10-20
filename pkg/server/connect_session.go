@@ -108,11 +108,16 @@ func (c *sessionService) GetHistory(_ context.Context, req *connect.Request[lyon
 	if err != nil {
 		return nil, rpcErr(err)
 	}
+	ref, err := c.s.store.Ref(req.Msg.SessionId)
+	if err != nil {
+		return nil, rpcErr(err)
+	}
 	items := h.dump()
 	evs := make([]*lyonv1.SessionEvent, 0, len(items))
 	var last int64
 	for _, it := range items {
 		se := protoEvent(it)
+		decorateGauge(se, c.s, ref.Session)
 		last = se.Seq
 		evs = append(evs, se)
 	}
@@ -238,9 +243,17 @@ func (c *sessionService) WatchEvents(ctx context.Context, req *connect.Request[l
 		return rpcErr(err)
 	}
 	defer h.unsubscribe(sub)
+	// Gauge snapshots on turn_end frames need the session's stats — the
+	// same seat the hub belongs to (Ref failed only if it was reaped
+	// between the two lookups; stream without gauge stamps, never fail).
+	ref, refErr := c.s.store.Ref(msg.SessionId)
 
 	send := func(it hubItem) error {
-		return stream.Send(&lyonv1.WatchEventsResponse{Event: protoEvent(it)})
+		se := protoEvent(it)
+		if refErr == nil {
+			decorateGauge(se, c.s, ref.Session)
+		}
+		return stream.Send(&lyonv1.WatchEventsResponse{Event: se})
 	}
 	for _, it := range replay {
 		if err := send(it); err != nil {
@@ -272,6 +285,9 @@ func (c *sessionService) WatchEvents(ctx context.Context, req *connect.Request[l
 // model are engine-level in v1 (one engine, one model per process).
 func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 	sess := ref.Session
+	// Gauge snapshot rides along: the web footer renders the moment a
+	// session opens, long before any live turn_end would stream values.
+	ctxUsed, cost := sessionGauge(s, sess)
 	return &lyonv1.Session{
 		Id:         ref.ID,
 		Workspace:  s.eng.Config().Workspace,
@@ -287,6 +303,8 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 		// model is on file, the configured fallback otherwise — the ctx
 		// gauge's denominator.
 		ContextWindow: windowForModel(s.eng.Config()),
+		CtxUsed:       ctxUsed,
+		CostUsd:       cost,
 	}
 }
 

@@ -211,13 +211,18 @@ type SessionEvent struct {
 	IsError    bool   `protobuf:"varint,31,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
 	Error      string `protobuf:"bytes,32,opt,name=error,proto3" json:"error,omitempty"`
 	// Turn boundaries.
-	Turn          int32                  `protobuf:"varint,40,opt,name=turn,proto3" json:"turn,omitempty"`
-	StopReason    string                 `protobuf:"bytes,41,opt,name=stop_reason,json=stopReason,proto3" json:"stop_reason,omitempty"`
-	Usage         *Usage                 `protobuf:"bytes,42,opt,name=usage,proto3" json:"usage,omitempty"`
-	Iterations    int32                  `protobuf:"varint,43,opt,name=iterations,proto3" json:"iterations,omitempty"`
-	Ts            *timestamppb.Timestamp `protobuf:"bytes,44,opt,name=ts,proto3" json:"ts,omitempty"`
-	Detail        string                 `protobuf:"bytes,45,opt,name=detail,proto3" json:"detail,omitempty"`                                                                         // compaction/subagent human-readable note
-	Attrs         map[string]string      `protobuf:"bytes,90,rep,name=attrs,proto3" json:"attrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // forward-compat sink (reference repo pattern)
+	Turn       int32                  `protobuf:"varint,40,opt,name=turn,proto3" json:"turn,omitempty"`
+	StopReason string                 `protobuf:"bytes,41,opt,name=stop_reason,json=stopReason,proto3" json:"stop_reason,omitempty"`
+	Usage      *Usage                 `protobuf:"bytes,42,opt,name=usage,proto3" json:"usage,omitempty"`
+	Iterations int32                  `protobuf:"varint,43,opt,name=iterations,proto3" json:"iterations,omitempty"`
+	Ts         *timestamppb.Timestamp `protobuf:"bytes,44,opt,name=ts,proto3" json:"ts,omitempty"`
+	Detail     string                 `protobuf:"bytes,45,opt,name=detail,proto3" json:"detail,omitempty"` // compaction/subagent human-readable note
+	// turn_end gauge snapshot (server-computed, mirrors cmd/lyon/usage.go
+	// contextUsed + session-cumulative cost): the web footer reads these
+	// instead of re-deriving usage locally. Absent cost = no price on file.
+	CostUsd       *float64          `protobuf:"fixed64,46,opt,name=cost_usd,json=costUsd,proto3,oneof" json:"cost_usd,omitempty"`
+	CtxUsed       int64             `protobuf:"varint,47,opt,name=ctx_used,json=ctxUsed,proto3" json:"ctx_used,omitempty"`
+	Attrs         map[string]string `protobuf:"bytes,90,rep,name=attrs,proto3" json:"attrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // forward-compat sink (reference repo pattern)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -399,6 +404,20 @@ func (x *SessionEvent) GetDetail() string {
 	return ""
 }
 
+func (x *SessionEvent) GetCostUsd() float64 {
+	if x != nil && x.CostUsd != nil {
+		return *x.CostUsd
+	}
+	return 0
+}
+
+func (x *SessionEvent) GetCtxUsed() int64 {
+	if x != nil {
+		return x.CtxUsed
+	}
+	return 0
+}
+
 func (x *SessionEvent) GetAttrs() map[string]string {
 	if x != nil {
 		return x.Attrs
@@ -416,7 +435,7 @@ const file_lyon_v1_event_proto_rawDesc = "" +
 	"\x06output\x18\x02 \x01(\x03R\x06output\x12\x1d\n" +
 	"\n" +
 	"cache_read\x18\x03 \x01(\x03R\tcacheRead\x12%\n" +
-	"\x0ecache_creation\x18\x04 \x01(\x03R\rcacheCreation\"\xe6\x05\n" +
+	"\x0ecache_creation\x18\x04 \x01(\x03R\rcacheCreation\"\xae\x06\n" +
 	"\fSessionEvent\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12&\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x12.lyon.v1.EventTypeR\x04type\x12\x1b\n" +
@@ -444,12 +463,15 @@ const file_lyon_v1_event_proto_rawDesc = "" +
 	"iterations\x18+ \x01(\x05R\n" +
 	"iterations\x12*\n" +
 	"\x02ts\x18, \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\x12\x16\n" +
-	"\x06detail\x18- \x01(\tR\x06detail\x126\n" +
+	"\x06detail\x18- \x01(\tR\x06detail\x12\x1e\n" +
+	"\bcost_usd\x18. \x01(\x01H\x00R\acostUsd\x88\x01\x01\x12\x19\n" +
+	"\bctx_used\x18/ \x01(\x03R\actxUsed\x126\n" +
 	"\x05attrs\x18Z \x03(\v2 .lyon.v1.SessionEvent.AttrsEntryR\x05attrs\x1a8\n" +
 	"\n" +
 	"AttrsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b[\x10dR\anode_idR\x0eapproval_state*\x80\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\v\n" +
+	"\t_cost_usdJ\x04\b[\x10dR\anode_idR\x0eapproval_state*\x80\x04\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18EVENT_TYPE_MESSAGE_START\x10\x01\x12\x19\n" +
@@ -508,6 +530,7 @@ func file_lyon_v1_event_proto_init() {
 	if File_lyon_v1_event_proto != nil {
 		return
 	}
+	file_lyon_v1_event_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
