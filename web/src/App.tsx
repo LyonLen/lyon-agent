@@ -508,7 +508,9 @@ export default function App() {
       if (e.defaultPrevented) return;
       if (!e.altKey || e.key.startsWith("Arrow") === false) return;
       const ae = document.activeElement;
-      if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
+      // isContentEditable catches CodeMirror's .cm-content (a div — the
+      // tagName check alone lets alt+arrow steal keys mid-code-edit)
+      if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT" || (ae as HTMLElement).isContentEditable)) return;
       const leafId = ws.focus;
       if (!leafId) return;
       const map: Record<string, { dir: "h" | "v"; delta: number }> = {
@@ -538,6 +540,10 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Tab" && e.shiftKey) {
+        const ae = document.activeElement;
+        // in an editor (textarea, input, CM contenteditable) shift+tab is
+        // the editor's unindent — the mode cycle must not eat it
+        if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT" || (ae as HTMLElement).isContentEditable)) return;
         e.preventDefault();
         void cycleMode();
       }

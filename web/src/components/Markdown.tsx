@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Components } from "react-markdown";
+import type { Components, Options } from "react-markdown";
 import { mdComponents } from "./mdkit";
 
 export { makeMdComponents, mdComponents, resolveRel } from "./mdkit";
@@ -12,15 +12,23 @@ export { makeMdComponents, mdComponents, resolveRel } from "./mdkit";
 
 // MarkdownView is the lazy boundary: callers wrap it in Suspense with a
 // plain-text fallback, so the parser chunk arrives without blanking.
+// rehypePlugins is optional and stays with the caller (the editor passes
+// rehype-slug for GitHub-style heading anchors; chat doesn't need it).
 export default function MarkdownView({
   children,
   components,
+  rehypePlugins,
 }: {
   children: string;
   components?: Components;
+  rehypePlugins?: Options["rehypePlugins"];
 }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components ?? mdComponents}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
+      components={components ?? mdComponents}
+    >
       {children}
     </ReactMarkdown>
   );

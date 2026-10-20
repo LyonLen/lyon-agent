@@ -345,7 +345,9 @@ export default function ChatView(props: {
     };
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement;
-      if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT")) return;
+      // isContentEditable: CodeMirror edits are typing too — a "y" in the
+      // editor must not approve a pending prompt
+      if (ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT" || (ae as HTMLElement).isContentEditable)) return;
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();

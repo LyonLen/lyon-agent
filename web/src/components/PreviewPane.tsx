@@ -11,6 +11,9 @@ import { makeMdComponents, resolveRel } from "./mdkit";
 import SkeletonRows from "./Skeleton";
 
 const MarkdownView = lazy(() => import("./Markdown"));
+// Editor rides the same lazy path as the md parser — CodeMirror only
+// shows up once a text file opens.
+const CodeEditor = lazy(() => import("./CodeEditor"));
 // Office viewers stay out of the main bundle: pptx-preview (~500KB),
 // mammoth, and SheetJS are each reachable only from their own pane.
 const PptxDeck = lazy(() => import("./previews/PptxDeck"));
@@ -269,21 +272,42 @@ export default function PreviewPane(props: {
         </div>
       )}
       {!loading && preview && preview.kind !== "office" && (
-        <div className="pv-body">
+        <div
+          className={
+            // an editable text pane needs a column layout (head + editor
+            // filling the rest, editor scrolls itself); truncated text and
+            // media keep the plain scrollable body
+            preview.kind === "text" && !preview.truncated ? "pv-body pv-edit" : "pv-body"
+          }
+        >
         {preview.kind === "text" && (
           <>
             <div className="files-preview-head">
               {preview.path}
               {preview.truncated && " · truncated"}
             </div>
-            {preview.md ? (
-              <div className="md files-md">
-                <Suspense fallback={<pre>{preview.content}</pre>}>
-                  <MarkdownView components={mdLinks}>{preview.content}</MarkdownView>
-                </Suspense>
-              </div>
+            {preview.truncated ? (
+              // The content is a cut copy — editable/saveable would
+              // silently destroy the tail of the file on the next save.
+              preview.md ? (
+                <div className="md files-md">
+                  <Suspense fallback={<pre>{preview.content}</pre>}>
+                    <MarkdownView components={mdLinks}>{preview.content}</MarkdownView>
+                  </Suspense>
+                </div>
+              ) : (
+                <pre className="pv-pre">{preview.content}</pre>
+              )
             ) : (
-              <pre className="pv-pre">{preview.content}</pre>
+              <Suspense fallback={<pre className="pv-pre">{preview.content}</pre>}>
+                <CodeEditor
+                  key={preview.path}
+                  path={preview.path}
+                  content={preview.content}
+                  md={preview.md}
+                  mdComponents={mdLinks}
+                />
+              </Suspense>
             )}
           </>
         )}
