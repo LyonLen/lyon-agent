@@ -47,10 +47,11 @@ export default function App() {
   // mirrors the selected session's mode (falls back to "default").
   const [modeMenu, setModeMenu] = useState(false);
   const modeDockRef = useRef<HTMLDivElement>(null);
-  const ws = useWorkspaceLayout();
-  // Preview tab stacks ride the tile nodeIds — drag/swap keeps a pane's
-  // tabs, closing one prunes its record (plan Phase B).
-  const fileTabs = useFileTabs(ws.root);
+  // Layout and preview tab stacks are session-bound: switching the selected
+  // session restores that session's own pane tree and open tabs (each
+  // inherits the on-screen state the first time it is selected).
+  const ws = useWorkspaceLayout(selectedId);
+  const fileTabs = useFileTabs(ws.root, selectedId);
   // External directory navigation for the files pane (markdown links,
   // slash routing): seq bumps so re-requesting the same path reloads.
   const [filesNav, setFilesNav] = useState<{ path: string; seq: number } | null>(null);

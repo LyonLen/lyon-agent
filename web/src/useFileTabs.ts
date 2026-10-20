@@ -2,13 +2,18 @@
 // Record<leafId, {files, active}> pattern). Keyed by tile nodeId so a
 // dragged/swapped pane keeps its tabs; entries for leaves that left the
 // tree are pruned when the layout changes, and the record persists under
-// lyon_files_leaves_v1 (500ms debounce, like the layout itself).
+// lyon_files_leaves_v1 (500ms debounce, like the layout itself). The key
+// is namespaced per session — each session restores its own open tabs;
+// a session with no stored stacks inherits the current ones.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FileKind } from "./gen/lyon/v1/file_pb";
 import { type TileNode, getLeaf } from "./tiling/types";
 
 const STORAGE_KEY = "lyon_files_leaves_v1";
+
+const storageKey = (sessionId: string) =>
+  sessionId ? `${STORAGE_KEY}:${sessionId}` : STORAGE_KEY;
 
 export interface PVFile {
   path: string;
@@ -26,12 +31,12 @@ export interface LeafTabs {
 
 export type FileTabsState = Record<string, LeafTabs>;
 
-function load(): FileTabsState {
+function load(key: string): FileTabsState | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as { v?: number; leaves?: unknown };
-    if (parsed?.v !== 1 || typeof parsed.leaves !== "object" || !parsed.leaves) return {};
+    if (parsed?.v !== 1 || typeof parsed.leaves !== "object" || !parsed.leaves) return null;
     const out: FileTabsState = {};
     for (const [id, rec] of Object.entries(parsed.leaves as Record<string, unknown>)) {
       const r = rec as { files?: unknown; active?: unknown };
@@ -54,7 +59,19 @@ function load(): FileTabsState {
     }
     return out;
   } catch {
-    return {};
+    return null;
+  }
+}
+
+function save(key: string, tabs: FileTabsState) {
+  try {
+    const leaves: FileTabsState = {};
+    for (const [id, rec] of Object.entries(tabs)) {
+      leaves[id] = { files: rec.files, active: rec.active, lastActive: 0 };
+    }
+    localStorage.setItem(key, JSON.stringify({ v: 1, leaves }));
+  } catch {
+    // storage blocked: stacks just won't survive reloads
   }
 }
 
@@ -78,8 +95,9 @@ export interface FileTabsApi {
   closePath: (leafId: string, index: number) => void;
 }
 
-export function useFileTabs(root: TileNode): FileTabsApi {
-  const [tabs, setTabs] = useState<FileTabsState>(load);
+export function useFileTabs(root: TileNode, sessionId: string): FileTabsApi {
+  const keyRef = useRef(storageKey(sessionId));
+  const [tabs, setTabs] = useState<FileTabsState>(() => load(keyRef.current) ?? {});
   const clock = useRef(0);
 
   // The tree changed: drop stacks whose leaf is gone (or no longer a
@@ -89,19 +107,22 @@ export function useFileTabs(root: TileNode): FileTabsApi {
   }, [root]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        const leaves: FileTabsState = {};
-        for (const [id, rec] of Object.entries(tabs)) {
-          leaves[id] = { files: rec.files, active: rec.active, lastActive: 0 };
-        }
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, leaves }));
-      } catch {
-        // storage blocked: stacks just won't survive reloads
-      }
-    }, 500);
+    const t = setTimeout(() => save(keyRef.current, tabs), 500);
     return () => clearTimeout(t);
   }, [tabs]);
+
+  // Session switch: flush outgoing stacks, then hydrate the new session's
+  // stacks — or inherit the on-screen ones when it has none yet.
+  const prevSid = useRef(sessionId);
+  useEffect(() => {
+    if (prevSid.current === sessionId) return;
+    prevSid.current = sessionId;
+    save(keyRef.current, tabs); // old key, old stacks
+    keyRef.current = storageKey(sessionId);
+    const loaded = load(keyRef.current);
+    if (loaded) setTabs(loaded);
+    else save(keyRef.current, tabs); // inherit current
+  }, [sessionId]); // tabs intentionally captured at switch time
 
   const open = useCallback((leafId: string, file: PVFile) => {
     setTabs((t) => {
