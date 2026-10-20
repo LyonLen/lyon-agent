@@ -38,6 +38,12 @@ export function PptxPreview({
   onError,
 }: PptxPreviewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // Renders are serialized through this chain: StrictMode's effect
+  // double-invoke (and any dep churn) starts run B while run A is still
+  // suspended on the dynamic import — if both resume into the same host
+  // the deck renders twice (pages visibly duplicated). One run at a time,
+  // latest run wins.
+  const chainRef = useRef<Promise<void>>(Promise.resolve());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -53,8 +59,9 @@ export function PptxPreview({
     setErr(null);
     onLoadingChange?.(true);
 
-    void (async () => {
+    const render = async () => {
       try {
+        if (cancelled) return;
         if (filename.toLowerCase().endsWith(".ppt") && !filename.toLowerCase().endsWith(".pptx")) {
           throw new Error("legacy .ppt is not supported — save as .pptx and retry");
         }
@@ -64,13 +71,14 @@ export function PptxPreview({
         const host = hostRef.current;
         if (!host) return;
 
-        // Clear-out: the effect can re-run on parent re-render (unstable
-        // callback deps), and pptx-preview's destroy() does not guarantee
-        // it removes the DOM it wrote — without this, renders stack.
+        // This run is the only writer (chain), so clearing here is safe:
+        // residue from a destroyed predecessor (pptx-preview's destroy()
+        // doesn't guarantee DOM removal) dies with it.
         host.innerHTML = "";
 
         // Dynamic import — pptx-preview is ~500KB, only needed for pptx.
         const { init } = await import("pptx-preview");
+        if (cancelled) return;
         const p = init(host, { width, height, mode: "list" }) as unknown as {
           preview: (ab: ArrayBuffer) => Promise<void>;
           destroy: () => void;
@@ -78,7 +86,14 @@ export function PptxPreview({
         };
         previewer = p;
         await p.preview(arrayBuffer);
-        if (cancelled) return;
+        if (cancelled) {
+          // Superseded mid-preview: cleanup already ran, but our writes
+          // can land after its host clear. Wipe them ourselves — the next
+          // chained run has not started yet, so the clear can't hurt it.
+          try { p.destroy(); } catch { /* ignore */ }
+          host.innerHTML = "";
+          return;
+        }
 
         // The library's viewPort container ships overflow:hidden + fixed
         // height, which clips the absolutely-positioned multi-page list to
@@ -106,7 +121,11 @@ export function PptxPreview({
         onLoadingChange?.(false);
         onError?.(errObj);
       }
-    })();
+    };
+
+    chainRef.current = chainRef.current
+      .catch(() => { /* a failed run must not poison the chain */ })
+      .then(() => render());
 
     return () => {
       cancelled = true;
