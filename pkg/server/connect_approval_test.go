@@ -296,8 +296,12 @@ func TestApprovalRememberPersists(t *testing.T) {
 		{Text: []string{"done"}},
 	})
 	home := os.Getenv("LYON_HOME") // the fixture pinned a scratch home for us
-	// An operator-authored gate must survive the vouch untouched.
-	gate := []byte(`{"allow_tools":["run_shell"],"deny_tools":["bash"]}`)
+	// The regression this pins: the OLD bridge wrote its vouches straight
+	// into policy.json as {"run_shell":true}, which made run_shell skip the
+	// card forever — in every seat, across restarts. Seed exactly that
+	// leftover (plus a real operator gate beside it): the tool must still
+	// park, and the file must come out byte-identical.
+	gate := []byte(`{"allow_tools":["run_shell"],"run_shell":true}`)
 	if err := os.WriteFile(filepath.Join(home, "policy.json"), gate, 0o644); err != nil {
 		t.Fatalf("seed policy.json: %v", err)
 	}
