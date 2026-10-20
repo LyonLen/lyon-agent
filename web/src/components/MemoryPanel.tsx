@@ -32,6 +32,7 @@ export default function MemoryPanel() {
   const [facts, setFacts] = useState<MemFact[]>([]);
   const [err, setErr] = useState("");
   const [confirmDel, setConfirmDel] = useState(""); // scope\x00name
+  const [openFact, setOpenFact] = useState(""); // scope\x00name
   const [flash, setFlash] = useState("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -128,28 +129,48 @@ export default function MemoryPanel() {
               {s}
               <span className="mem-badge">{group.length}</span>
             </div>
-            {group.map((f) => (
-              <div key={key(f)} className={"mem-row" + (f.hot ? " hot" : "")}>
-                <button
-                  className={"mem-hot" + (f.hot ? " on" : "")}
-                  title="toggle hot tier"
-                  onClick={() => void toggleHot(f)}
+            {group.map((f) => {
+              const isOpen = openFact === key(f);
+              return (
+                <div
+                  key={key(f)}
+                  className={"mem-row" + (f.hot ? " hot" : "") + (isOpen ? " open" : "")}
                 >
-                  ●
-                </button>
-                <div className="mem-main">
-                  <div className="mem-name">
-                    {f.name}
-                    {f.hits > 0 && <span className="mem-hits">hits={f.hits}</span>}
+                  <button
+                    className={"mem-hot" + (f.hot ? " on" : "")}
+                    title="toggle hot tier"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void toggleHot(f);
+                    }}
+                  >
+                    ●
+                  </button>
+                  <div
+                    className="mem-main"
+                    title="click to expand"
+                    onClick={() => setOpenFact(isOpen ? "" : key(f))}
+                  >
+                    <div className="mem-name">
+                      {f.name}
+                      {f.hits > 0 && <span className="mem-hits">hits={f.hits}</span>}
+                    </div>
+                    {f.description && <div className="mem-desc">{f.description}</div>}
+                    {isOpen && <pre className="mem-body">{f.body || "(empty)"}</pre>}
                   </div>
-                  {f.description && <div className="mem-desc">{f.description}</div>}
+                  <span className="mem-scope">{f.scope}</span>
+                  <button
+                    className="ghost mem-forget"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void forget(f);
+                    }}
+                  >
+                    {confirmDel === key(f) ? "confirm?" : "forget"}
+                  </button>
                 </div>
-                <span className="mem-scope">{f.scope}</span>
-                <button className="ghost mem-forget" onClick={() => void forget(f)}>
-                  {confirmDel === key(f) ? "confirm?" : "forget"}
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         );
       })}

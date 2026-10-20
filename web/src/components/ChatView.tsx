@@ -1089,7 +1089,10 @@ export default function ChatView(props: {
       )}
       {cmdOut && <OutputDrawer lines={cmdOut} onClose={() => setCmdOut(null)} />}
       <div className="status-line">
-        {todos.length > 0 && (
+        {/* Run-state indicator only: the plan itself lives in the plan
+            pane, so a finished prompt must not leave 6/6 parked above the
+            input box. */}
+        {busy && todos.length > 0 && (
           <span className="sl-plan">
             {(() => {
               const p = todoProgress(todos);
@@ -1275,16 +1278,7 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
         </div>
       );
     case "thinking":
-      return (
-        // key remounts on toggle so <details> picks up the new open
-        // state — /think flips every thinking block at once.
-        <details key={String(thinkOpen)} className="blk-thinking" open={thinkOpen}>
-          <summary>
-            thinking<span className="think-key">ctrl+o</span>
-          </summary>
-          <pre>{block.text}</pre>
-        </details>
-      );
+      return <ThinkingBlock key={String(thinkOpen)} block={block} thinkOpen={thinkOpen} />;
     case "tool":
       return (
         <details
@@ -1330,4 +1324,33 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
     case "error":
       return <div className="err">{block.text}</div>;
   }
+}
+
+// ThinkingBlock splits out so it can track its own open state: ctrl+o
+// flips thinkOpen (the key remounts and re-seeds), while a manual summary
+// click rides the native toggle event. The hint always reads whichever way
+// the block currently sits — an open block says collapse, not expand.
+function ThinkingBlock({
+  block,
+  thinkOpen,
+}: {
+  block: Extract<Block, { kind: "thinking" }>;
+  thinkOpen: boolean;
+}) {
+  const [open, setOpen] = useState(thinkOpen);
+  return (
+    <details
+      className="blk-thinking"
+      open={thinkOpen}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary>
+        thinking
+        <span className="think-key">
+          {open ? "ctrl+o to collapse" : "ctrl+o to expand"}
+        </span>
+      </summary>
+      <pre>{block.text}</pre>
+    </details>
+  );
 }
