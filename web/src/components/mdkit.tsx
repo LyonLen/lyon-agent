@@ -46,7 +46,11 @@ export function makeMdComponents(opts?: MdLinkOpts): Components {
         </a>
       );
     },
-    img: opts?.basePath ? (props) => <MdImage {...props} basePath={opts.basePath!} /> : undefined,
+    // img ALWAYS maps to MdImage: "" basePath (root-level files, the
+    // dirnameOf an unnested path) is a valid resolveRel input, and a
+    // components:{img: undefined} entry crashes react-markdown's render
+    // ("Element type is invalid" on the badge-image link of any root README).
+    img: (props) => <MdImage {...props} basePath={opts?.basePath ?? ""} />,
   };
 }
 
