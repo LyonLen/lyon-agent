@@ -71,7 +71,8 @@ const fmtTs = (t?: Timestamp): string => {
 // cross-attach).
 type Block =
   | { kind: "user"; text: string }
-  | { kind: "text"; text: string }
+  // turnMs pins the turn's wall time (from the turn_end event) to the reply.
+  | { kind: "text"; text: string; turnMs?: number }
   | { kind: "thinking"; text: string }
   | {
       kind: "tool";
@@ -246,6 +247,19 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
     }
     case "error":
       return [...blocks, { kind: "error", text: ev.error || ev.detail }];
+    case "turn_end": {
+      // The turn's wall time rides the end event — pin it to the reply
+      // text so a finished answer shows how long it took.
+      const ms = Number(ev.durationMs || 0);
+      if (!ms) return blocks;
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (b.kind === "text") {
+          return replaceAt(blocks, i, { ...b, turnMs: ms });
+        }
+      }
+      return blocks; // thinking/tool-only turn: nothing to annotate
+    }
     case "prompt_end":
       if (ev.error) {
         return [...blocks, { kind: "error", text: ev.error }];
@@ -1243,6 +1257,14 @@ export default function ChatView(props: {
   );
 }
 
+// fmtTurnMs: seconds with one decimal under 90s (prompts often answer in
+// a few seconds), minutes+seconds above.
+function fmtTurnMs(ms: number): string {
+  if (ms < 90_000) return `${(ms / 1000).toFixed(1)}s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
 function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
   switch (block.kind) {
     case "user":
@@ -1257,6 +1279,9 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
           <Suspense fallback={<pre>{block.text}</pre>}>
             <MarkdownView>{block.text}</MarkdownView>
           </Suspense>
+          {block.turnMs ? (
+            <div className="turn-ms">{fmtTurnMs(block.turnMs)}</div>
+          ) : null}
         </div>
       );
     case "thinking":

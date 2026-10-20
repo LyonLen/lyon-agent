@@ -56,6 +56,8 @@ const CloseIcon = () => (
 export interface PaneDef {
   kind: PaneKind;
   title: string;
+  /** Second line in the pane picker (SCC-style icon list). */
+  desc?: string;
   icon?: ReactNode;
   /**
    * Render the pane body. leafId is the hosting tile's nodeId — panes
@@ -191,8 +193,11 @@ const PanePicker = memo(function PanePicker({
         <div className="picker-head">add pane</div>
         {panes.map((p) => (
           <button key={p.kind} className="picker-item" onClick={() => onPick(p.kind)}>
-            {p.icon && <span className="pane-icon">{p.icon}</span>}
-            <span>{p.title}</span>
+            {p.icon && <span className="pane-icon picker-icon">{p.icon}</span>}
+            <span className="picker-labels">
+              <span>{p.title}</span>
+              {p.desc && <span className="picker-desc">{p.desc}</span>}
+            </span>
           </button>
         ))}
       </div>
