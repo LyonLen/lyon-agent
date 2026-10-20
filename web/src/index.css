@@ -717,3 +717,60 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 /* @ popup reuses the slash panel's rows, just without the tab head */
 .at-panel .slash-cmd { min-width: 0; flex: 1; }
+
+/* pick popups (/resume, /rollback) — numbered rows on the same panel */
+.pick-title {
+  padding: 5px 12px; font-size: 11px; color: var(--dim);
+  border-bottom: 1px solid var(--line);
+}
+.pick-num {
+  color: var(--accent); min-width: 2ch; text-align: right;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+}
+.pick-main {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--fg); font-size: 13px;
+}
+
+/* memory pane: project-scope fact rows (frontmatter parity with
+   pkg/memory/fact.go — hot is the amber dot, forget is two-step) */
+.mem-panel { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+.mem-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--bg-bar); z-index: 1;
+}
+.mem-stats {
+  font-size: 11px; color: var(--dim);
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+}
+.mem-flash { flex: 1; font-size: 11px; color: var(--ok); }
+.mem-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; border-bottom: 1px solid var(--line);
+}
+.mem-row.hot { background: var(--bg-select); }
+.mem-hot {
+  background: none; border: none; cursor: pointer; padding: 0 2px;
+  color: var(--line); font-size: 12px; line-height: 1;
+}
+.mem-hot.on { color: var(--warn); }
+.mem-main { flex: 1; min-width: 0; }
+.mem-name {
+  font-size: 12px; color: var(--fg);
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mem-hits { margin-left: 8px; font-size: 10px; color: var(--dim); }
+.mem-desc {
+  font-size: 11px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mem-scope {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--dim); border: 1px solid var(--line); border-radius: 3px;
+  padding: 0 5px;
+}
+.mem-forget { font-size: 11px; }
+.mem-note { padding: 8px 10px; font-size: 11px; color: var(--dim); }
+.mem-err { padding: 6px 10px; font-size: 12px; }

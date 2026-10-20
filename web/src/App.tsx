@@ -11,6 +11,7 @@ import PlanPane from "./components/PlanPane";
 import StepsPane from "./components/StepsPane";
 import FilePanel from "./components/FilePanel";
 import PreviewPane from "./components/PreviewPane";
+import MemoryPanel from "./components/MemoryPanel";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
 import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
@@ -232,15 +233,15 @@ export default function App() {
     void refresh();
   };
 
-  // rollback rewinds the seat to its newest checkpoint: the server
-  // rewrites the ring, then the transcript stream re-anchors with -1 and
-  // replays the rewound conversation (TUI /rollback parity).
-  const rollback = async () => {
+  // rollback rewinds the seat to one checkpoint (id 0 = newest): the
+  // server rewrites the ring, then the transcript stream re-anchors with
+  // -1 and replays the rewound conversation (TUI /rollback parity).
+  const rollback = async (id = 0) => {
     if (!selectedId) return;
     try {
       const res = await sessionClient.rollbackSession({
         sessionId: selectedId,
-        id: 0, // int32 — 0 picks the newest checkpoint
+        id, // int32 — 0 picks the newest checkpoint
       });
       const cp = res.checkpoint;
       flash(`rolled back ${cp ? `— “${cp.label}” undone (${cp.messages} msgs restored)` : ""}`);
@@ -273,40 +274,27 @@ export default function App() {
     await pickMode(next);
   };
 
-  // Slash actions that need App state: the ChatView handles the local
-  // ones (/clear /think /model /stats /help) and routes the rest here.
-  const runCommand = async (cmd: string) => {
+  // Slash actions that need App state: ChatView owns the local rows
+  // (/clear /think /model /stats /help /resume /rollback /sessions
+  // /remember) and routes the rest here. The raw string keeps its
+  // argument tail — "/steps width 40" parses below.
+  const runCommand = async (raw: string) => {
+    const [cmd] = raw.trim().split(/\s+/);
     switch (cmd) {
       case "/new":
         await create();
         flash("new session");
         break;
-      case "/resume": {
-        const latest = saved[0]; // ListSnapshots is newest-first
-        if (!latest) {
-          flash("no saved sessions in this workspace");
-          break;
-        }
-        await restore(latest.path);
-        flash(`restored “${latest.title || "(untitled)"}”`);
-        break;
-      }
-      case "/rollback":
-        await rollback();
-        break;
-      case "/sessions":
-        flash("live + saved sessions are in the left sidebar");
-        break;
       case "/mode":
         await cycleMode();
         break;
       case "/steps": {
-        // "/steps width N" resizes the pane (TUI alt+←→ parity); bare
-        // /steps opens-or-focuses it (tiling: no fixed column to switch).
-        const m = cmd.match(/^\/steps\s+width\s+(\d+(?:\.\d+)?)$/i);
+        // subcommands: bare|open opens-or-focuses, "close" drops the pane,
+        // "width N" resizes (TUI alt+←→ parity).
+        const leaf = ws.leafOf("steps");
+        const m = raw.match(/^\/steps\s+width\s+(\d+(?:\.\d+)?)$/i);
         if (m) {
           const pct = Math.min(90, Math.max(10, parseFloat(m[1])));
-          const leaf = ws.leafOf("steps");
           const split = leaf && findParentSplit(ws.root, leaf, "h");
           if (split) {
             const ratio = pct / 100;
@@ -318,12 +306,27 @@ export default function App() {
           }
           break;
         }
+        const sub = raw.trim().slice("/steps".length).trim().toLowerCase();
+        if (sub === "close") {
+          if (leaf) {
+            ws.closeLeaf(leaf);
+            flash("steps pane closed");
+          } else {
+            flash("no steps pane open");
+          }
+          break;
+        }
         ws.openPane("steps");
         flash("steps pane");
         break;
       }
+      case "/memory":
+        // openPane focuses the new (or existing) pane itself.
+        ws.openPane("memory");
+        flash("memory pane — project scope");
+        break;
       default:
-        flash(`unknown command ${cmd}`);
+        flash(`unknown command ${raw.trim()}`);
     }
   };
 
@@ -400,6 +403,9 @@ export default function App() {
             onSteps={setSteps}
             onCommand={runCommand}
             reloadKey={reloadKey}
+            snapshots={saved}
+            onRestore={(p) => void restore(p)}
+            onRollbackTo={(id) => void rollback(id)}
           />
         ) : (
           <div className="placeholder">select or create a session</div>
@@ -429,6 +435,11 @@ export default function App() {
           />
         );
       },
+    },
+    {
+      kind: "memory",
+      title: "memory — project",
+      render: () => <MemoryPanel />,
     },
   ];
 

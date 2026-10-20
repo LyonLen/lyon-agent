@@ -2,6 +2,9 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
+import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
+import { timestampDate } from "@bufbuild/protobuf/wkt";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { errText, fileClient, sessionClient } from "../api";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
@@ -21,17 +24,47 @@ const MarkdownView = lazy(() => import("./Markdown"));
 type SlashKind = "session" | "model" | "panel" | "misc";
 const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/new", desc: "start a fresh session", kind: "session" },
-  { cmd: "/resume", desc: "restore the newest saved session", kind: "session" },
-  { cmd: "/rollback", desc: "undo to the newest checkpoint", kind: "session" },
-  { cmd: "/sessions", desc: "list live + saved sessions", kind: "session" },
+  { cmd: "/resume", desc: "pick a saved session (N = restore slot N)", kind: "session" },
+  { cmd: "/rollback", desc: "list checkpoints · N restore · save [text] marks one", kind: "session" },
+  { cmd: "/sessions", desc: "list saved sessions (numbered for /resume N)", kind: "session" },
   { cmd: "/clear", desc: "clear the transcript view (history kept)", kind: "session" },
   { cmd: "/mode", desc: "cycle default → plan → bypass", kind: "model" },
-  { cmd: "/model", desc: "show the session's model", kind: "model" },
+  { cmd: "/model", desc: "show the session's effective model", kind: "model" },
   { cmd: "/think", desc: "expand/collapse thinking blocks", kind: "model" },
-  { cmd: "/steps", desc: "open the action audit panel", kind: "panel" },
+  { cmd: "/steps", desc: "open|close the audit panel · width N resizes", kind: "panel" },
+  { cmd: "/memory", desc: "browse project memory — hot toggle, forget", kind: "panel" },
+  { cmd: "/remember", desc: "distill this session's learnings into memory now", kind: "misc" },
   { cmd: "/stats", desc: "usage totals — turns, tokens, cache", kind: "misc" },
   { cmd: "/help", desc: "list commands and keys", kind: "misc" },
 ];
+
+// /remember submits the distill guidance as a prompt — the TUI calls the
+// server-side extractor directly (DistillWithReport, no RPC yet), so the
+// web steers the model to the same save_memory seam. Scope and caps
+// mirror pkg/agent/distill.go's extractor contract.
+const REMEMBER_PROMPT =
+  "Run the memory distillation pass now: review this conversation so far " +
+  "and call save_memory for each durable, non-obvious fact worth keeping " +
+  "for future sessions — decisions and their reasons, user preferences, " +
+  "conventions, environment gotchas, durable commands. At most 6, " +
+  "shorter is better; skip transient task state, files currently in " +
+  "flight, and anything obvious from the repo. Reply with one line per " +
+  "fact saved.";
+
+// Pick popups (/resume, /rollback): the numbered list shares one row
+// shape and one keyboard grammar (↑↓ walk, Enter restore, Esc cancel —
+// TUI updatePick parity).
+type PickRow = { main: string; sub: string };
+type PickState = { title: string; rows: PickRow[]; onPick: (idx: number) => void } | null;
+
+// fmtTs renders a protobuf Timestamp for the drawer/picker rows; the
+// undefined branch covers older records without a stamp.
+const fmtTs = (t?: Timestamp): string => {
+  if (!t) return "—";
+  const d = timestampDate(t);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 // One rendered item on the transcript. The reducer below folds the event
 // stream into these blocks — deltas append, boundaries open new ones,
@@ -249,6 +282,12 @@ export default function ChatView(props: {
   onSteps: (s: StepRow[]) => void;
   onCommand: (cmd: string) => void;
   reloadKey: number; // bump re-anchors the stream (rollback rewrote the ring)
+  // Saved-session store feed for /resume /sessions pickers, plus the two
+  // restore paths that need App state (restore swaps the selection,
+  // rollback rewrites the ring and re-anchors the stream).
+  snapshots: SnapshotRef[];
+  onRestore: (path: string) => void;
+  onRollbackTo: (checkpointId: number) => void;
   // Mode control lives in App's bottom-left dock (shift+tab / click) —
   // ChatView no longer owns a badge or set-mode buttons.
 }) {
@@ -261,7 +300,6 @@ export default function ChatView(props: {
   // Phase D: plan corner / status line / slash panel local state.
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [ctxTokens, setCtxTokens] = useState(0); // last turn's prompt load
-  const [model, setModel] = useState(""); // "" = engine default
   const [thinkOpen, setThinkOpen] = useState(false);
   const [cmdNote, setCmdNote] = useState(""); // local command receipt, 3s
   const [slashSel, setSlashSel] = useState(0);
@@ -277,6 +315,10 @@ export default function ChatView(props: {
   const [atEntries, setAtEntries] = useState<Array<{ cmd: string; desc: string; dir: boolean }>>([]);
   const [atSel, setAtSel] = useState(0);
   const [atOff, setAtOff] = useState(false); // Esc dismissed until the input changes
+  // /resume and /rollback open a numbered pick list in the pane; the
+  // textarea's keys drive it until Enter or Esc.
+  const [pick, setPick] = useState<PickState>(null);
+  const [pickSel, setPickSel] = useState(0);
 
   // FIFO by ask time; the stream may replay snapshots in any order.
   const pendings = useMemo(
@@ -418,7 +460,6 @@ export default function ChatView(props: {
       }
       if (sres?.session) {
         setBusy(sres.session.busy);
-        setModel(sres.session.model);
       }
       // First-byte watchdog (the stream sitting on a connection that
       // never delivers): during the observed hang every other request
@@ -628,9 +669,10 @@ export default function ChatView(props: {
   };
 
   // execCommand runs one slash token: the local rows ChatView owns, the
-  // cross-component ones routed up to App (/new /resume /rollback …).
+  // cross-component ones routed up to App (/new /mode /steps /memory …).
   const execCommand = async (raw: string) => {
-    const cmd = raw.trim().split(/\s+/)[0];
+    const [cmd, ...rest] = raw.trim().split(/\s+/);
+    const arg = rest.join(" ");
     switch (cmd) {
       case "/clear":
         setBlocks([]);
@@ -642,9 +684,28 @@ export default function ChatView(props: {
           return !v;
         });
         break;
-      case "/model":
-        note(`model: ${model || "engine default"}`);
+      case "/model": {
+        // The knowledge card is server-side (pkg/models); the web card is
+        // the live session's effective config straight from GetSession.
+        try {
+          const res = await sessionClient.getSession({ sessionId: props.sessionId });
+          const s = res.session;
+          if (!s) throw new Error("no session record");
+          setCmdOut([
+            `model card — ${s.title || props.sessionId.slice(0, 8)}`,
+            `  session    ${s.id}`,
+            `  model      ${s.model || "engine default"}`,
+            `  mode       ${s.mode || "default"}`,
+            `  turns      ${s.turns}`,
+            `  created    ${fmtTs(s.createdAt)}`,
+            `  last seen  ${fmtTs(s.lastActive)}`,
+            `  workspace  ${s.workspace}`,
+          ]);
+        } catch (e) {
+          note(errText(e));
+        }
         break;
+      }
       case "/stats": {
         try {
           const res = await sessionClient.getStats({ sessionId: props.sessionId });
@@ -683,24 +744,131 @@ export default function ChatView(props: {
           ...KEY_TABLE.map((k) => `  ${k.keys.padEnd(10)}${k.what}`),
         ]);
         break;
+      case "/sessions": {
+        // The same numbering the pickers use (newest first, 1-based).
+        if (props.snapshots.length === 0) {
+          note("no saved session for this workspace");
+          break;
+        }
+        setCmdOut([
+          `saved sessions (${props.snapshots.length}, newest first)`,
+          ...props.snapshots.map((s, i) =>
+            `  ${String(i + 1).padStart(2)}  ${fmtTs(s.savedAt)}  ${String(s.messages).padStart(5)} msgs  ${s.title || "(untitled)"}`,
+          ),
+          "",
+          "  /resume N restores slot N · bare /resume opens the picker",
+        ]);
+        break;
+      }
+      case "/resume": {
+        const refs = props.snapshots;
+        if (refs.length === 0) {
+          note("no saved session for this workspace");
+          break;
+        }
+        if (arg !== "") {
+          const n = Number(arg);
+          if (!Number.isInteger(n) || n < 1 || n > refs.length) {
+            note(`usage: /resume [1..${refs.length}] — /sessions lists saved sessions`);
+            break;
+          }
+          props.onRestore(refs[n - 1].path);
+          break;
+        }
+        if (refs.length === 1) {
+          props.onRestore(refs[0].path);
+          break;
+        }
+        // Several saved: the picker owns the bottom until Enter/Esc
+        // (TUI resumeAction → updatePick parity).
+        setPickSel(0);
+        setPick({
+          title: "saved sessions — ↑↓ choose · enter restore · esc cancel",
+          rows: refs.map((s) => ({
+            main: s.title || "(untitled)",
+            sub: `${fmtTs(s.savedAt)} · ${s.messages} msgs`,
+          })),
+          onPick: (i) => {
+            setPick(null);
+            const r = refs[i];
+            if (r) props.onRestore(r.path);
+          },
+        });
+        break;
+      }
+      case "/rollback": {
+        if (arg === "save" || arg.startsWith("save ")) {
+          const label = arg === "save" ? "" : arg.slice(5).trim();
+          try {
+            const res = await sessionClient.saveCheckpoint({
+              sessionId: props.sessionId,
+              label,
+            });
+            const cp = res.checkpoint;
+            note(
+              cp
+                ? `· checkpoint #${cp.id} saved — “${cp.label}” · ${cp.messages} msgs`
+                : "checkpoint saved",
+            );
+          } catch (e) {
+            note(errText(e));
+          }
+          break;
+        }
+        try {
+          const res = await sessionClient.listCheckpoints({
+            sessionId: props.sessionId,
+          });
+          const cps = res.checkpoints;
+          if (cps.length === 0) {
+            note(
+              "no checkpoint yet — one is captured before each prompt that had history",
+            );
+            break;
+          }
+          if (arg !== "") {
+            const n = Number(arg);
+            if (!Number.isInteger(n) || n < 1 || n > cps.length) {
+              note(`no slot ${arg} — /rollback lists ${cps.length} checkpoints`);
+              break;
+            }
+            props.onRollbackTo(cps[n - 1].id);
+            break;
+          }
+          setPickSel(0);
+          setPick({
+            title: "checkpoints — ↑↓ choose · enter rollback · esc cancel",
+            rows: cps.map((c) => ({
+              main: c.label,
+              sub: `${c.messages} msgs · ${fmtTs(c.at)}`,
+            })),
+            onPick: (i) => {
+              setPick(null);
+              const c = cps[i];
+              if (c) props.onRollbackTo(c.id);
+            },
+          });
+        } catch (e) {
+          note(errText(e));
+        }
+        break;
+      }
+      case "/remember":
+        // The TUI extracts server-side (DistillWithReport); the web has no
+        // distill RPC yet, so steer the model to the same save_memory seam.
+        note("distilling… — watch for save_memory calls");
+        await dispatchPrompt(REMEMBER_PROMPT);
+        break;
       default:
-        void props.onCommand(cmd);
+        // Keep the argument tail — App parses "/steps width N" itself.
+        void props.onCommand(raw.trim());
     }
   };
 
-  const send = async () => {
-    const prompt = input.trim();
-    if (!prompt) return;
-    setInput("");
+  // dispatchPrompt is the single submission path (input box and
+  // /remember): a busy seat queues, an idle one submits.
+  const dispatchPrompt = async (prompt: string) => {
     setErr("");
-    // A slash token (with or without args) dispatches instead of sending:
-    // "/rollback" alone or "/rollback anything" both reach execCommand.
-    if (prompt.startsWith("/")) {
-      await execCommand(prompt);
-      return;
-    }
-    setHist((h) => [...h, prompt]); // ↑ browses what this seat actually sent
-    setHistIdx(-1);
     try {
       if (busy) {
         const res = await sessionClient.enqueuePrompt({
@@ -727,6 +895,22 @@ export default function ChatView(props: {
       setBusy(false);
       setErr(errText(e));
     }
+  };
+
+  const send = async () => {
+    const prompt = input.trim();
+    if (!prompt) return;
+    setInput("");
+    setErr("");
+    // A slash token (with or without args) dispatches instead of sending:
+    // "/rollback" alone or "/rollback anything" both reach execCommand.
+    if (prompt.startsWith("/")) {
+      await execCommand(prompt);
+      return;
+    }
+    setHist((h) => [...h, prompt]); // ↑ browses what this seat actually sent
+    setHistIdx(-1);
+    await dispatchPrompt(prompt);
   };
 
   const interrupt = async () => {
@@ -855,6 +1039,25 @@ export default function ChatView(props: {
           ))}
         </div>
       )}
+      {pick && (
+        <div className="slash-panel pick-panel">
+          <div className="pick-title">{pick.title}</div>
+          {pick.rows.map((r, i) => (
+            <div
+              key={`${r.main}:${i}`}
+              className={"slash-row" + (i === pickSel ? " sel" : "")}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep focus; restore/rollback on click
+                pick.onPick(i);
+              }}
+            >
+              <span className="pick-num">{i + 1}</span>
+              <span className="pick-main">{r.main}</span>
+              <span className="slash-desc">{r.sub}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {busy && input.trim() && (
         <div className="queue-preview">
           <span className="queue-caret">⏎</span>
@@ -900,6 +1103,34 @@ export default function ChatView(props: {
           placeholder={busy ? "busy — Enter queues for the next turn gap" : "prompt (Enter to send) · / for commands"}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
+            // Pick popups own the keyboard outright (TUI updatePick):
+            // ↑↓ walk, Enter pick, Esc cancel, everything else swallowed —
+            // the input line stays empty underneath.
+            if (pick) {
+              if (e.nativeEvent.isComposing) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setPickSel((s) => (s + 1) % pick.rows.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setPickSel((s) => (s - 1 + pick.rows.length) % pick.rows.length);
+                return;
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                pick.onPick(Math.min(pickSel, Math.max(0, pick.rows.length - 1)));
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setPick(null);
+                return;
+              }
+              e.preventDefault(); // the list owns the bottom until it closes
+              return;
+            }
             // @ popup first: it owns the keys while a trailing "@…" token
             // has entries. (It and the slash panel are mutually exclusive —
             // a bare "/…" token can never be an @token.)
