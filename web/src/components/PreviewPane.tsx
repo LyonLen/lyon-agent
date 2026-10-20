@@ -282,10 +282,16 @@ export default function PreviewPane(props: {
         >
         {preview.kind === "text" && (
           <>
-            <div className="files-preview-head">
-              {preview.path}
-              {preview.truncated && " · truncated"}
-            </div>
+            {/* The editable path shows its name once, in CodeEditor's own
+                ce-bar (the bar carries preview/source + save); a static
+                head above it stacked two identical filename rows — one
+                is enough. Truncated text has no editor, so it keeps the
+                head (with its · truncated flag). */}
+            {preview.truncated && (
+              <div className="files-preview-head">
+                {preview.path} · truncated
+              </div>
+            )}
             {preview.truncated ? (
               // The content is a cut copy — editable/saveable would
               // silently destroy the tail of the file on the next save.

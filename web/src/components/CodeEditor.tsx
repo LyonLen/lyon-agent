@@ -338,6 +338,72 @@ export default function CodeEditor({
   const [docText, setDocText] = useState(() => draftCache.get(path)?.doc ?? content);
   const [popup, setPopup] = useState<{ hunk: DiffHunk; top: number; left: number } | null>(null);
 
+  // ── Markdown「本页目录」rail (SCC CodeEditor parity) ──────────────────────
+  // Headings are collected from the RENDERED DOM (rehype-slug owns the ids;
+  // reading the elements keeps scroll targets and TOC rows in exact
+  // correspondence — no source regex to drift from the renderer).
+  const [toc, setToc] = useState<{ text: string; level: number; el: HTMLElement }[]>([]);
+  const [tocActive, setTocActive] = useState(0);
+  // Click lock: the tail section's remaining content is shorter than the
+  // viewport, so scrollIntoView clamps (zero scroll events) and the
+  // at-bottom rule would immediately outshout the click — hold the clicked
+  // item until the user interacts with the content themselves.
+  const tocLockRef = useRef<number | null>(null);
+  const mdRenderedRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!md || mode !== "rendered") {
+      setToc([]);
+      return;
+    }
+    // One frame so ReactMarkdown's DOM has committed before collecting.
+    const raf = requestAnimationFrame(() => {
+      const host = mdRenderedRef.current;
+      if (!host) return;
+      const els = Array.from(host.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"));
+      setToc(els.map((el) => ({ text: (el.textContent ?? "").trim(), level: Number(el.tagName[1]), el })));
+      setTocActive(0);
+      tocLockRef.current = null;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [md, mode, docText, path]);
+
+  // Scroll-spy: nearest heading above the 90px baseline (> the 12px
+  // scroll-margin, so a jump doesn't highlight the previous section).
+  // Bottom rule: a tail section's heading can never cross the baseline
+  // (its content is shorter than the viewport) — activate the last one
+  // when the scrollable container is actually scrollable and at the end.
+  const handleTocScroll = useCallback(() => {
+    setTocActive((prev) => {
+      const host = mdRenderedRef.current;
+      if (!host) return prev;
+      if (tocLockRef.current != null) return prev;
+      const atBottom =
+        host.scrollHeight - host.clientHeight > 4 &&
+        host.scrollTop + host.clientHeight >= host.scrollHeight - 2;
+      if (atBottom) {
+        const last = toc.length - 1;
+        return last < 0 || last === prev ? prev : last;
+      }
+      const line = host.scrollTop + 90;
+      let idx = 0;
+      for (let i = 0; i < toc.length; i++) {
+        if (toc[i].el.offsetTop <= line) idx = i;
+        else break;
+      }
+      return idx === prev ? prev : idx;
+    });
+  }, [toc]);
+  // Any user interaction with the content hands the highlight back to the spy.
+  const releaseTocLock = useCallback(() => {
+    tocLockRef.current = null;
+  }, []);
+  const tocJump = useCallback((i: number, el: HTMLElement) => {
+    tocLockRef.current = i;
+    setTocActive(i);
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   const flashMsg = useCallback((m: string) => {
     setFlash(m);
     window.setTimeout(() => setFlash((cur) => (cur === m ? "" : cur)), 2000);
@@ -543,12 +609,38 @@ export default function CodeEditor({
           }}
         />
         {md && mode === "rendered" && (
-          <div className="ce-rendered md">
-            <Suspense fallback={<pre className="pv-pre">{docText}</pre>}>
-              <MarkdownView components={mdComponents} rehypePlugins={REHYPE_PLUGINS}>
-                {docText}
-              </MarkdownView>
-            </Suspense>
+          <div className="ce-md">
+            <div
+              className="ce-rendered md"
+              ref={mdRenderedRef}
+              onScroll={handleTocScroll}
+              onWheel={releaseTocLock}
+              onTouchStart={releaseTocLock}
+              onMouseDown={releaseTocLock}
+            >
+              <Suspense fallback={<pre className="pv-pre">{docText}</pre>}>
+                <MarkdownView components={mdComponents} rehypePlugins={REHYPE_PLUGINS}>
+                  {docText}
+                </MarkdownView>
+              </Suspense>
+            </div>
+            {/* 本页目录: SCC's right rail — hidden under 3 headings (a
+                two-item rail is noise, matching the portal threshold) */}
+            {toc.length >= 3 && (
+              <div className="md-toc-rail">
+                <div className="md-toc-title">本页目录</div>
+                {toc.map((h, i) => (
+                  <button
+                    key={i}
+                    className={"md-toc-item" + (i === tocActive ? " active" : "") + (h.level >= 3 ? " deep" : "")}
+                    title={h.text}
+                    onClick={() => tocJump(i, h.el)}
+                  >
+                    {h.text}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {popup && (
