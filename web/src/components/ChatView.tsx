@@ -106,6 +106,15 @@ function replaceAt(blocks: Block[], i: number, next: Block): Block[] {
   return [...blocks.slice(0, i), next, ...blocks.slice(i + 1)];
 }
 
+// lastThinking is the newest thinking block's index (-1 when the turn has
+// none): the one block the live view keeps open while the seat streams.
+function lastThinking(blocks: Block[]): number {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].kind === "thinking") return i;
+  }
+  return -1;
+}
+
 // Last index matching pred — hand-rolled: the lib target is ES2022 and
 // Array.prototype.findLastIndex is ES2023.
 function lastToolIndex(
@@ -1008,7 +1017,17 @@ export default function ChatView(props: {
     <div className={"chat" + (busy ? " streaming" : "")}>
       <div className="chat-feed" ref={feedRef} onScroll={onFeedScroll}>
         {blocks.map((b, i) => (
-          <BlockView key={`${i}:${b.kind}`} block={b} thinkOpen={thinkOpen} />
+          <BlockView
+            key={`${i}:${b.kind}`}
+            block={b}
+            thinkOpen={thinkOpen}
+            // The newest thinking block while the seat streams is the run
+            // the reader came to watch: show its body even under a closed
+            // fold (#47, "展开，让用户看着运行"). It stays open through the
+            // answer that follows and folds when the run ends; everything
+            // older stays folded.
+            live={busy && i === lastThinking(blocks)}
+          />
         ))}
         {blocks.length === 0 && (
           <div className="placeholder">
@@ -1342,7 +1361,15 @@ function fmtTurnMs(ms: number): string {
   return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
-function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
+function BlockView({
+  block,
+  thinkOpen,
+  live,
+}: {
+  block: Block;
+  thinkOpen: boolean;
+  live?: boolean;
+}) {
   switch (block.kind) {
     case "user":
       return (
@@ -1361,8 +1388,19 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
           ) : null}
         </div>
       );
-    case "thinking":
-      return <ThinkingBlock key={String(thinkOpen)} block={block} thinkOpen={thinkOpen} />;
+    case "thinking": {
+      // live is only the auto-open: under a globally open fold the block is
+      // open for the ordinary reason and its hint stays the chord hint.
+      const auto = !!live && !thinkOpen;
+      return (
+        <ThinkingBlock
+          key={`${String(thinkOpen)}:${String(auto)}`}
+          block={block}
+          thinkOpen={thinkOpen || auto}
+          live={auto}
+        />
+      );
+    }
     case "tool":
       return (
         <details
@@ -1414,12 +1452,16 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
 // flips thinkOpen (the key remounts and re-seeds), while a manual summary
 // click rides the native toggle event. The hint always reads whichever way
 // the block currently sits — an open block says collapse, not expand.
+// A live-block hint stays "live" even when a manual click opens the body
+// under a closed fold: the auto-open reason is still what put it there.
 function ThinkingBlock({
   block,
   thinkOpen,
+  live,
 }: {
   block: Extract<Block, { kind: "thinking" }>;
   thinkOpen: boolean;
+  live: boolean;
 }) {
   const [open, setOpen] = useState(thinkOpen);
   return (
@@ -1430,8 +1472,8 @@ function ThinkingBlock({
     >
       <summary>
         thinking
-        <span className="think-key">
-          {open ? "ctrl+o to collapse" : "ctrl+o to expand"}
+        <span className={"think-key" + (live ? " live" : "")}>
+          {live ? "live" : open ? "ctrl+o to collapse" : "ctrl+o to expand"}
         </span>
       </summary>
       <pre>{block.text}</pre>
