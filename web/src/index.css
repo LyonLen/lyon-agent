@@ -133,6 +133,44 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
 .tile-body > .plan-corner { flex: 1; overflow-y: auto; border-bottom: 0; }
 .tile-body > .plan-corner.empty { display: flex; align-items: center; }
 
+/* preview panes: per-leaf tab strip over the fetched content */
+.tile-body > .pv { background: transparent; }
+.pv { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pv-tabs {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 4px 6px 0; border-bottom: 1px solid var(--line);
+  overflow-x: auto; flex-shrink: 0;
+}
+.pv-tab {
+  display: flex; align-items: center; max-width: 200px; flex-shrink: 1; min-width: 0;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
+  padding: 2px 2px 2px 8px;
+}
+.pv-tab.active { background: var(--bg-hover); border-color: var(--line); }
+.pv-tab-name {
+  background: transparent; border: 0; padding: 2px 4px; color: var(--dim);
+  font: inherit; font-size: 12px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.pv-tab.active .pv-tab-name { color: var(--fg); }
+.pv-tab-close {
+  background: transparent; border: 0; padding: 0 4px; color: var(--dim);
+  font: inherit; font-size: 13px; line-height: 1; cursor: pointer; flex-shrink: 0;
+}
+.pv-tab-close:hover { color: var(--fg); }
+.pv-body { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+.pv-empty {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: 16px; text-align: center;
+}
+.pv-pre {
+  white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px;
+}
+/* the zoomable image used to be capped by the 45% embed — a full pane
+   gives it the whole body */
+.pane-zoom { max-height: none; height: 100%; }
+.pane-frame { width: 100%; flex: 1; min-height: 0; border: 0; background: #fff; }
+
 button {
   background: var(--accent); color: var(--on-accent); border: 0; border-radius: 4px;
   padding: 5px 10px; cursor: pointer; font: inherit;

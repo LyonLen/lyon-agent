@@ -127,6 +127,12 @@ export function countLeaves(node: TileNode): number {
   return countLeaves(node.first) + countLeaves(node.second);
 }
 
+/** All leaves in tree order (first before second, depth-first). */
+export function collectLeaves(node: TileNode): TileLeaf[] {
+  if (node.type === "leaf") return [node];
+  return [...collectLeaves(node.first), ...collectLeaves(node.second)];
+}
+
 /**
  * Swap two leaves in place — leaf identity (nodeId) is preserved so React
  * keys stay stable and panel state survives the move.

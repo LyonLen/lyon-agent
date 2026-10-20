@@ -1,23 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirEntry } from "../gen/lyon/v1/file_pb";
 import { FileKind } from "../gen/lyon/v1/file_pb";
 import { errText, fileClient } from "../api";
-import { makeMdComponents, resolveRel } from "./mdkit";
+import { joinPath } from "../filePreview";
+import SkeletonRows from "./Skeleton";
 
-// Shared with the transcript: the parser chunk loads on first md preview.
-const MarkdownView = lazy(() => import("./Markdown"));
-
-type Preview =
-  | { kind: "text"; path: string; content: string; truncated: boolean; md: boolean }
-  | { kind: "media"; path: string; url: string; contentType: string };
-
-function joinPath(dir: string, name: string): string {
-  return dir ? `${dir}/${name}` : name;
-}
-function dirnameOf(p: string): string {
-  const i = p.lastIndexOf("/");
-  return i < 0 ? "" : p.slice(0, i);
-}
+// FilePanel is the workspace browser shell (plan Phase B): navigate,
+// CRUD, upload, move. The embedded 45% preview moved out to standalone
+// PreviewPane instances — clicking a file routes through onOpenFile,
+// which App turns into a preview tab in the most fitting preview pane.
 
 // One destructive ask. actions replace the sheet's buttons — delete gets
 // a single danger confirm, an upload collision gets the portal trio
@@ -30,13 +21,21 @@ type Confirm = {
   actions: Array<{ label: string; danger?: boolean; run: () => Promise<void> | void }>;
 };
 
-export default function FilePanel() {
+export default function FilePanel({
+  onOpenFile,
+  nav,
+}: {
+  /** A workspace file was clicked; App opens it in a preview pane. */
+  onOpenFile: (path: string, kind: FileKind) => void;
+  /** External navigation request (markdown links, slash routing): load
+   *  this directory. `seq` bumps per request so replaying the same path
+   *  still re-reads it. */
+  nav?: { path: string; seq: number } | null;
+}) {
   const [path, setPath] = useState("");
   const [entries, setEntries] = useState<DirEntry[]>([]);
-  const [preview, setPreview] = useState<Preview | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
-  const [previewLoading, setPreviewLoading] = useState(false);
   // write-op UI state
   const [newKind, setNewKind] = useState<null | "file" | "dir">(null);
   const [newName, setNewName] = useState("");
@@ -46,15 +45,6 @@ export default function FilePanel() {
   const [moving, setMoving] = useState<null | { name: string; from: string }>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0); // enter/leave fires on child boundaries too
-
-  const closePreview = () => {
-    // Revoke the previous object URL so a long browsing session doesn't
-    // pin every preview's bytes in memory.
-    setPreview((p) => {
-      if (p?.kind === "media") URL.revokeObjectURL(p.url);
-      return null;
-    });
-  };
 
   const load = useCallback(async (p: string) => {
     setLoading(true);
@@ -73,6 +63,15 @@ export default function FilePanel() {
   useEffect(() => {
     void load("");
   }, [load]);
+
+  // External nav requests (md links routing through App): load the dir
+  // once per seq bump.
+  const lastNavSeq = useRef(-1);
+  useEffect(() => {
+    if (!nav || nav.seq === lastNavSeq.current) return;
+    lastNavSeq.current = nav.seq;
+    void load(nav.path);
+  }, [nav, load]);
 
   // Live workspace: the agent edits files while the panel watches — poll
   // the open directory every 5s and only re-render on a real diff
@@ -105,71 +104,8 @@ export default function FilePanel() {
     return () => clearInterval(iv);
   }, [path]);
 
-  // Open any workspace path from a markdown link: directory wins, file
-  // falls through to the preview reader.
-  const openPath = async (p: string, kindHint?: FileKind) => {
-    setErr("");
-    try {
-      const dir = await fileClient.listDirectory({ path: p });
-      closePreview();
-      setEntries(dir.entries);
-      setPath(p);
-      return;
-    } catch {
-      // not a directory (or unreadable) — treat as a file below
-    }
-    closePreview();
-    setPreviewLoading(true);
-    const kind = kindHint ?? FileKind.TEXT;
-    try {
-      if (kind === FileKind.IMAGE || kind === FileKind.PDF) {
-        const res = await fileClient.readBinaryFile({ path: p });
-        // fresh copy: Blob wants Uint8Array<ArrayBuffer>, the proto field is
-        // typed ArrayBufferLike (could be SharedArrayBuffer in principle).
-        const blob = new Blob([new Uint8Array(res.data)], {
-          type: res.contentType || "application/octet-stream",
-        });
-        setPreview({
-          kind: "media",
-          path: p,
-          url: URL.createObjectURL(blob),
-          contentType: res.contentType,
-        });
-      } else if (kind === FileKind.OTHER) {
-        // Unknown payload: text first (sniff happens server-side), fall
-        // back to a download stub for the true binary.
-        try {
-          const res = await fileClient.readTextFile({ path: p });
-          setPreview({ kind: "text", path: p, content: res.content, truncated: res.truncated, md: false });
-        } catch {
-          const res = await fileClient.readBinaryFile({ path: p });
-          const blob = new Blob([new Uint8Array(res.data)], { type: res.contentType });
-          setPreview({
-            kind: "media",
-            path: p,
-            url: URL.createObjectURL(blob),
-            contentType: res.contentType || "application/octet-stream",
-          });
-        }
-      } else {
-        const res = await fileClient.readTextFile({ path: p });
-        setPreview({
-          kind: "text",
-          path: p,
-          content: res.content,
-          truncated: res.truncated,
-          md: kind === FileKind.MARKDOWN,
-        });
-      }
-    } catch (e) {
-      closePreview();
-      setErr(errText(e));
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const openFile = (e: DirEntry) => void openPath(joinPath(path, e.name), e.kind);
+  const openFile = (e: DirEntry) =>
+    onOpenFile(joinPath(path, e.name), e.kind ?? FileKind.TEXT);
 
   // ---- write ops (each: RPC → refresh; destructive ones pass through
   // the confirm sheet first) --------------------------------------------
@@ -177,7 +113,6 @@ export default function FilePanel() {
     setErr("");
     try {
       await run();
-      closePreview();
       await load(path);
     } catch (e) {
       setErr(errText(e));
@@ -226,7 +161,6 @@ export default function FilePanel() {
             setErr("");
             try {
               await fileClient.delete({ path: target, recursive: e.isDir });
-              closePreview();
               await load(path);
             } catch (ex) {
               setErr(errText(ex));
@@ -282,7 +216,6 @@ export default function FilePanel() {
         if (msg) failed.push(msg);
       }
       if (failed.length > 0) setErr(failed.join(" · "));
-      closePreview();
       await load(path);
     };
     if (clashes.length === 0) {
@@ -307,29 +240,23 @@ export default function FilePanel() {
     });
   };
 
-  const nav = (p: string) => {
-    closePreview();
+  const gotoDir = (p: string) => {
     void load(p);
   };
-
-  const mdLinks = makeMdComponents({
-    onLocalPath: (href) => void openPath(resolveRel(dirnameOf(preview?.path ?? ""), href)),
-    basePath: dirnameOf(preview?.path ?? ""),
-  });
 
   const crumbs = path ? path.split("/") : [];
 
   return (
     <div className="files">
       <div className="files-head">
-        <button className="ghost" onClick={() => nav("")}>
+        <button className="ghost" onClick={() => gotoDir("")}>
           workspace
         </button>
         {crumbs.map((seg, i) => (
           <button
             key={i}
             className="ghost"
-            onClick={() => nav(crumbs.slice(0, i + 1).join("/"))}
+            onClick={() => gotoDir(crumbs.slice(0, i + 1).join("/"))}
           >
             /{seg}
           </button>
@@ -424,7 +351,7 @@ export default function FilePanel() {
             {path !== "" && (
               <button
                 className="file-entry dir"
-                onClick={() => nav(crumbs.slice(0, -1).join("/"))}
+                onClick={() => gotoDir(crumbs.slice(0, -1).join("/"))}
               >
                 ..
               </button>
@@ -457,7 +384,7 @@ export default function FilePanel() {
                   <>
                     <button
                       className={"file-entry" + (e.isDir ? " dir" : "")}
-                      onClick={() => (e.isDir ? nav(joinPath(path, e.name)) : openFile(e))}
+                      onClick={() => (e.isDir ? gotoDir(joinPath(path, e.name)) : openFile(e))}
                     >
                       <span>{e.name}</span>
                       <span className="file-meta">
@@ -500,43 +427,6 @@ export default function FilePanel() {
           </>
         )}
       </div>
-      {previewLoading && (
-        <div className="files-preview">
-          <SkeletonRows n={4} />
-        </div>
-      )}
-      {preview?.kind === "text" && (
-        <div className="files-preview">
-          <div className="files-preview-head">
-            {preview.path}
-            {preview.truncated && " · truncated"}
-          </div>
-          {preview.md ? (
-            <div className="md files-md">
-              <Suspense fallback={<pre>{preview.content}</pre>}>
-                <MarkdownView components={mdLinks}>{preview.content}</MarkdownView>
-              </Suspense>
-            </div>
-          ) : (
-            <pre>{preview.content}</pre>
-          )}
-        </div>
-      )}
-      {preview?.kind === "media" &&
-        (preview.contentType === "application/pdf" ? (
-          <iframe className="files-preview-frame" src={preview.url} title={preview.path} />
-        ) : preview.contentType.startsWith("image/") ? (
-          <ZoomImage url={preview.url} alt={preview.path} />
-        ) : (
-          <div className="files-preview">
-            <div className="files-preview-head">
-              {preview.path} · {preview.contentType}
-            </div>
-            <a className="file-dl" href={preview.url} download={preview.path.split("/").pop()}>
-              download
-            </a>
-          </div>
-        ))}
       {confirm && (
         <ConfirmSheet confirm={confirm} onCancel={() => setConfirm(null)} />
       )}
@@ -569,90 +459,6 @@ function ConfirmSheet({ confirm, onCancel }: { confirm: Confirm; onCancel: () =>
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-// SkeletonRows: one shimmer block per would-be row (portal precedent —
-// loading reads as structure, not as an empty panel).
-function SkeletonRows({ n }: { n: number }) {
-  return (
-    <div className="skeleton-rows" aria-hidden="true">
-      {Array.from({ length: n }, (_, i) => (
-        <div key={i} className="skeleton-row" style={{ width: `${55 + ((i * 17) % 40)}%` }} />
-      ))}
-    </div>
-  );
-}
-
-// ZoomImage: Ctrl+wheel zooms about the cursor (the content point under
-// the pointer stays put — portal ImageView's anchor rule, algebraic
-// version for the transform path), drag pans, double-click resets. The
-// wheel listener must be native + non-passive — React attaches wheel
-// passively, so preventDefault there is ignored and the page behind
-// would zoom instead.
-function ZoomImage({ url, alt }: { url: string; alt: string }) {
-  const [scale, setScale] = useState(1);
-  const [off, setOff] = useState({ x: 0, y: 0 });
-  const boxRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const pan = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
-  const view = useRef({ scale: 1, off: { x: 0, y: 0 } });
-  view.current = { scale, off };
-
-  useEffect(() => {
-    const el = imgRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      e.preventDefault();
-      const box = boxRef.current?.getBoundingClientRect();
-      if (!box) return;
-      const { scale: s1, off } = view.current;
-      const s2 = Math.min(8, Math.max(0.2, s1 * Math.exp(-e.deltaY * 0.002)));
-      // Anchor algebra: content under the cursor is (r-off)/s1 with r the
-      // cursor relative to the box center (the flex-centered img's origin);
-      // off2 puts that same content back under the cursor at s2.
-      const r = { x: e.clientX - box.left - box.width / 2, y: e.clientY - box.top - box.height / 2 };
-      setOff({
-        x: r.x - ((r.x - off.x) * s2) / s1,
-        y: r.y - ((r.y - off.y) * s2) / s1,
-      });
-      setScale(s2);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-
-  return (
-    <div
-      ref={boxRef}
-      className="img-zoom"
-      onPointerDown={(e) => {
-        pan.current = { x: e.clientX, y: e.clientY, ox: off.x, oy: off.y };
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      }}
-      onPointerMove={(e) => {
-        const p = pan.current;
-        if (!p) return;
-        setOff({ x: p.ox + (e.clientX - p.x), y: p.oy + (e.clientY - p.y) });
-      }}
-      onPointerUp={() => (pan.current = null)}
-      onDoubleClick={() => {
-        setScale(1);
-        setOff({ x: 0, y: 0 });
-      }}
-    >
-      <img
-        ref={imgRef}
-        className="files-preview-img zoomable"
-        src={url}
-        alt={alt}
-        style={{ transform: `translate(${off.x}px, ${off.y}px) scale(${scale})` }}
-      />
-      <span className="img-zoom-hint">
-        {Math.round(scale * 100)}% · ctrl+wheel zoom · drag pan · dbl-click reset
-      </span>
     </div>
   );
 }

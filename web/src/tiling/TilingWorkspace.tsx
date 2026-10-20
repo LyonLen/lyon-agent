@@ -57,7 +57,12 @@ export interface PaneDef {
   kind: PaneKind;
   title: string;
   icon?: ReactNode;
-  render: () => ReactNode;
+  /**
+   * Render the pane body. leafId is the hosting tile's nodeId — panes
+   * with per-leaf state (preview tab stacks) key their records by it;
+   * identity is stable across splits and drag-moves.
+   */
+  render: (ctx: { leafId: string }) => ReactNode;
 }
 
 const MIN_PANE_PX = 180; // floors each side of a resize drag (D7)
@@ -421,7 +426,7 @@ export default function TilingWorkspace({
                 className="tile-body"
                 style={{ pointerEvents: paneDrag?.active ? "none" : undefined }}
               >
-                {def?.render()}
+                {def?.render({ leafId: leaf.nodeId })}
               </div>
             </div>
           </div>

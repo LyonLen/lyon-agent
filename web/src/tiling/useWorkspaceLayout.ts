@@ -94,8 +94,10 @@ export interface WorkspaceLayout {
   /** Focus an existing pane of this kind, or open one beside the chat pane. */
   openPane: (kind: PaneKind) => void;
   closeLeaf: (leafId: string) => void;
-  /** Split leaf by adding kind on `dir`; focuses the new leaf. */
-  splitLeafAt: (leafId: string, dir: Dir, kind: PaneKind) => void;
+  /** Split leaf by adding kind on `dir`; focuses the new leaf. Returns its
+   *  nodeId (null when the anchor vanished) so callers can seed per-leaf
+   *  state (preview tab stacks) immediately. */
+  splitLeafAt: (leafId: string, dir: Dir, kind: PaneKind) => string | null;
   updateRatio: (splitId: string, ratio: number) => void;
   swapLeaves: (a: string, b: string) => void;
   moveLeaf: (sourceId: string, targetId: string, zone: DropZone) => void;
@@ -141,12 +143,15 @@ export function useWorkspaceLayout(): WorkspaceLayout {
     setState((s) => ({ ...s, root: moveLeafIn(s.root, sourceId, targetId, zone) }));
   }, []);
 
-  const splitLeafAt = useCallback((leafId: string, dir: Dir, kind: PaneKind) => {
+  const splitLeafAt = useCallback((leafId: string, dir: Dir, kind: PaneKind): string | null => {
+    if (!getLeaf(rootRef.current, leafId)) return null;
     const leaf = makeLeaf(kind);
-    setState((s) => {
-      if (!getLeaf(s.root, leafId)) return s;
-      return { ...s, root: splitLeaf(s.root, leafId, dir, leaf), focus: leaf.nodeId };
-    });
+    setState((s) => ({
+      ...s,
+      root: splitLeaf(s.root, leafId, dir, leaf),
+      focus: leaf.nodeId,
+    }));
+    return leaf.nodeId;
   }, []);
 
   const closeLeaf = useCallback((leafId: string) => {

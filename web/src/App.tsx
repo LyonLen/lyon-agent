@@ -3,15 +3,19 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import type { Session } from "./gen/lyon/v1/session_pb";
 import type { SnapshotRef } from "./gen/lyon/v1/dashboard_pb";
 import type { WatchPendingResponse } from "./gen/lyon/v1/approval_pb";
-import { approvalClient, dashboardClient, errText, getToken, sessionClient, setToken } from "./api";
+import { approvalClient, dashboardClient, errText, fileClient, getToken, sessionClient, setToken } from "./api";
+import type { FileKind } from "./gen/lyon/v1/file_pb";
 import SessionList from "./components/SessionList";
 import ChatView from "./components/ChatView";
 import PlanPane from "./components/PlanPane";
 import StepsPane from "./components/StepsPane";
 import FilePanel from "./components/FilePanel";
+import PreviewPane from "./components/PreviewPane";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
 import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
+import { collectLeaves } from "./tiling/types";
+import { useFileTabs } from "./useFileTabs";
 
 // Dashboard is a separate route-level view — lazy so the chat pane's
 // first paint doesn't pay for replay/audit rendering (Phase F chunking).
@@ -38,6 +42,13 @@ export default function App() {
   const [steps, setSteps] = useState<StepRow[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
   const ws = useWorkspaceLayout();
+  // Preview tab stacks ride the tile nodeIds — drag/swap keeps a pane's
+  // tabs, closing one prunes its record (plan Phase B).
+  const fileTabs = useFileTabs(ws.root);
+  // External directory navigation for the files pane (markdown links,
+  // slash routing): seq bumps so re-requesting the same path reloads.
+  const [filesNav, setFilesNav] = useState<{ path: string; seq: number } | null>(null);
+  const filesNavSeq = useRef(0);
   // Refs the stream loop reads without re-subscribing on every change:
   // selectedId for toast suppression, pending for new-vs-replay detection.
   const selectedRef = useRef(selectedId);
@@ -286,6 +297,43 @@ export default function App() {
     }
   };
 
+  // openPreviewFile routes a file click to a preview pane (SCC
+  // OpenclawPage order): the most recently active preview leaf → the
+  // first one → split a new pane beside files/chat. splitLeafAt hands
+  // back the fresh nodeId so the tab record can be seeded before paint.
+  const openPreviewFile = (path: string, kind?: FileKind) => {
+    const leaves = collectLeaves(ws.root).filter((l) => l.pane === "preview");
+    let target: string | null = leaves
+      .filter((l) => fileTabs.tabs[l.nodeId])
+      .sort((a, b) => (fileTabs.tabs[b.nodeId].lastActive) - (fileTabs.tabs[a.nodeId].lastActive))[0]?.nodeId
+      ?? leaves[0]?.nodeId
+      ?? null;
+    if (!target) {
+      const anchor = ws.leafOf("files") ?? ws.leafOf("chat");
+      if (!anchor) return;
+      target = ws.splitLeafAt(anchor, "h", "preview");
+    }
+    if (!target) return;
+    fileTabs.open(target, { path, kind });
+    ws.setFocus(target);
+  };
+
+  // Workspace paths from markdown links: directories navigate the files
+  // pane in place; anything else opens (or focuses) a preview tab. The
+  // listDirectory probe doubles as the dir test — a file path errors and
+  // falls through to the preview.
+  const openWorkspacePath = async (p: string) => {
+    try {
+      await fileClient.listDirectory({ path: p });
+      setFilesNav({ path: p, seq: ++filesNavSeq.current });
+      ws.openPane("files");
+      const leaf = ws.leafOf("files");
+      if (leaf) ws.setFocus(leaf);
+    } catch {
+      openPreviewFile(p);
+    }
+  };
+
   // Pane registry for the tiling workspace: each kind renders its content
   // standalone; layout, focus, and persistence live in useWorkspaceLayout.
   const panes: PaneDef[] = [
@@ -328,9 +376,31 @@ export default function App() {
           <div className="placeholder">select or create a session</div>
         ),
     },
-    { kind: "files", title: "files", render: () => <FilePanel /> },
+    {
+      kind: "files",
+      title: "files",
+      render: () => <FilePanel onOpenFile={openPreviewFile} nav={filesNav} />,
+    },
     { kind: "steps", title: "steps", render: () => <StepsPane steps={steps} /> },
     { kind: "plan", title: "plan", render: () => <PlanPane todos={todos} /> },
+    {
+      kind: "preview",
+      // PaneDef is looked up per kind, so the header title is static; the
+      // open file names live on the per-leaf tab strip inside the pane.
+      title: "preview",
+      render: ({ leafId }) => {
+        const tabs = fileTabs.tabs[leafId];
+        return (
+          <PreviewPane
+            files={tabs?.files ?? []}
+            active={tabs?.active ?? 0}
+            onActivate={(i) => fileTabs.activate(leafId, i)}
+            onCloseTab={(i) => fileTabs.closePath(leafId, i)}
+            onOpenPath={(p) => void openWorkspacePath(p)}
+          />
+        );
+      },
+    },
   ];
 
   // shift+tab cycles the execution mode anywhere in the app (TUI parity);
