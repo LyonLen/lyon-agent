@@ -31,20 +31,26 @@ const (
 	FileKind_FILE_KIND_MARKDOWN    FileKind = 4
 	FileKind_FILE_KIND_IMAGE       FileKind = 5 // png/jpg/jpeg/gif/webp
 	FileKind_FILE_KIND_PDF         FileKind = 6
-	FileKind_FILE_KIND_OTHER       FileKind = 7 // unsupported for preview; download only
+	FileKind_FILE_KIND_OTHER       FileKind = 7  // unsupported for preview; download only
+	FileKind_FILE_KIND_PPTX        FileKind = 8  // powerpoint — pptx-preview deck client-side
+	FileKind_FILE_KIND_DOCX        FileKind = 9  // word — mammoth html client-side
+	FileKind_FILE_KIND_XLSX        FileKind = 10 // excel / csv — SheetJS grid client-side
 )
 
 // Enum value maps for FileKind.
 var (
 	FileKind_name = map[int32]string{
-		0: "FILE_KIND_UNSPECIFIED",
-		1: "FILE_KIND_DIR",
-		2: "FILE_KIND_TEXT",
-		3: "FILE_KIND_CODE",
-		4: "FILE_KIND_MARKDOWN",
-		5: "FILE_KIND_IMAGE",
-		6: "FILE_KIND_PDF",
-		7: "FILE_KIND_OTHER",
+		0:  "FILE_KIND_UNSPECIFIED",
+		1:  "FILE_KIND_DIR",
+		2:  "FILE_KIND_TEXT",
+		3:  "FILE_KIND_CODE",
+		4:  "FILE_KIND_MARKDOWN",
+		5:  "FILE_KIND_IMAGE",
+		6:  "FILE_KIND_PDF",
+		7:  "FILE_KIND_OTHER",
+		8:  "FILE_KIND_PPTX",
+		9:  "FILE_KIND_DOCX",
+		10: "FILE_KIND_XLSX",
 	}
 	FileKind_value = map[string]int32{
 		"FILE_KIND_UNSPECIFIED": 0,
@@ -55,6 +61,9 @@ var (
 		"FILE_KIND_IMAGE":       5,
 		"FILE_KIND_PDF":         6,
 		"FILE_KIND_OTHER":       7,
+		"FILE_KIND_PPTX":        8,
+		"FILE_KIND_DOCX":        9,
+		"FILE_KIND_XLSX":        10,
 	}
 )
 
@@ -1165,7 +1174,7 @@ const file_lyon_v1_file_proto_rawDesc = "" +
 	"\toverwrite\x18\x03 \x01(\bR\toverwrite\"3\n" +
 	"\x12UploadFileResponse\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x01 \x01(\x03R\tsizeBytes*\xb5\x01\n" +
+	"size_bytes\x18\x01 \x01(\x03R\tsizeBytes*\xf1\x01\n" +
 	"\bFileKind\x12\x19\n" +
 	"\x15FILE_KIND_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rFILE_KIND_DIR\x10\x01\x12\x12\n" +
@@ -1174,7 +1183,11 @@ const file_lyon_v1_file_proto_rawDesc = "" +
 	"\x12FILE_KIND_MARKDOWN\x10\x04\x12\x13\n" +
 	"\x0fFILE_KIND_IMAGE\x10\x05\x12\x11\n" +
 	"\rFILE_KIND_PDF\x10\x06\x12\x13\n" +
-	"\x0fFILE_KIND_OTHER\x10\a2\xeb\x04\n" +
+	"\x0fFILE_KIND_OTHER\x10\a\x12\x12\n" +
+	"\x0eFILE_KIND_PPTX\x10\b\x12\x12\n" +
+	"\x0eFILE_KIND_DOCX\x10\t\x12\x12\n" +
+	"\x0eFILE_KIND_XLSX\x10\n" +
+	"2\xeb\x04\n" +
 	"\vFileService\x12N\n" +
 	"\rListDirectory\x12\x1d.lyon.v1.ListDirectoryRequest\x1a\x1e.lyon.v1.ListDirectoryResponse\x12K\n" +
 	"\fReadTextFile\x12\x1c.lyon.v1.ReadTextFileRequest\x1a\x1d.lyon.v1.ReadTextFileResponse\x12Q\n" +

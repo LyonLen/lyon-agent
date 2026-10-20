@@ -35,9 +35,9 @@ var _ lyonv1connect.FileServiceHandler = (*fileService)(nil)
 const (
 	fileListCap     = 512       // directory entries before truncated=true
 	fileTextPreview = 512 << 10 // 512KB text preview cap (mirrors the session adapter's ResultCap)
-	fileBinaryCap   = 2 << 20   // 2MB binary preview cap
+	fileBinaryCap   = 32 << 20  // 32MB binary preview/upload cap — office decks need headroom (SCC caps at 30MB)
 	fileSniffBytes  = 4 << 10   // head window for text/binary classification of unknown extensions
-	fileWriteCap    = 2 << 20   // 2MB write/upload cap — same order as the binary preview cap
+	fileWriteCap    = 2 << 20   // 2MB text write cap (WriteFile is utf-8 full replacement)
 )
 
 func (f *fileService) ListDirectory(_ context.Context, req *connect.Request[lyonv1.ListDirectoryRequest]) (*connect.Response[lyonv1.ListDirectoryResponse], error) {
@@ -429,6 +429,12 @@ func fileKind(dir string, de os.DirEntry) lyonv1.FileKind {
 		return lyonv1.FileKind_FILE_KIND_IMAGE
 	case ".pdf":
 		return lyonv1.FileKind_FILE_KIND_PDF
+	case ".pptx":
+		return lyonv1.FileKind_FILE_KIND_PPTX
+	case ".docx":
+		return lyonv1.FileKind_FILE_KIND_DOCX
+	case ".xlsx", ".xls", ".csv":
+		return lyonv1.FileKind_FILE_KIND_XLSX
 	case ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".java", ".c", ".h",
 		".cpp", ".hpp", ".cc", ".cs", ".rb", ".php", ".swift", ".kt", ".scala",
 		".lua", ".r", ".m", ".sh", ".bash", ".zsh", ".bat", ".ps1", ".sql",
@@ -466,6 +472,16 @@ func binaryContentType(path string, data []byte) string {
 		return "image/webp"
 	case ".pdf":
 		return "application/pdf"
+	case ".pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	case ".csv":
+		return "text/csv"
 	}
 	if len(data) == 0 {
 		return "application/octet-stream"

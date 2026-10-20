@@ -36,6 +36,9 @@ enum FileKind {
   FILE_KIND_IMAGE = 5;   // png/jpg/jpeg/gif/webp
   FILE_KIND_PDF = 6;
   FILE_KIND_OTHER = 7;   // unsupported for preview; download only
+  FILE_KIND_PPTX = 8;    // powerpoint — pptx-preview deck client-side
+  FILE_KIND_DOCX = 9;    // word — mammoth html client-side
+  FILE_KIND_XLSX = 10;   // excel / csv — SheetJS grid client-side
 }
 
 message DirEntry {
