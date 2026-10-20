@@ -62,10 +62,76 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
   background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px;
 }
 
-.cols { display: flex; flex: 1; min-height: 0; }
-.col-sessions { width: 220px; border-right: 1px solid var(--line); overflow-y: auto; background: var(--panel); }
-.col-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.col-files { width: 340px; border-left: 1px solid var(--line); display: flex; flex-direction: column; background: var(--panel); }
+/* --- tiling workspace (Phase A) ---------------------------------------- */
+.tile-root { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.tile-leaf {
+  display: flex; flex-direction: column; overflow: hidden;
+  box-sizing: border-box; padding: 1px;
+}
+.tile-card {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  overflow: hidden;
+}
+.tile-leaf.focused .tile-card { border-color: var(--accent-line); }
+.tile-card.drag-source { opacity: 0.55; transition: opacity 0.12s; }
+.pane-header {
+  display: flex; align-items: center; gap: 2px;
+  height: 28px; padding: 0 6px; flex-shrink: 0; user-select: none;
+  background: var(--bg-bar); border-bottom: 1px solid var(--line);
+}
+.pane-title {
+  flex: 1; min-width: 0; align-self: stretch;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--dim); touch-action: none; padding-right: 6px;
+}
+.pane-title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-icon { display: inline-flex; flex-shrink: 0; line-height: 1; color: var(--accent); }
+.pane-header.focused .pane-title { color: var(--fg); }
+.tile-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.tile-sep { position: absolute; z-index: 50; background: transparent; transition: background 0.15s; }
+.tile-sep:hover { background: var(--accent-line); }
+.tile-drop {
+  position: absolute; z-index: 60; pointer-events: none; box-sizing: border-box;
+  background: var(--bg-drop); border: 2px dashed var(--accent); border-radius: 6px;
+  transition: left 0.1s, top 0.1s, width 0.1s, height 0.1s;
+}
+.tile-ghost {
+  position: fixed; z-index: 9999; pointer-events: none; user-select: none; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 6px;
+  padding: 4px 10px; font-size: 12px; color: var(--fg);
+  box-shadow: 0 4px 16px var(--shadow-soft);
+}
+.picker-scrim {
+  position: fixed; inset: 0; z-index: 300; background: var(--scrim);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(2px); animation: toast-in 0.15s ease;
+}
+.picker-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; min-width: 220px; box-shadow: 0 12px 40px var(--shadow-strong);
+  animation: rise-in 0.15s ease-out both;
+}
+.picker-head {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 8px;
+}
+.picker-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; border-radius: 6px; padding: 8px 10px;
+  color: var(--fg); cursor: pointer; font: inherit; font-size: 13px; text-align: left;
+  transition: background 0.12s;
+}
+.picker-item:hover { background: var(--bg-hover); }
+/* pane contents that previously lived in a fixed column fill the card */
+.tile-body > .chat, .tile-body > .files, .tile-body > .steps-list,
+.tile-body > .session-list, .tile-body > .plan-corner {
+  background: transparent;
+}
+.session-list { flex: 1; min-height: 0; overflow-y: auto; }
+.tile-body > .plan-corner { flex: 1; overflow-y: auto; border-bottom: 0; }
+.tile-body > .plan-corner.empty { display: flex; align-items: center; }
 
 button {
   background: var(--accent); color: var(--on-accent); border: 0; border-radius: 4px;

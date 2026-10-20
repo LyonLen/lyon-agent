@@ -6,8 +6,12 @@ import type { WatchPendingResponse } from "./gen/lyon/v1/approval_pb";
 import { approvalClient, dashboardClient, errText, getToken, sessionClient, setToken } from "./api";
 import SessionList from "./components/SessionList";
 import ChatView from "./components/ChatView";
-import SidePanel from "./components/SidePanel";
+import PlanPane from "./components/PlanPane";
+import StepsPane from "./components/StepsPane";
+import FilePanel from "./components/FilePanel";
 import ErrorBoundary from "./components/ErrorBoundary";
+import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
+import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
 
 // Dashboard is a separate route-level view — lazy so the chat pane's
 // first paint doesn't pay for replay/audit rendering (Phase F chunking).
@@ -27,13 +31,13 @@ export default function App() {
   // this list; ChatView renders the slice for the selected seat.
   const [pending, setPending] = useState<WatchPendingResponse[]>([]);
   const [toast, setToast] = useState("");
-  // Phase D: the right column renders the seat's plan corner + steps
-  // (reported up by ChatView's reducer) and a files tab; reloadKey forces
-  // the transcript stream to re-anchor after a rollback rewrote the ring.
+  // Phase A (tiling): plan/steps/files render as workspace panes fed by
+  // ChatView's reducer; reloadKey forces the transcript stream to
+  // re-anchor after a rollback rewrote the ring.
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [steps, setSteps] = useState<StepRow[]>([]);
-  const [panelTab, setPanelTab] = useState<"files" | "steps">("steps");
   const [reloadKey, setReloadKey] = useState(0);
+  const ws = useWorkspaceLayout();
   // Refs the stream loop reads without re-subscribing on every change:
   // selectedId for toast suppression, pending for new-vs-replay detection.
   const selectedRef = useRef(selectedId);
@@ -273,13 +277,61 @@ export default function App() {
         await cycleMode();
         break;
       case "/steps":
-        setPanelTab("steps");
-        flash("steps panel — right column");
+        // Open-or-focus the steps pane (tiling: no fixed column to switch).
+        ws.openPane("steps");
+        flash("steps pane");
         break;
       default:
         flash(`unknown command ${cmd}`);
     }
   };
+
+  // Pane registry for the tiling workspace: each kind renders its content
+  // standalone; layout, focus, and persistence live in useWorkspaceLayout.
+  const panes: PaneDef[] = [
+    {
+      kind: "sessions",
+      title: "sessions",
+      render: () => (
+        <SessionList
+          sessions={sessions}
+          saved={saved}
+          selectedId={selectedId}
+          restoring={restoring}
+          onSelect={setSelectedId}
+          onCreate={() => void create()}
+          onRefresh={() => void refresh()}
+          onRestore={(p) => void restore(p)}
+        />
+      ),
+    },
+    {
+      kind: "chat",
+      title: selectedId
+        ? `chat — ${sessions.find((s) => s.id === selectedId)?.title || selectedId.slice(0, 8)}`
+        : "chat",
+      render: () =>
+        selectedId ? (
+          <ChatView
+            key={selectedId}
+            sessionId={selectedId}
+            onChanged={() => void refresh()}
+            pending={seatPending}
+            onDecide={decide}
+            onTodos={setTodos}
+            onSteps={setSteps}
+            onCommand={runCommand}
+            reloadKey={reloadKey}
+            mode={sessions.find((s) => s.id === selectedId)?.mode ?? "default"}
+          />
+        ) : (
+          <div className="placeholder">select or create a session</div>
+        ),
+    },
+    { kind: "files", title: "files", render: () => <FilePanel /> },
+    { kind: "steps", title: "steps", render: () => <StepsPane steps={steps} /> },
+    { kind: "plan", title: "plan", render: () => <PlanPane todos={todos} /> },
+  ];
 
   // shift+tab cycles the execution mode anywhere in the app (TUI parity);
   // the browser's default focus-leave is exactly what the chord must NOT do.
@@ -337,44 +389,10 @@ export default function App() {
           <DashboardPanel />
         </Suspense>
       ) : (
-        <div className="cols">
-        <aside className="col-sessions">
-          <SessionList
-            sessions={sessions}
-            saved={saved}
-            selectedId={selectedId}
-            restoring={restoring}
-            onSelect={setSelectedId}
-            onCreate={() => void create()}
-            onRefresh={() => void refresh()}
-            onRestore={(p) => void restore(p)}
-          />
-        </aside>
-        <main className="col-chat">
-          {selectedId ? (
-            <ChatView
-              key={selectedId}
-              sessionId={selectedId}
-              onChanged={() => void refresh()}
-              pending={seatPending}
-              onDecide={decide}
-              onTodos={setTodos}
-              onSteps={setSteps}
-              onCommand={runCommand}
-              reloadKey={reloadKey}
-              mode={sessions.find((s) => s.id === selectedId)?.mode ?? "default"}
-            />
-          ) : (
-            <div className="placeholder">select or create a session</div>
-          )}
-        </main>
-        <SidePanel
-          todos={todos}
-          steps={steps}
-          tab={panelTab}
-          onTab={setPanelTab}
+        <TilingWorkspace
+          ws={ws}
+          panes={panes}
         />
-        </div>
       )}
       {toast && <div className="toast">{toast}</div>}
     </div>

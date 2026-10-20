@@ -6,7 +6,7 @@ import { errText, sessionClient } from "../api";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
 import type { StepRow } from "../types";
-import { todoProgress } from "./SidePanel";
+import { todoProgress } from "./PlanPane";
 
 // The markdown parser rides its own chunk — Suspense fallback shows the
 // raw text until it lands (Phase F split).
