@@ -518,10 +518,11 @@ export default function App() {
     },
     {
       kind: "terminal",
-      // The leaf's nodeId doubles as the server-side PTY session id, so
-      // the shell and its output ring persist with the layout.
+      // One shell per CHAT session: the pane follows the selected
+      // session (switch = switch terminal; the server replays the ring),
+      // so parallel tasks never share a prompt.
       title: "terminal",
-      render: ({ leafId }) => <TerminalPane leafId={leafId} />,
+      render: () => <TerminalPane sessionId={selectedId ?? ""} />,
     },
     {
       kind: "memory",

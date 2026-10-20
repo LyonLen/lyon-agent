@@ -5,22 +5,19 @@ import "@xterm/xterm/css/xterm.css";
 import { getToken } from "../api";
 
 // Web terminal pane (#26): xterm.js over the /terminal WebSocket. The
-// pane's stable nodeId IS the server-side session id, so tiling layout
-// persistence doubles as terminal persistence — detach keeps the shell
-// alive and the server replays its 256KB output ring on reconnect.
-// Mirrors SCC's Terminal.tsx: fit on tile resize, exponential reconnect
-// backoff 1s→30s, app-level ping (browsers have no WS ping API).
-//
-// Unmount means the pane was closed, so the cleanup sends an explicit
-// close frame — that kills the shell. A page refresh never reaches the
-// cleanup (the socket just drops), which is exactly what keeps the shell
-// across a refresh.
-export default function TerminalPane({ leafId }: { leafId: string }) {
+// WS session id IS the chat session id — every chat session owns one
+// shell, so switching sessions switches terminals and parallel tasks
+// never share (or clobber) a prompt. The server keeps the shell while
+// nobody is attached (256KB output ring) and replays the tail on
+// reconnect, so a refresh, a pane close, or a hop to another session
+// never costs the shell; only 30min idle reaping or lyond exiting ends
+// it. Mirrors SCC's Terminal.tsx: fit on tile resize, exponential
+// reconnect backoff 1s→30s, app-level ping (no WS ping API in browsers).
+export default function TerminalPane({ sessionId }: { sessionId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
+    if (!sessionId) return; // no chat session selected yet
 
     // Concrete colors from the lyon tokens (index.css) — xterm reads JS
     // values, not CSS variables.
@@ -39,11 +36,11 @@ export default function TerminalPane({ leafId }: { leafId: string }) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(host);
+    term.open(hostRef.current!);
 
     let ws: WebSocket | null = null;
     let closed = false; // final teardown — never reconnect after this
-    let fatal = false; // server refused (auth/limit) — retrying is pointless
+    let fatal = false; // superseded or refused — retrying is pointless
     let attempt = 0;
     let ping: number | undefined;
 
@@ -57,7 +54,7 @@ export default function TerminalPane({ leafId }: { leafId: string }) {
       if (closed || fatal) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(
-        `${proto}://${location.host}/terminal?session=${encodeURIComponent(leafId)}&token=${encodeURIComponent(getToken())}`,
+        `${proto}://${location.host}/terminal?session=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(getToken())}`,
       );
       ws.binaryType = "arraybuffer";
       ws.onopen = () => {
@@ -74,8 +71,8 @@ export default function TerminalPane({ leafId }: { leafId: string }) {
             return;
           }
           if (note.type === "exited") {
-            // SCC/tmux semantics: a dead shell respawns on reattach —
-            // close this socket and the reconnect rebuilds a fresh one.
+            // A dead shell respawns on reattach (SCC/tmux semantics) —
+            // closing this socket makes the reconnect build a fresh one.
             term.write(
               "\r\n\x1b[2m[shell exited — starting a new one]\x1b[0m\r\n",
             );
@@ -90,12 +87,22 @@ export default function TerminalPane({ leafId }: { leafId: string }) {
         }
         term.write(new Uint8Array(ev.data as ArrayBuffer));
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         if (ping !== undefined) {
           clearInterval(ping);
           ping = undefined;
         }
         if (closed || fatal) return;
+        if (ev.reason === "replaced") {
+          // Another pane already holds this session's terminal (the
+          // server allows one attach per session). Reconnecting would
+          // just ping-pong supersessions forever.
+          fatal = true;
+          term.write(
+            "\r\n\x1b[2m[this session's terminal is open in another pane]\x1b[0m\r\n",
+          );
+          return;
+        }
         // Exponential backoff 1s→30s (SCC): a lyond restart heals itself.
         attempt += 1;
         const delay = Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5));
@@ -123,7 +130,7 @@ export default function TerminalPane({ leafId }: { leafId: string }) {
         // zero-size mid-layout; the next observe fires with real geometry
       }
     });
-    ro.observe(host);
+    ro.observe(hostRef.current!);
     try {
       fit.fit();
     } catch {
@@ -136,11 +143,19 @@ export default function TerminalPane({ leafId }: { leafId: string }) {
       closed = true;
       if (ping !== undefined) clearInterval(ping);
       ro.disconnect();
-      sendCtl({ type: "close" }); // pane closed → kill the server shell
+      // Deliberately NO close frame: the shell belongs to the chat
+      // session, not the pane. Switching sessions or closing the pane
+      // just drops the socket — the server holds the shell and replays
+      // the ring on return; idle reaping collects it for good.
       ws?.close();
       term.dispose();
     };
-  }, [leafId]);
+  }, [sessionId]);
 
+  if (!sessionId) {
+    return (
+      <div className="placeholder">select a session — its shell lives here</div>
+    );
+  }
   return <div className="term-host" ref={hostRef} />;
 }
