@@ -11,6 +11,36 @@ import { makeMdComponents, resolveRel } from "./mdkit";
 import SkeletonRows from "./Skeleton";
 
 const MarkdownView = lazy(() => import("./Markdown"));
+// Office viewers stay out of the main bundle: pptx-preview (~500KB),
+// mammoth, and SheetJS are each reachable only from their own pane.
+const PptxDeck = lazy(() => import("./previews/PptxDeck"));
+const DocxPreview = lazy(() => import("./previews/DocxPreview"));
+const XlsxSheet = lazy(() => import("./previews/XlsxSheet"));
+
+// XlsxView — the fetch-shell half the portal spreads across its viewers:
+// XLSX.read here (dynamic import keeps SheetJS lazy), grid rendering in
+// XlsxSheet. XLSX.read sniffs the CSV text variant on its own, so .csv
+// rides the same path as .xlsx.
+function XlsxView({ data, filename }: { data: ArrayBuffer; filename: string }) {
+  const [workbook, setWorkbook] = useState<import("xlsx").WorkBook | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const XLSX = await import("xlsx");
+        const book = XLSX.read(new Uint8Array(data), { type: "array" });
+        if (!cancelled) setWorkbook(book);
+      } catch (e) {
+        if (!cancelled) setErr(errText(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
+  return <XlsxSheet workbook={workbook} filename={filename} err={err} />;
+}
 
 // ZoomImage: Ctrl+wheel zooms about the cursor (the content point under
 // the pointer stays put — portal ImageView's anchor rule, algebraic
@@ -206,9 +236,41 @@ export default function PreviewPane(props: {
           </button>
         </div>
       )}
-      <div className="pv-body">
-        {loading && <SkeletonRows n={4} />}
-        {!loading && preview?.kind === "text" && (
+      {loading && (
+        <div className="pv-body">
+          <SkeletonRows n={4} />
+        </div>
+      )}
+      {!loading && preview?.kind === "office" && (
+        <div className="pv-office">
+          {preview.truncated ? (
+            <div className="pv-center">
+              <span className="err" style={{ textAlign: "center" }}>
+                {preview.path} is larger than the preview cap — download it instead
+              </span>
+            </div>
+          ) : (
+            <Suspense
+              fallback={
+                <div className="pv-center">
+                  <div className="spin" style={{ width: 22, height: 22 }} />
+                </div>
+              }
+            >
+              {preview.office === "pptx" ? (
+                <PptxDeck content={preview.data} filename={baseName(preview.path)} />
+              ) : preview.office === "docx" ? (
+                <DocxPreview content={preview.data} filename={baseName(preview.path)} />
+              ) : (
+                <XlsxView data={preview.data} filename={baseName(preview.path)} />
+              )}
+            </Suspense>
+          )}
+        </div>
+      )}
+      {!loading && preview && preview.kind !== "office" && (
+        <div className="pv-body">
+        {preview.kind === "text" && (
           <>
             <div className="files-preview-head">
               {preview.path}
@@ -225,8 +287,7 @@ export default function PreviewPane(props: {
             )}
           </>
         )}
-        {!loading &&
-          preview?.kind === "media" &&
+        {preview.kind === "media" &&
           (preview.contentType === "application/pdf" ? (
             <iframe className="files-preview-frame pane-frame" src={preview.url} title={preview.path} />
           ) : preview.contentType.startsWith("image/") ? (
@@ -241,7 +302,8 @@ export default function PreviewPane(props: {
               </a>
             </>
           ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -816,6 +816,265 @@ button:focus-visible,
 .mem-note { padding: 8px 10px; font-size: 11px; color: var(--dim); }
 .mem-err { padding: 6px 10px; font-size: 12px; }
 
+/* ── Office previews (pptx / docx / xlsx — ported from portal global.css,
+   --preview-* tokens remapped onto lyon's) ──────────────────────────── */
+
+/* Shared full-bleed mounts inside .pv-office (the viewers' roots are
+   position:absolute inset:0 — definite-height parent contract) */
+.pv-office { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.pv-center {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; padding: 16px;
+}
+.pv-scroll {
+  position: absolute; inset: 0; overflow: auto;
+  padding: 24px 8px 48px; background: var(--bg);
+  user-select: text; -webkit-user-select: text;
+}
+.docx-warn { max-width: 800px; margin: 8px auto; color: var(--dim); font-size: 11px; }
+
+/* ── pptx-preview host override ─────────────────────────────────────────────
+   The library sets overflow:hidden + fixed height (inline) on its viewPort
+   container, clipping the absolutely-positioned multi-page list to one
+   page. Hold the line with !important — the library keeps re-writing the
+   inline styles after init. */
+.pptx-host,
+.pptx-host * {
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+.pptx-deck-stage {
+  position: absolute; inset: 0; background: var(--bg);
+}
+.pptx-loading {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center;
+  background: var(--bg); color: var(--dim); font-size: 13px;
+}
+/* Left page bar: collapsible (26px rail ⇔ 148px thumbnail list) */
+.pptx-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 148px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  z-index: 6;
+  overflow: hidden;
+  transition: width var(--dur-2) var(--ease);
+}
+.pptx-bar.collapsed { width: 26px; }
+.pptx-bar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 6px 2px 12px;
+  flex: none;
+}
+.pptx-bar-title { font-size: 12px; color: var(--dim); letter-spacing: 0.05em; }
+.pptx-bar-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  background: transparent; border: 0; border-radius: var(--radius-1);
+  color: var(--dim); cursor: pointer;
+}
+.pptx-bar-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.pptx-bar-expand { align-self: center; margin-top: 10px; }
+.pptx-bar-list {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+}
+.pptx-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-2);
+  padding: 2px;
+  background: var(--bg-row);
+  cursor: pointer;
+  flex: none;
+}
+.pptx-thumb:hover { background: var(--bg-hover); }
+.pptx-thumb.active { border-color: var(--accent); background: var(--bg-hover); }
+.pptx-thumb-clip {
+  width: 120px;
+  height: 68px;
+  overflow: hidden;
+  border-radius: var(--radius-1);
+  position: relative;
+  background: #fff;
+}
+.pptx-thumb-num {
+  font-size: 11px;
+  color: var(--dim);
+  text-align: center;
+  padding: 2px 0 1px;
+  font-variant-numeric: tabular-nums;
+}
+.pptx-thumb.active .pptx-thumb-num { color: var(--accent); }
+/* Giant decks (>60 pages) degrade to a plain page-number grid */
+.pptx-bar-pages {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  align-content: start;
+}
+.pptx-bar-pages button {
+  border: 1px solid var(--line);
+  background: var(--bg-row);
+  color: var(--dim);
+  border-radius: var(--radius-1);
+  font-size: 12px;
+  padding: 4px 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.pptx-bar-pages button:hover { background: var(--bg-hover); }
+.pptx-bar-pages button.active { border-color: var(--accent); color: var(--accent); background: var(--bg-row); }
+/* Slide mode: floating prev/next (self-recovering clicks inside the
+   pointer-events:none positioning layer) */
+.pptx-flip-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg-bar-trans);
+  color: var(--fg);
+  font-size: 15px;
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 7;
+  transition: background var(--dur-1), opacity var(--dur-1);
+  /* Hidden by default: a parked arrow sits on slide content; reveal on
+     stage hover or keyboard focus */
+  opacity: 0;
+}
+.pptx-deck-stage:hover .pptx-flip-btn,
+.pptx-flip-btn:focus-visible {
+  opacity: 1;
+}
+.pptx-flip-btn:hover { background: var(--bg-select); }
+/* Zoomed stage overflowing horizontally: left-drag pans (class attached
+   by JS only while overflowed) */
+.pptx-pannable { cursor: grab; }
+.pptx-pannable.pptx-panning,
+.pptx-pannable.pptx-panning * { cursor: grabbing !important; }
+.pptx-pannable.pptx-panning { user-select: none; -webkit-user-select: none; }
+/* No hover on touch: keep the arrows visible */
+@media (hover: none) {
+  .pptx-flip-btn { opacity: 1; }
+}
+/* Page indicator pinned at the bar bottom (never floats over content) */
+.pptx-bar-page-indicator {
+  flex: none;
+  text-align: center;
+  padding: 6px 0 8px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* Top-right presentation-mode switch (list / slide) */
+.pptx-mode-switch {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 7;
+  display: flex;
+  gap: 2px;
+  background: var(--bg-bar-trans);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px;
+  backdrop-filter: blur(6px);
+}
+.pptx-mode-switch button {
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+.pptx-mode-switch button:hover { color: var(--fg); }
+.pptx-mode-switch button.active { background: var(--accent-a15); color: var(--accent); }
+
+/* Floating zoom toolbar (bottom center; fades on idle — JS drives the
+   opacity/pointer-events inline) */
+.zoom-toolbar {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px;
+  background: var(--panel); border: 1px solid var(--line-soft);
+  border-radius: var(--radius-2); padding: 3px 5px;
+  backdrop-filter: blur(8px); box-shadow: var(--shadow-1); z-index: 10;
+  transition: opacity 0.25s ease;
+}
+.zoom-toolbar button {
+  min-width: 30px; padding: 2px 6px; font-size: 12px; color: var(--dim);
+}
+.zoom-toolbar button:hover:not(:disabled) { color: var(--fg); }
+.zoom-toolbar .zoom-pct { min-width: 54px; }
+
+/* ── XLSX grid (deliberately a light spreadsheet surface) ────────────────── */
+.xlsx-root {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  background: #fff; color: #1e293b;
+}
+.xlsx-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 12px 0 12px; border-bottom: 1px solid #e5e7eb;
+  gap: 12px; flex-shrink: 0;
+}
+.xlsx-tabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow: hidden; }
+.xlsx-tab {
+  background: transparent; border: 0;
+  border-bottom: 2px solid transparent;
+  color: #64748b; font-size: 12px; padding: 4px 10px;
+  cursor: pointer; max-width: 180px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.xlsx-tab:hover { color: #1e293b; }
+.xlsx-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.xlsx-meta { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.xlsx-stats { color: #64748b; font-size: 12px; white-space: nowrap; }
+.xlsx-export {
+  background: transparent; color: #1e293b;
+  border: 1px solid #cbd5e1; border-radius: var(--radius-1);
+  font-size: 12px; padding: 2px 10px; cursor: pointer;
+}
+.xlsx-export:hover:not(:disabled) { background: #f1f5f9; }
+.xlsx-toomany {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 24px; color: #b91c1c; font-size: 13px; text-align: center;
+}
+.xlsx-truncated {
+  padding: 6px 12px; background: #fef3c7; border-bottom: 1px solid #fde68a;
+  color: #92400e; font-size: 12px; flex-shrink: 0;
+}
+.xlsx-scroll { flex: 1; overflow: auto; min-height: 0; position: relative; user-select: none; }
+.xlsx-table {
+  border-collapse: separate; border-spacing: 0; font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  white-space: nowrap;
+}
+
 /* prefers-reduced-motion: entrances and geometry moves stand down —
    state colors, the busy spinner, the streaming caret and the skeleton
    shimmer stay, they carry information */
@@ -826,7 +1085,8 @@ button:focus-visible,
     animation: none !important;
   }
   .tile-leaf, .tile-card.drag-source, .tile-sep, .tile-drop,
-  .picker-item, .tool-chevron, .approval-card, .blk-tool, .step-row {
+  .picker-item, .tool-chevron, .approval-card, .blk-tool, .step-row,
+  .pptx-bar, .pptx-flip-btn, .pptx-scroll {
     transition: none !important;
   }
 }

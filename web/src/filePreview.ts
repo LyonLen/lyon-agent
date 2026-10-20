@@ -7,9 +7,12 @@
 import { FileKind } from "./gen/lyon/v1/file_pb";
 import { fileClient } from "./api";
 
+export type OfficeKind = "pptx" | "docx" | "xlsx";
+
 export type Preview =
   | { kind: "text"; path: string; content: string; truncated: boolean; md: boolean }
-  | { kind: "media"; path: string; url: string; contentType: string };
+  | { kind: "media"; path: string; url: string; contentType: string }
+  | { kind: "office"; path: string; office: OfficeKind; data: ArrayBuffer; truncated: boolean };
 
 export function joinPath(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name;
@@ -29,6 +32,18 @@ export function dirnameOf(p: string): string {
  */
 export async function fetchPreview(p: string, kindHint?: FileKind): Promise<Preview> {
   const kind = kindHint ?? FileKind.TEXT;
+  if (kind === FileKind.PPTX || kind === FileKind.DOCX || kind === FileKind.XLSX) {
+    const res = await fileClient.readBinaryFile({ path: p });
+    return {
+      kind: "office",
+      path: p,
+      office: kind === FileKind.PPTX ? "pptx" : kind === FileKind.DOCX ? "docx" : "xlsx",
+      // fresh copy: the proto field is typed ArrayBufferLike (could be
+      // SharedArrayBuffer in principle) — viewers want a plain buffer
+      data: new Uint8Array(res.data).buffer,
+      truncated: res.truncated,
+    };
+  }
   if (kind === FileKind.IMAGE || kind === FileKind.PDF) {
     const res = await fileClient.readBinaryFile({ path: p });
     // fresh copy: Blob wants Uint8Array<ArrayBuffer>, the proto field is
