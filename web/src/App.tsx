@@ -136,6 +136,30 @@ export default function App() {
     void refresh();
   }, [refresh]);
 
+  // List liveness for seats the transcript does not watch (#36): turn
+  // counts and busy flags only stream through the SELECTED session's
+  // ChatView, so a background run finishing left its row frozen at
+  // "running · 0 turns" until a manual ↻. Poll while anything is busy —
+  // 2s is enough to keep the row honest and costs one lightweight unary
+  // call; an idle workspace polls nothing at all.
+  const anyBusy = sessions.some((s) => s.busy);
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (anyBusy) {
+      wasBusy.current = true;
+      const t = setInterval(() => void refresh(), 2000);
+      return () => clearInterval(t);
+    }
+    if (wasBusy.current) {
+      wasBusy.current = false;
+      // A background run just landed. The interval's last response is the
+      // one that showed it idle, which can precede the server's title pass
+      // (it runs after prompt_end) — take the same delayed beats the
+      // selected seat uses.
+      scheduleTitleRefresh();
+    }
+  }, [anyBusy, refresh, scheduleTitleRefresh]);
+
   const sessionsRef = useRef(sessions);
   useEffect(() => {
     sessionsRef.current = sessions;
