@@ -299,8 +299,8 @@ export default function App() {
   };
 
   // Slash actions that need App state: ChatView owns the local rows
-  // (/clear /think /model /stats /help /resume /rollback /sessions
-  // /remember) and routes the rest here. The raw string keeps its
+  // (/clear /think /model /stats /help /resume /rollback /remember)
+  // and routes the rest here. The raw string keeps its
   // argument tail — "/steps width 40" parses below.
   const runCommand = async (raw: string) => {
     const [cmd] = raw.trim().split(/\s+/);

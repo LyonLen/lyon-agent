@@ -26,7 +26,6 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/new", desc: "start a fresh session", kind: "session" },
   { cmd: "/resume", desc: "pick a saved session (N = restore slot N)", kind: "session" },
   { cmd: "/rollback", desc: "list checkpoints · N restore · save [text] marks one", kind: "session" },
-  { cmd: "/sessions", desc: "list saved sessions (numbered for /resume N)", kind: "session" },
   { cmd: "/clear", desc: "clear the transcript view (history kept)", kind: "session" },
   { cmd: "/mode", desc: "cycle default → plan → bypass", kind: "model" },
   { cmd: "/model", desc: "show the session's effective model", kind: "model" },
@@ -290,8 +289,8 @@ export default function ChatView(props: {
    *  history replay and session switches re-seed it too, 0 on reset. */
   onCtx?: (tok: number) => void;
   reloadKey: number; // bump re-anchors the stream (rollback rewrote the ring)
-  // Saved-session store feed for /resume /sessions pickers, plus the two
-  // restore paths that need App state (restore swaps the selection,
+  // Saved-session store feed for the /resume /rollback pickers, plus the
+  // two restore paths that need App state (restore swaps the selection,
   // rollback rewrites the ring and re-anchors the stream).
   snapshots: SnapshotRef[];
   onRestore: (path: string) => void;
@@ -766,22 +765,6 @@ export default function ChatView(props: {
           ...KEY_TABLE.map((k) => `  ${k.keys.padEnd(10)}${k.what}`),
         ]);
         break;
-      case "/sessions": {
-        // The same numbering the pickers use (newest first, 1-based).
-        if (props.snapshots.length === 0) {
-          note("no saved session for this workspace");
-          break;
-        }
-        setCmdOut([
-          `saved sessions (${props.snapshots.length}, newest first)`,
-          ...props.snapshots.map((s, i) =>
-            `  ${String(i + 1).padStart(2)}  ${fmtTs(s.savedAt)}  ${String(s.messages).padStart(5)} msgs  ${s.title || "(untitled)"}`,
-          ),
-          "",
-          "  /resume N restores slot N · bare /resume opens the picker",
-        ]);
-        break;
-      }
       case "/resume": {
         const refs = props.snapshots;
         if (refs.length === 0) {
@@ -791,7 +774,7 @@ export default function ChatView(props: {
         if (arg !== "") {
           const n = Number(arg);
           if (!Number.isInteger(n) || n < 1 || n > refs.length) {
-            note(`usage: /resume [1..${refs.length}] — /sessions lists saved sessions`);
+            note(`usage: /resume [1..${refs.length}] — bare /resume opens the picker`);
             break;
           }
           props.onRestore(refs[n - 1].path);
