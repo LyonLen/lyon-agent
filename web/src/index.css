@@ -538,7 +538,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .appr-actions button { background: var(--warn); color: var(--on-warn); }
 
 .toast {
-  position: fixed; right: 16px; bottom: 36px; z-index: 50; /* clear the footer */
+  position: fixed; right: 16px; bottom: 16px; z-index: 50;
   background: var(--panel); border: 1px solid var(--warn); color: var(--fg);
   border-radius: 6px; padding: 8px 14px; font-size: 13px;
   box-shadow: 0 4px 16px var(--shadow-soft);
@@ -549,13 +549,15 @@ button:disabled { opacity: 0.5; cursor: default; }
   to { opacity: 1; transform: none; }
 }
 
-/* resident status footer: mode chip bottom-left + key legend */
-.app-footer {
+/* resident status strip inside the chat pane (bottom-left): mode chip +
+   key legend — the pane's own footer, not the app's */
+.chat-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.chat-footer {
   display: flex; align-items: center; gap: 12px;
   height: 26px; padding: 0 10px; flex-shrink: 0;
   border-top: 1px solid var(--line); background: var(--bg-bar);
 }
-.app-legend {
+.chat-legend {
   flex: 1; min-width: 0; color: var(--dim); font-size: 11px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }

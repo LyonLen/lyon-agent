@@ -367,6 +367,44 @@ export default function App() {
     }
   };
 
+  // The selected session's mode feeds the dock chip in the chat footer.
+  const curMode = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
+
+  // Resident status strip at the chat pane's bottom-left (TUI idleStatus
+  // parity, user-placed): mode chip — click expands the checkable picker,
+  // shift+tab cycles regardless of focus — then the key legend.
+  const chatFooter = (
+    <footer className="chat-footer">
+      <div className="mode-dock" ref={modeDockRef}>
+        {modeMenu && (
+          <div className="mode-menu">
+            {(["default", "plan", "bypass"] as const).map((m) => (
+              <button
+                key={m}
+                className={"mode-item" + (curMode === m ? " active" : "")}
+                onClick={() => {
+                  setModeMenu(false);
+                  void pickMode(m);
+                }}
+              >
+                <span className="mode-check">{curMode === m ? "✓" : ""}</span>
+                <span>{m}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          className={`mode-chip ${curMode}`}
+          title="execution mode — click to pick, shift+tab cycles"
+          onClick={() => setModeMenu((v) => !v)}
+        >
+          {curMode}
+        </button>
+      </div>
+      <span className="chat-legend">{LEGEND}</span>
+    </footer>
+  );
+
   // Pane registry for the tiling workspace: each kind renders its content
   // standalone; layout, focus, and persistence live in useWorkspaceLayout.
   const panes: PaneDef[] = [
@@ -393,20 +431,23 @@ export default function App() {
         : "chat",
       render: () =>
         selectedId ? (
-          <ChatView
-            key={selectedId}
-            sessionId={selectedId}
-            onChanged={() => void refresh()}
-            pending={seatPending}
-            onDecide={decide}
-            onTodos={setTodos}
-            onSteps={setSteps}
-            onCommand={runCommand}
-            reloadKey={reloadKey}
-            snapshots={saved}
-            onRestore={(p) => void restore(p)}
-            onRollbackTo={(id) => void rollback(id)}
-          />
+          <div className="chat-slot">
+            <ChatView
+              key={selectedId}
+              sessionId={selectedId}
+              onChanged={() => void refresh()}
+              pending={seatPending}
+              onDecide={decide}
+              onTodos={setTodos}
+              onSteps={setSteps}
+              onCommand={runCommand}
+              reloadKey={reloadKey}
+              snapshots={saved}
+              onRestore={(p) => void restore(p)}
+              onRollbackTo={(id) => void rollback(id)}
+            />
+            {chatFooter}
+          </div>
         ) : (
           <div className="placeholder">select or create a session</div>
         ),
@@ -491,10 +532,6 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKey);
   }); // no deps: always reads the latest focus/root
 
-  // The selected session's mode feeds both the dock chip and ChatView's
-  // badge (kept until the dock replaced the in-chat controls entirely).
-  const curMode = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
-
   // shift+tab cycles the execution mode anywhere in the app (TUI parity);
   // the browser's default focus-leave is exactly what the chord must NOT do.
   useEffect(() => {
@@ -556,40 +593,8 @@ export default function App() {
           panes={panes}
         />
       )}
-      {/* Resident status footer (TUI idleStatus parity): the mode chip
-          sits bottom-left — click expands the checkable picker, shift+tab
-          cycles regardless of focus — then the key legend. */}
-      {view === "chat" && (
-        <footer className="app-footer">
-          <div className="mode-dock" ref={modeDockRef}>
-            {modeMenu && (
-              <div className="mode-menu">
-                {(["default", "plan", "bypass"] as const).map((m) => (
-                  <button
-                    key={m}
-                    className={"mode-item" + (curMode === m ? " active" : "")}
-                    onClick={() => {
-                      setModeMenu(false);
-                      void pickMode(m);
-                    }}
-                  >
-                    <span className="mode-check">{curMode === m ? "✓" : ""}</span>
-                    <span>{m}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              className={`mode-chip ${curMode}`}
-              title="execution mode — click to pick, shift+tab cycles"
-              onClick={() => setModeMenu((v) => !v)}
-            >
-              {curMode}
-            </button>
-          </div>
-          <span className="app-legend">{LEGEND}</span>
-        </footer>
-      )}
+      {/* (the resident mode chip + legend now live inside the chat pane —
+          see the chatFooter definition above the pane registry) */}
       {toast && <div className="toast">{toast}</div>}
     </div>
     </ErrorBoundary>
