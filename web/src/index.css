@@ -683,25 +683,31 @@ button:focus-visible,
   flex: 1; min-width: 0; color: var(--dim); font-size: 11px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* HP-bar context gauge (#49): digits only, fill color bands —
+/* model tag (#55): which brain answers here + an eye when it takes images */
+.chat-model {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  color: var(--dim); font-size: 11px; white-space: nowrap;
+}
+.chat-model svg { color: var(--accent); }
+/* HP-bar context gauge (#49/#54): the band color lives INSIDE the bar,
+   never on the digits — text stays neutral so only fill heat reads.
    green < 20% ≤ amber ≤ 70% < soft red; tabular so digits don't dance */
 .ctx-gauge {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
-  color: var(--ok);
+  color: var(--fg);
   font-size: 11px; font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.ctx-gauge.warn { color: var(--warn); }
-.ctx-gauge.hot { color: var(--danger-soft); }
 .ctx-bar {
   width: 88px; height: 7px; box-sizing: border-box; overflow: hidden;
   border: 1px solid var(--line); border-radius: 4px; background: #0b0f14;
 }
-/* currentColor: the fill reuses the band color — one rule, three bands */
 .ctx-fill {
-  height: 100%; background: currentColor;
-  transition: width var(--dur-2) var(--ease);
+  height: 100%; background: var(--ok);
+  transition: width var(--dur-2) var(--ease), background var(--dur-2) var(--ease);
 }
+.ctx-gauge.warn .ctx-fill { background: var(--warn); }
+.ctx-gauge.hot .ctx-fill { background: var(--danger-soft); }
 /* cumulative cost stays green in any heat state — dollars, not load
    (TUI keeps cGreen on the cost segment too) */
 .ctx-cost { color: var(--ok); }

@@ -440,6 +440,34 @@ export default function App() {
         </button>
       </div>
       <span className="chat-hint">/ for commands · shift+tab mode · ↑ history</span>
+      {curSession?.model && (
+        <span
+          className="chat-model"
+          title={
+            curSession.vision
+              ? `${curSession.model} — accepts image input`
+              : curSession.model
+          }
+        >
+          {curSession.vision && (
+            <svg
+              viewBox="0 0 14 14"
+              width="12"
+              height="12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M1 7s2.2-3.6 6-3.6S13 7 13 7s-2.2 3.6-6 3.6S1 7 1 7Z" />
+              <circle cx="7" cy="7" r="1.8" />
+            </svg>
+          )}
+          {curSession.model}
+        </span>
+      )}
       {ctxWin > 0 && (
         <span
           className={"ctx-gauge" + ctxBand}
@@ -451,7 +479,7 @@ export default function App() {
               style={{ width: `${ctxTok > 0 ? Math.max(ctxPct, 1.5) : 0}%` }}
             />
           </span>
-          {ctxTok.toLocaleString("en-US")}/{ctxWin.toLocaleString("en-US")}
+          {ctxTok}/{ctxWin}
           {ctxCost !== undefined && ctxCost > 0 && (
             <span className="ctx-cost"> · {fmtUSD(ctxCost)}</span>
           )}

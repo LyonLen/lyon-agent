@@ -305,7 +305,16 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 		ContextWindow: windowForModel(s.eng.Config()),
 		CtxUsed:       ctxUsed,
 		CostUsd:       cost,
+		Vision:        modelVision(s.eng.Config()),
 	}
+}
+
+// modelVision reports whether the session model takes image input — the
+// web footer's eye icon (#55). Unknown models read false: never claim a
+// capability the knowledge base can't vouch for.
+func modelVision(cfg agent.Config) bool {
+	info := models.Lookup(cfg.Model)
+	return info != nil && info.Vision
 }
 
 // windowForModel resolves the context-window denominator for the gauge.

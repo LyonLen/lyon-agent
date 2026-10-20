@@ -399,8 +399,11 @@ type Session struct {
 	// Gauge snapshot at read time (cmd/lyon/usage.go contextUsed): what the
 	// web footer shows the moment a session opens, before any turn_end
 	// streams. cost_usd absent = no unit price on file (tokens only).
-	CtxUsed       int64    `protobuf:"varint,12,opt,name=ctx_used,json=ctxUsed,proto3" json:"ctx_used,omitempty"`
-	CostUsd       *float64 `protobuf:"fixed64,13,opt,name=cost_usd,json=costUsd,proto3,oneof" json:"cost_usd,omitempty"` // session-cumulative USD (main + subagents)
+	CtxUsed int64    `protobuf:"varint,12,opt,name=ctx_used,json=ctxUsed,proto3" json:"ctx_used,omitempty"`
+	CostUsd *float64 `protobuf:"fixed64,13,opt,name=cost_usd,json=costUsd,proto3,oneof" json:"cost_usd,omitempty"` // session-cumulative USD (main + subagents)
+	// The session model accepts image input (pkg/models Info.Vision) — the
+	// web footer tags the model name with an eye when true (#55).
+	Vision        bool `protobuf:"varint,14,opt,name=vision,proto3" json:"vision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -524,6 +527,13 @@ func (x *Session) GetCostUsd() float64 {
 		return *x.CostUsd
 	}
 	return 0
+}
+
+func (x *Session) GetVision() bool {
+	if x != nil {
+		return x.Vision
+	}
+	return false
 }
 
 type CreateSessionRequest struct {
@@ -1747,7 +1757,7 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\x16SaveCheckpointResponse\x123\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x13.lyon.v1.CheckpointR\n" +
-	"checkpoint\"\xa5\x03\n" +
+	"checkpoint\"\xbd\x03\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x14\n" +
@@ -1764,7 +1774,8 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"lastActive\x12%\n" +
 	"\x0econtext_window\x18\v \x01(\x03R\rcontextWindow\x12\x19\n" +
 	"\bctx_used\x18\f \x01(\x03R\actxUsed\x12\x1e\n" +
-	"\bcost_usd\x18\r \x01(\x01H\x00R\acostUsd\x88\x01\x01B\v\n" +
+	"\bcost_usd\x18\r \x01(\x01H\x00R\acostUsd\x88\x01\x01\x12\x16\n" +
+	"\x06vision\x18\x0e \x01(\bR\x06visionB\v\n" +
 	"\t_cost_usd\"@\n" +
 	"\x14CreateSessionRequest\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x12\n" +

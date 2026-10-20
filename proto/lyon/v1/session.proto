@@ -108,6 +108,9 @@ message Session {
   // streams. cost_usd absent = no unit price on file (tokens only).
   int64 ctx_used = 12;
   optional double cost_usd = 13;  // session-cumulative USD (main + subagents)
+  // The session model accepts image input (pkg/models Info.Vision) — the
+  // web footer tags the model name with an eye when true (#55).
+  bool vision = 14;
 }
 
 message CreateSessionRequest {
