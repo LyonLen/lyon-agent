@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"lyon-agent/pkg/hooks"
@@ -114,5 +115,51 @@ func TestTitleRecorder(t *testing.T) {
 	defer s.mu.Unlock()
 	if s.firstPrompt != "第一个话题" || s.lastPrompt != "换话题了" {
 		t.Fatalf("first=%q last=%q", s.firstPrompt, s.lastPrompt)
+	}
+	if len(s.recentPrompts) != 2 || s.recentPrompts[0] != "第一个话题" || s.recentPrompts[1] != "换话题了" {
+		t.Fatalf("recentPrompts = %q", s.recentPrompts)
+	}
+}
+
+func TestAppendPromptTail(t *testing.T) {
+	var tail []string
+	for i := 1; i <= 7; i++ {
+		tail = appendPromptTail(tail, fmt.Sprintf("p%d", i))
+	}
+	if len(tail) != titleRecentN || tail[0] != "p3" || tail[len(tail)-1] != "p7" {
+		t.Fatalf("cap: %q", tail)
+	}
+	// Blank prompts never enter the tail (and never shift the window).
+	tail = appendPromptTail(nil, "  ", "", " keep ", "\n")
+	if len(tail) != 1 || tail[0] != "keep" {
+		t.Fatalf("blank skip: %q", tail)
+	}
+}
+
+func TestIntervalTitleGates(t *testing.T) {
+	mk := func(t *testing.T) *Session {
+		t.Helper()
+		return &Session{eng: &Engine{cfg: Config{Workspace: tempDir(t)}, hooks: hooks.New(tempDir(t))}}
+	}
+	// LYON_TITLE=off disables before any client work.
+	t.Setenv("LYON_TITLE", "off")
+	s := mk(t)
+	if title, changed, err := s.IntervalTitle(context.Background()); title != "" || changed || err != nil {
+		t.Fatalf("off: %q %v %v", title, changed, err)
+	}
+	// Enabled but no prompt yet: returns before touching the (zero) client.
+	t.Setenv("LYON_TITLE", "")
+	if title, changed, err := mk(t).IntervalTitle(context.Background()); title != "" || changed || err != nil {
+		t.Fatalf("no prompt: %q %v %v", title, changed, err)
+	}
+	// A restored session predates the tail: the input falls back to the
+	// first prompt instead of refusing (recentPrompts isn't snapshotted).
+	r := mk(t)
+	r.mu.Lock()
+	r.firstPrompt = "restored topic"
+	r.mu.Unlock()
+	current, recent := r.intervalTitleInput()
+	if current != "" || len(recent) != 1 || recent[0] != "restored topic" {
+		t.Fatalf("restore fallback: current=%q recent=%q", current, recent)
 	}
 }

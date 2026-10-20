@@ -63,6 +63,10 @@ func (s *Store) Create(sess *agent.Session) (string, error) {
 	now := time.Now()
 	e := &entry{sess: sess, created: now, lastActive: now}
 	e.hub = newHub(sess.Events())
+	// Interval title pass: the hub taps every prompt_end, the store is
+	// where the *Session lives (lyond's cadence decision stays out of
+	// pkg/agent — the TUI drives its own title check).
+	e.hub.onPromptEnd = func() { maybeIntervalTitle(sess) }
 	s.sessions[id] = e
 	go e.hub.run()
 	return id, nil

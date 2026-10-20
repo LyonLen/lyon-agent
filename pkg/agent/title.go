@@ -24,6 +24,8 @@ const (
 	titlePromptCap = 500
 	// titleCap clips the accepted title itself.
 	titleCap = 80
+	// titleRecentN is how many prompts the interval summarizer sees.
+	titleRecentN = 5
 )
 
 // titleSystemPrompt is the intent-recognition instruction. The
@@ -80,6 +82,92 @@ func (s *Session) RefreshTitle(ctx context.Context) (string, bool, error) {
 	title = strings.Join(strings.Fields(title), " ")
 	if title == "" {
 		return cur, false, nil // changed with no title: keep the old one
+	}
+	if r := []rune(title); len(r) > titleCap {
+		title = string(r[:titleCap])
+	}
+	s.mu.Lock()
+	s.title = title
+	s.mu.Unlock()
+	return title, true, nil
+}
+
+// titleSummarizeSystemPrompt is the interval pass: instead of the
+// per-prompt intent check (first + latest), the model gets the recent
+// prompt tail and names the session's current task.
+const titleSummarizeSystemPrompt = `You maintain a terse session title for a chat header (session summary). You receive the session's current title (may be empty) and its most recent user messages (up to 5).
+
+Reply with ONE JSON object only, no prose, no code fences:
+- A title is needed, or the current one no longer fits: {"changed":true,"title":"..."}
+- The current title still fits the session: {"changed":false}
+
+The title is 3-8 words in the language the user writes, naming the TASK the session is working on (e.g. "修复登录页布局错位"), never a transcript of the chat.`
+
+// appendPromptTail keeps the last titleRecentN non-empty prompts —
+// called with s.mu held.
+func appendPromptTail(tail []string, prompts ...string) []string {
+	for _, p := range prompts {
+		if p = strings.TrimSpace(p); p != "" {
+			tail = append(tail, p)
+		}
+	}
+	if len(tail) > titleRecentN {
+		tail = tail[len(tail)-titleRecentN:]
+	}
+	return tail
+}
+
+// intervalTitleInput snapshots what the summarizer sees: the current
+// title (trimmed, "" until first recognized) and the recent-prompt tail.
+// A restored session predates the tail, so it falls back to the first
+// prompt; recent is nil only when the session has no prompt at all.
+func (s *Session) intervalTitleInput() (current string, recent []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current = strings.TrimSpace(s.title)
+	recent = append([]string(nil), s.recentPrompts...)
+	if len(recent) == 0 && strings.TrimSpace(s.firstPrompt) != "" {
+		recent = []string{s.firstPrompt}
+	}
+	return current, recent
+}
+
+// IntervalTitle regenerates the title from the last ≤titleRecentN
+// prompts plus the current title (shown to the model as "(none)" when
+// absent) — the beat-based title pass (prompt counts 1, 6, 26, 46 …
+// behind the server's hub tap). Same cost discipline and reply contract
+// as RefreshTitle: one small-model call, 64-token reply, a bad reply or
+// changed:false never clobbers the existing title. LYON_TITLE=off
+// disables.
+func (s *Session) IntervalTitle(ctx context.Context) (string, bool, error) {
+	if strings.EqualFold(os.Getenv("LYON_TITLE"), "off") {
+		return s.Title(), false, nil
+	}
+	before := s.Title()
+	current, recent := s.intervalTitleInput()
+	if len(recent) == 0 {
+		return before, false, nil // no prompt yet — nothing to summarize
+	}
+	if current == "" {
+		current = "(none)"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Current title: %s\n\nRecent user messages:", current)
+	for i, p := range recent {
+		fmt.Fprintf(&b, "\n%d. %s", i+1, clipRunes(p, titlePromptCap))
+	}
+
+	reply, err := s.Ask(ctx, titleSummarizeSystemPrompt, b.String(), titleMaxTokens)
+	if err != nil {
+		return before, false, err
+	}
+	changed, title := parseTitleReply(reply)
+	if !changed {
+		return before, false, nil
+	}
+	title = strings.Join(strings.Fields(title), " ")
+	if title == "" {
+		return before, false, nil // changed with no title: keep the old one
 	}
 	if r := []rune(title); len(r) > titleCap {
 		title = string(r[:titleCap])

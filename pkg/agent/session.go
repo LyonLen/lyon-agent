@@ -191,6 +191,10 @@ type Session struct {
 	title       string
 	firstPrompt string
 	lastPrompt  string
+	// recentPrompts is the rolling tail (≤titleRecentN) of submitted user
+	// prompts — the interval summarizer's input (IntervalTitle). Not
+	// snapshotted; a restored session falls back to firstPrompt.
+	recentPrompts []string
 
 	// uiState is an opaque renderer-side blob (the TUI's steps panel)
 	// riding into snapshots so /resume restores the audit trail. The
@@ -292,12 +296,14 @@ func (s *Session) SubmitOn(prompt, model string) error {
 	select {
 	case s.reqs <- submitReq{prompt: prompt, model: model}:
 		// Recorded for title intent recognition (title.go): the latest
-		// prompt drives the check, the first anchors the session topic.
+		// prompt drives the check, the first anchors the session topic,
+		// the tail feeds the interval summarizer.
 		s.mu.Lock()
 		s.lastPrompt = prompt
 		if s.firstPrompt == "" {
 			s.firstPrompt = prompt
 		}
+		s.recentPrompts = appendPromptTail(s.recentPrompts, prompt)
 		s.mu.Unlock()
 		s.eng.hooks.Fire(hooks.Record{Event: hooks.EvPromptStart, Prompt: prompt})
 		return nil
@@ -346,6 +352,11 @@ func (s *Session) injectQueuedGap() {
 	if last := lines[len(lines)-1]; strings.TrimSpace(last) != "" {
 		// Latest prompt drives title intent — same rule as SubmitOn.
 		s.lastPrompt = last
+	}
+	// Each injected line is a user prompt (and counts as one in the hook
+	// stats below) — the summarizer tail must see them too.
+	for _, line := range lines {
+		s.recentPrompts = appendPromptTail(s.recentPrompts, line)
 	}
 	s.mu.Unlock()
 
