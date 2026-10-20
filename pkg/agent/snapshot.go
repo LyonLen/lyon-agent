@@ -133,6 +133,13 @@ func (s *Session) Restore(snap Snapshot) {
 	s.subUsage = nil // subagent lines aren't snapshotted — reset with turns
 	s.title = snap.Title
 	s.firstPrompt = snap.FirstPrompt
+	// The placeholder (#44) is derived, never stored: a snapshot archived
+	// before the intent pass still shows its question on resume, and a
+	// stored title always wins. Reset (empty snapshot) clears both.
+	s.titleProv = ""
+	if snap.Title == "" {
+		s.titleProv = placeholderTitle(snap.FirstPrompt)
+	}
 	s.uiState = append(json.RawMessage(nil), snap.Steps...) // nil on Reset
 	s.uiTodos = append(json.RawMessage(nil), snap.Todos...) // nil on Reset
 	s.mu.Unlock()

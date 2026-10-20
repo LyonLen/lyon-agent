@@ -40,11 +40,36 @@ Reply with ONE JSON object only, no prose, no code fences:
 
 The title is 3-8 words in the language the user writes, naming the TASK (e.g. "修复登录页布局错位"), never a transcript of the chat.`
 
-// Title returns the current session title ("" until first recognized).
+// Title returns the current session title: the intent label once the title
+// pass has written one, else the placeholder derived from the first prompt
+// (#44) — a fresh seat shows its question instead of "(untitled)" while
+// round one is still running, and the pass overwrites it when the summary
+// lands. "" only before the session has any prompt.
 func (s *Session) Title() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.title
+	if s.title != "" {
+		return s.title
+	}
+	return s.titleProv
+}
+
+// placeholderTitle derives the stand-in title from a prompt: its first
+// non-empty line, whitespace collapsed, capped at titleCap runes. The raw
+// question is deliberately used — no model call, so it is available the
+// instant SubmitOn records the prompt.
+func placeholderTitle(prompt string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.Join(strings.Fields(line), " ")
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > titleCap {
+			return strings.TrimRight(string(r[:titleCap-1]), " ") + "…"
+		}
+		return line
+	}
+	return ""
 }
 
 // RefreshTitle runs one cheap intent check against the latest prompt and

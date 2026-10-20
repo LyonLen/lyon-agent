@@ -198,6 +198,11 @@ type Session struct {
 	title       string
 	firstPrompt string
 	lastPrompt  string
+	// titleProv is the placeholder title (#44): the first prompt's opening
+	// line, shown from the moment that prompt is accepted until the intent
+	// pass writes `title`. Not snapshotted — Restore re-derives it from
+	// FirstPrompt, and Reset clears both together.
+	titleProv string
 	// recentPrompts is the rolling tail (≤titleRecentN) of submitted user
 	// prompts — the interval summarizer's input (IntervalTitle). Not
 	// snapshotted; a restored session falls back to firstPrompt.
@@ -325,6 +330,10 @@ func (s *Session) SubmitOn(prompt, model string) error {
 		s.lastPrompt = prompt
 		if s.firstPrompt == "" {
 			s.firstPrompt = prompt
+			// #44: name the seat with its own question the moment round one
+			// starts — the intent pass only lands after prompt_end, and an
+			// "(untitled)" row for the whole first run reads as a dead run.
+			s.titleProv = placeholderTitle(prompt)
 		}
 		s.recentPrompts = appendPromptTail(s.recentPrompts, prompt)
 		s.prompts++

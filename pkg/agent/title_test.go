@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"lyon-agent/pkg/hooks"
@@ -123,6 +124,64 @@ func TestTitleRecorder(t *testing.T) {
 	// hooks total) — two submissions means beat position 2.
 	if s.prompts != 2 {
 		t.Fatalf("prompts = %d, want 2", s.prompts)
+	}
+}
+
+func TestPlaceholderTitle(t *testing.T) {
+	// The first non-empty line of the prompt, whitespace collapsed.
+	if got := placeholderTitle("\n\n  fix   the   login page \nsecond line"); got != "fix the login page" {
+		t.Fatalf("first line: %q", got)
+	}
+	if got := placeholderTitle("   \n\t\n"); got != "" {
+		t.Fatalf("blank prompt: %q", got)
+	}
+	// Long prompts clip to titleCap runes with an ellipsis (rune-safe).
+	long := strings.Repeat("错", titleCap+20)
+	got := placeholderTitle(long)
+	if r := []rune(got); len(r) != titleCap || !strings.HasSuffix(got, "…") {
+		t.Fatalf("clipped to %d runes: %q", len(r), got)
+	}
+}
+
+// TestTitlePlaceholderPrecedence: the stand-in names the seat from Submit
+// on, and the intent pass overwrites it — never the other way around.
+func TestTitlePlaceholderPrecedence(t *testing.T) {
+	ws := tempDir(t)
+	s := &Session{
+		eng:  &Engine{cfg: Config{Workspace: ws}, hooks: hooks.New(ws)},
+		ctx:  context.Background(),
+		reqs: make(chan submitReq, 1),
+	}
+	t.Cleanup(s.eng.hooks.Flush)
+	if got := s.Title(); got != "" {
+		t.Fatalf("fresh title = %q", got)
+	}
+	if err := s.Submit("修复登录页布局错位\n顺便看看配色"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	<-s.reqs
+	if got := s.Title(); got != "修复登录页布局错位" {
+		t.Fatalf("placeholder = %q", got)
+	}
+	// The intent pass writes s.title; it wins from then on.
+	s.mu.Lock()
+	s.title = "登录页布局修复"
+	s.mu.Unlock()
+	if got := s.Title(); got != "登录页布局修复" {
+		t.Fatalf("intent title = %q", got)
+	}
+	// Reset clears both (no conversation, no placeholder).
+	s.busy.Store(false)
+	s.Reset()
+	if got := s.Title(); got != "" {
+		t.Fatalf("after reset = %q", got)
+	}
+	// A snapshot archived before the intent pass re-derives the placeholder
+	// from FirstPrompt.
+	old := &Session{eng: s.eng}
+	old.Restore(Snapshot{Workspace: ws, FirstPrompt: "整理 backlog", Title: ""})
+	if got := old.Title(); got != "整理 backlog" {
+		t.Fatalf("restored placeholder = %q", got)
 	}
 }
 
