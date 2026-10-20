@@ -73,6 +73,9 @@ const (
 	// SessionServiceRollbackSessionProcedure is the fully-qualified name of the SessionService's
 	// RollbackSession RPC.
 	SessionServiceRollbackSessionProcedure = "/lyon.v1.SessionService/RollbackSession"
+	// SessionServiceSaveCheckpointProcedure is the fully-qualified name of the SessionService's
+	// SaveCheckpoint RPC.
+	SessionServiceSaveCheckpointProcedure = "/lyon.v1.SessionService/SaveCheckpoint"
 )
 
 // SessionServiceClient is a client for the lyon.v1.SessionService service.
@@ -117,6 +120,10 @@ type SessionServiceClient interface {
 	// with from_seq=-1 after a rollback).
 	ListCheckpoints(context.Context, *connect.Request[v1.ListCheckpointsRequest]) (*connect.Response[v1.ListCheckpointsResponse], error)
 	RollbackSession(context.Context, *connect.Request[v1.RollbackSessionRequest]) (*connect.Response[v1.RollbackSessionResponse], error)
+	// SaveCheckpoint pins an explicit undo point (TUI /rollback save parity):
+	// label the checkpoint before a risky stretch of work, then roll back to
+	// it later. Fails codes.FailedPrecondition on an empty history.
+	SaveCheckpoint(context.Context, *connect.Request[v1.SaveCheckpointRequest]) (*connect.Response[v1.SaveCheckpointResponse], error)
 }
 
 // NewSessionServiceClient constructs a client for the lyon.v1.SessionService service. By default,
@@ -214,6 +221,12 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("RollbackSession")),
 			connect.WithClientOptions(opts...),
 		),
+		saveCheckpoint: connect.NewClient[v1.SaveCheckpointRequest, v1.SaveCheckpointResponse](
+			httpClient,
+			baseURL+SessionServiceSaveCheckpointProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("SaveCheckpoint")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -233,6 +246,7 @@ type sessionServiceClient struct {
 	restoreSession  *connect.Client[v1.RestoreSessionRequest, v1.RestoreSessionResponse]
 	listCheckpoints *connect.Client[v1.ListCheckpointsRequest, v1.ListCheckpointsResponse]
 	rollbackSession *connect.Client[v1.RollbackSessionRequest, v1.RollbackSessionResponse]
+	saveCheckpoint  *connect.Client[v1.SaveCheckpointRequest, v1.SaveCheckpointResponse]
 }
 
 // CreateSession calls lyon.v1.SessionService.CreateSession.
@@ -305,6 +319,11 @@ func (c *sessionServiceClient) RollbackSession(ctx context.Context, req *connect
 	return c.rollbackSession.CallUnary(ctx, req)
 }
 
+// SaveCheckpoint calls lyon.v1.SessionService.SaveCheckpoint.
+func (c *sessionServiceClient) SaveCheckpoint(ctx context.Context, req *connect.Request[v1.SaveCheckpointRequest]) (*connect.Response[v1.SaveCheckpointResponse], error) {
+	return c.saveCheckpoint.CallUnary(ctx, req)
+}
+
 // SessionServiceHandler is an implementation of the lyon.v1.SessionService service.
 type SessionServiceHandler interface {
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
@@ -347,6 +366,10 @@ type SessionServiceHandler interface {
 	// with from_seq=-1 after a rollback).
 	ListCheckpoints(context.Context, *connect.Request[v1.ListCheckpointsRequest]) (*connect.Response[v1.ListCheckpointsResponse], error)
 	RollbackSession(context.Context, *connect.Request[v1.RollbackSessionRequest]) (*connect.Response[v1.RollbackSessionResponse], error)
+	// SaveCheckpoint pins an explicit undo point (TUI /rollback save parity):
+	// label the checkpoint before a risky stretch of work, then roll back to
+	// it later. Fails codes.FailedPrecondition on an empty history.
+	SaveCheckpoint(context.Context, *connect.Request[v1.SaveCheckpointRequest]) (*connect.Response[v1.SaveCheckpointResponse], error)
 }
 
 // NewSessionServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -440,6 +463,12 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("RollbackSession")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceSaveCheckpointHandler := connect.NewUnaryHandler(
+		SessionServiceSaveCheckpointProcedure,
+		svc.SaveCheckpoint,
+		connect.WithSchema(sessionServiceMethods.ByName("SaveCheckpoint")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/lyon.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionServiceCreateSessionProcedure:
@@ -470,6 +499,8 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceListCheckpointsHandler.ServeHTTP(w, r)
 		case SessionServiceRollbackSessionProcedure:
 			sessionServiceRollbackSessionHandler.ServeHTTP(w, r)
+		case SessionServiceSaveCheckpointProcedure:
+			sessionServiceSaveCheckpointHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -533,4 +564,8 @@ func (UnimplementedSessionServiceHandler) ListCheckpoints(context.Context, *conn
 
 func (UnimplementedSessionServiceHandler) RollbackSession(context.Context, *connect.Request[v1.RollbackSessionRequest]) (*connect.Response[v1.RollbackSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.RollbackSession is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) SaveCheckpoint(context.Context, *connect.Request[v1.SaveCheckpointRequest]) (*connect.Response[v1.SaveCheckpointResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.SaveCheckpoint is not implemented"))
 }

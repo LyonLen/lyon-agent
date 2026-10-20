@@ -65,6 +65,22 @@ func (c *sessionService) RollbackSession(_ context.Context, req *connect.Request
 	return connect.NewResponse(&lyonv1.RollbackSessionResponse{Checkpoint: protoCheckpoint(cp)}), nil
 }
 
+// SaveCheckpoint pins an explicit undo point (TUI /rollback save parity):
+// the caller's label lands on the checkpoint so the undo stack stays
+// readable among the automatic prompt-boundary captures. Shares histMu
+// with the prompt path — a save during a live drive waits, never races.
+func (c *sessionService) SaveCheckpoint(_ context.Context, req *connect.Request[lyonv1.SaveCheckpointRequest]) (*connect.Response[lyonv1.SaveCheckpointResponse], error) {
+	sess, err := c.s.store.Get(req.Msg.SessionId)
+	if err != nil {
+		return nil, rpcErr(err)
+	}
+	cp, err := sess.Checkpoint(req.Msg.Label)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	return connect.NewResponse(&lyonv1.SaveCheckpointResponse{Checkpoint: protoCheckpoint(cp)}), nil
+}
+
 func protoCheckpoint(cp agent.CheckpointInfo) *lyonv1.Checkpoint {
 	return &lyonv1.Checkpoint{
 		Id:       int32(cp.ID),

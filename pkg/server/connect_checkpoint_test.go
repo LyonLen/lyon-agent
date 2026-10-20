@@ -104,6 +104,54 @@ func TestConnectRollbackSession(t *testing.T) {
 	}
 }
 
+// TestConnectSaveCheckpoint: an explicit save pins a labeled manual undo
+// point — FailedPrecondition while the history is empty, then kind
+// "manual" with the caller's label once a prompt has run, listed
+// newest-first among the automatic captures.
+func TestConnectSaveCheckpoint(t *testing.T) {
+	client := newTranscriptFixture(t, time.Millisecond)
+	ctx := context.Background()
+	cres, err := client.CreateSession(ctx, connect.NewRequest(&lyonv1.CreateSessionRequest{}))
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	sid := cres.Msg.Session.Id
+
+	// Empty history: nothing to roll back to.
+	_, err = client.SaveCheckpoint(ctx, connect.NewRequest(&lyonv1.SaveCheckpointRequest{
+		SessionId: sid, Label: "too early",
+	}))
+	if got := connectCode(err); got != connect.CodeFailedPrecondition {
+		t.Fatalf("save on empty history code = %v, want FailedPrecondition (err=%v)", got, err)
+	}
+
+	if _, err := client.SubmitPrompt(ctx, connect.NewRequest(&lyonv1.SubmitPromptRequest{
+		SessionId: sid, Prompt: "hi",
+	})); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	collectPromptEvents(t, client, sid)
+
+	save, err := client.SaveCheckpoint(ctx, connect.NewRequest(&lyonv1.SaveCheckpointRequest{
+		SessionId: sid, Label: "before risky stretch",
+	}))
+	if err != nil {
+		t.Fatalf("SaveCheckpoint: %v", err)
+	}
+	cp := save.Msg.Checkpoint
+	if cp == nil || cp.Kind != "manual" || cp.Label != "before risky stretch" || cp.Messages != 2 {
+		t.Fatalf("saved checkpoint = %+v, want kind=manual, label %q, 2 msgs", cp, "before risky stretch")
+	}
+
+	lres, err := client.ListCheckpoints(ctx, connect.NewRequest(&lyonv1.ListCheckpointsRequest{SessionId: sid}))
+	if err != nil {
+		t.Fatalf("ListCheckpoints: %v", err)
+	}
+	if len(lres.Msg.Checkpoints) == 0 || lres.Msg.Checkpoints[0].Id != cp.Id {
+		t.Fatalf("list = %+v, want the manual save as the newest entry", lres.Msg.Checkpoints)
+	}
+}
+
 // TestRollbackUnknownCheckpoint: an id that never existed (or was
 // discarded) fails NotFound, and an empty stack says so.
 func TestRollbackUnknownCheckpoint(t *testing.T) {

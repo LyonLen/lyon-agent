@@ -60,6 +60,10 @@ service SessionService {
   // with from_seq=-1 after a rollback).
   rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
   rpc RollbackSession(RollbackSessionRequest) returns (RollbackSessionResponse);
+  // SaveCheckpoint pins an explicit undo point (TUI /rollback save parity):
+  // label the checkpoint before a risky stretch of work, then roll back to
+  // it later. Fails codes.FailedPrecondition on an empty history.
+  rpc SaveCheckpoint(SaveCheckpointRequest) returns (SaveCheckpointResponse);
 }
 
 // Checkpoint is one undo point: a prompt boundary or a pre-compaction
@@ -78,6 +82,11 @@ message RollbackSessionRequest {
   int32 id = 2;         // from ListCheckpoints; 0 = the newest checkpoint
 }
 message RollbackSessionResponse { Checkpoint checkpoint = 1; }
+message SaveCheckpointRequest {
+  string session_id = 1;
+  string label = 2; // empty = server default ("manual checkpoint (N msgs)")
+}
+message SaveCheckpointResponse { Checkpoint checkpoint = 1; }
 
 message Session {
   string id = 1;
