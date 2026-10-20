@@ -108,6 +108,15 @@ func main() {
 	}
 
 	eng := agent.NewEngine(cfg, nil)
+	// Live drafts (#45): a session mirrors itself to disk at every
+	// prompt_end, so a hard kill costs at most the running prompt. Drafts
+	// left behind belong to a previous process that died without its exit
+	// path; archive them before serving so they appear in "saved" right away.
+	if n, err := agent.SweepDrafts(eng.Config().Workspace); err != nil {
+		log.Printf("drafts: recovered %d, then: %v", n, err)
+	} else if n > 0 {
+		log.Printf("drafts: recovered %d session(s) from the previous run", n)
+	}
 	store := server.NewStore(*maxSess, *ttl)
 	srv := server.New(eng, store)
 	if appr != nil {

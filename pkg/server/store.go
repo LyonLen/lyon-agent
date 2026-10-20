@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -32,7 +33,8 @@ type Store struct {
 
 type entry struct {
 	sess       *agent.Session
-	hub        *hub // fan-out of sess.Events(); the sole consumer
+	hub        *hub         // fan-out of sess.Events(); the sole consumer
+	draft      *agent.Draft // per-prompt mirror to disk, so a hard kill loses at most one prompt
 	created    time.Time
 	lastActive time.Time
 }
@@ -63,10 +65,26 @@ func (s *Store) Create(sess *agent.Session) (string, error) {
 	now := time.Now()
 	e := &entry{sess: sess, created: now, lastActive: now}
 	e.hub = newHub(sess.Events())
+	// Live draft (#45): every prompt_end mirrors the conversation to
+	// $LYON_HOME/sessions/<ws>/drafts/<id>.json, so a hard kill (taskkill
+	// /F, OOM) costs one prompt instead of every live conversation. The
+	// path is derived from the workspace, not the store: drafts belong to
+	// the archive directory the exit path writes into.
+	if path, err := agent.DraftPath(sess.Workspace(), id); err == nil {
+		e.draft = sess.NewDraft(path)
+	}
 	// Interval title pass: the hub taps every prompt_end, the store is
 	// where the *Session lives (lyond's cadence decision stays out of
 	// pkg/agent — the TUI drives its own title check).
-	e.hub.onPromptEnd = func() { maybeIntervalTitle(sess) }
+	end := func() {
+		maybeIntervalTitle(sess)
+		if e.draft != nil {
+			// Touch only schedules: Export waits on histMu, which the
+			// just-finished prompt still holds on this goroutine's stack.
+			e.draft.Touch()
+		}
+	}
+	e.hub.onPromptEnd = end
 	s.sessions[id] = e
 	go e.hub.run()
 	return id, nil
@@ -105,12 +123,22 @@ func (s *Store) Delete(id string) bool {
 // Export: histMu is held end to end by an in-flight prompt, and the TUI's
 // own exit uses the same settle-then-export order. Archive failures must
 // not wedge teardown — the memory copy is lost either way.
+//
+// The live draft (#45) is stopped first so no mirror lands after the
+// archive, and removed once the final archive is safely on disk. A failed
+// archive keeps it: the startup sweep is then the conversation's last copy.
 func archiveAndClose(e *entry) {
+	if e.draft != nil {
+		e.draft.Close() // no new mirrors; wait for the in-flight one
+	}
 	e.sess.Interrupt()
-	if _, err := e.sess.ArchiveIfNew(); err != nil {
+	_, err := e.sess.ArchiveIfNew()
+	if err != nil {
 		// Best effort by design (comment above); nothing to do with a
 		// disk error on the way down.
 		_ = err
+	} else if e.draft != nil {
+		_ = os.Remove(e.draft.Path())
 	}
 	e.sess.Close()
 }
