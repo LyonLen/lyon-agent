@@ -104,7 +104,7 @@ const PaneHeader = memo(function PaneHeader({
     height: 22,
     padding: 0,
     border: "none",
-    borderRadius: 4,
+    borderRadius: "var(--radius-1)",
     background: "transparent",
     color: "var(--dim)",
     cursor: "pointer",
@@ -403,7 +403,7 @@ export default function TilingWorkspace({
               width: isMax ? "100vw" : `${leaf.width * 100}%`,
               height: isMax ? "100vh" : `${leaf.height * 100}%`,
               zIndex: isMax ? 90 : 1,
-              transition: "left 0.18s ease, top 0.18s ease, width 0.18s ease, height 0.18s ease",
+              // geometry transition lives in .tile-leaf (token ladder + reduced-motion)
             }}
             onPointerDown={() => setFocus(leaf.nodeId)}
           >
