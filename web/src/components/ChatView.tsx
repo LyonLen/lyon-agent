@@ -247,7 +247,8 @@ export default function ChatView(props: {
   onSteps: (s: StepRow[]) => void;
   onCommand: (cmd: string) => void;
   reloadKey: number; // bump re-anchors the stream (rollback rewrote the ring)
-  mode: string; // App owns the session record — badge follows its refresh
+  // Mode control lives in App's bottom-left dock (shift+tab / click) —
+  // ChatView no longer owns a badge or set-mode buttons.
 }) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [busy, setBusy] = useState(false);
@@ -619,15 +620,6 @@ export default function ChatView(props: {
     }
   };
 
-  const setMode = async (mode: string) => {
-    try {
-      await sessionClient.setMode({ sessionId: props.sessionId, mode });
-      props.onChanged();
-    } catch (e) {
-      setErr(errText(e));
-    }
-  };
-
   return (
     <div className={"chat" + (busy ? " streaming" : "")}>
       <div className="chat-feed" ref={feedRef}>
@@ -725,7 +717,6 @@ export default function ChatView(props: {
         </div>
       )}
       <div className="status-line">
-        <span className={`mode-badge ${props.mode}`}>{props.mode}</span>
         {todos.length > 0 && (
           <span className="sl-plan">
             {(() => {
@@ -749,19 +740,13 @@ export default function ChatView(props: {
           <span className="sl-legend">/ for commands · shift+tab mode · ↑ history</span>
         )}
       </div>
-      <div className="chat-controls">
-        <button className="ghost" onClick={() => void setMode("plan")}>
-          plan
-        </button>
-        <button className="ghost" onClick={() => void setMode("default")}>
-          default
-        </button>
-        {busy && (
+      {busy && (
+        <div className="chat-controls">
           <button className="ghost danger" onClick={() => void interrupt()}>
             interrupt
           </button>
-        )}
-      </div>
+        </div>
+      )}
       <div className="chat-input">
         <textarea
           value={input}

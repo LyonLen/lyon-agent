@@ -41,6 +41,10 @@ export default function App() {
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [steps, setSteps] = useState<StepRow[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
+  // Bottom-left mode dock: click expands the three-mode picker; the chip
+  // mirrors the selected session's mode (falls back to "default").
+  const [modeMenu, setModeMenu] = useState(false);
+  const modeDockRef = useRef<HTMLDivElement>(null);
   const ws = useWorkspaceLayout();
   // Preview tab stacks ride the tile nodeIds — drag/swap keeps a pane's
   // tabs, closing one prunes its record (plan Phase B).
@@ -245,19 +249,27 @@ export default function App() {
     }
   };
 
-  // cycleMode walks default → plan → bypass → default (TUI shift+tab).
-  const cycleMode = async () => {
-    const cur = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
-    const next =
-      cur === "default" ? "plan" : cur === "plan" ? "bypass" : "default";
-    if (!selectedId) return;
+  // pickMode sets an explicit mode (the bottom-left dock menu); cycleMode
+  // walks default → plan → bypass → default on top of it (TUI shift+tab).
+  const pickMode = async (mode: string) => {
+    if (!selectedId) {
+      flash("select a session first");
+      return;
+    }
     try {
-      await sessionClient.setMode({ sessionId: selectedId, mode: next });
-      flash(`mode → ${next}`);
+      await sessionClient.setMode({ sessionId: selectedId, mode });
+      flash(`mode → ${mode}`);
       await refresh();
     } catch (e) {
       flash(errText(e));
     }
+  };
+
+  const cycleMode = async () => {
+    const cur = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
+    const next =
+      cur === "default" ? "plan" : cur === "plan" ? "bypass" : "default";
+    await pickMode(next);
   };
 
   // Slash actions that need App state: the ChatView handles the local
@@ -370,7 +382,6 @@ export default function App() {
             onSteps={setSteps}
             onCommand={runCommand}
             reloadKey={reloadKey}
-            mode={sessions.find((s) => s.id === selectedId)?.mode ?? "default"}
           />
         ) : (
           <div className="placeholder">select or create a session</div>
@@ -402,6 +413,25 @@ export default function App() {
       },
     },
   ];
+
+  // The dock menu closes on outside click and Escape (portal menu rules).
+  useEffect(() => {
+    if (!modeMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!modeDockRef.current?.contains(e.target as Node)) setModeMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setModeMenu(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [modeMenu]);
+
+  // The selected session's mode feeds both the dock chip and ChatView's
+  // badge (kept until the dock replaced the in-chat controls entirely).
+  const curMode = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
 
   // shift+tab cycles the execution mode anywhere in the app (TUI parity);
   // the browser's default focus-leave is exactly what the chord must NOT do.
@@ -463,6 +493,37 @@ export default function App() {
           ws={ws}
           panes={panes}
         />
+      )}
+      {/* Mode dock — persistent bottom-left control (TUI status bar
+          parity): the chip always shows the active mode, click expands a
+          checkable picker, shift+tab cycles regardless of focus. */}
+      {view === "chat" && (
+        <div className="mode-dock" ref={modeDockRef}>
+          {modeMenu && (
+            <div className="mode-menu">
+              {(["default", "plan", "bypass"] as const).map((m) => (
+                <button
+                  key={m}
+                  className={"mode-item" + (curMode === m ? " active" : "")}
+                  onClick={() => {
+                    setModeMenu(false);
+                    void pickMode(m);
+                  }}
+                >
+                  <span className="mode-check">{curMode === m ? "✓" : ""}</span>
+                  <span>{m}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            className={`mode-chip ${curMode}`}
+            title="execution mode — click to pick, shift+tab cycles"
+            onClick={() => setModeMenu((v) => !v)}
+          >
+            {curMode}
+          </button>
+        </div>
       )}
       {toast && <div className="toast">{toast}</div>}
     </div>

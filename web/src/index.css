@@ -528,6 +528,31 @@ button:disabled { opacity: 0.5; cursor: default; }
   to { opacity: 1; transform: none; }
 }
 
+/* mode dock: persistent bottom-left control — chip shows the active
+   mode, click expands the checkable picker above it */
+.mode-dock { position: fixed; left: 12px; bottom: 12px; z-index: 60; }
+.mode-chip {
+  background: var(--panel); border: 1px solid var(--line); color: var(--dim);
+  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.mode-chip.default { color: var(--accent); border-color: var(--accent-line); }
+.mode-chip.plan { color: var(--warn); border-color: var(--warn-line); }
+.mode-chip.bypass { color: var(--danger); border-color: var(--danger-line); }
+.mode-menu {
+  position: absolute; left: 0; bottom: calc(100% + 6px); min-width: 130px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 4px; box-shadow: 0 8px 24px var(--shadow-soft);
+  display: flex; flex-direction: column;
+}
+.mode-item {
+  display: flex; align-items: center; gap: 8px;
+  background: transparent; border: 0; border-radius: 6px; padding: 6px 10px;
+  color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; text-align: left;
+}
+.mode-item:hover { background: var(--bg-hover); }
+.mode-item.active { color: var(--accent); }
+.mode-check { width: 12px; color: var(--accent); }
+
 /* --- right column: plan corner + steps/files tabs (Phase D) ------------ */
 .plan-corner {
   padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--bg-plan);
