@@ -285,6 +285,10 @@ export default function ChatView(props: {
    *  session titles asynchronously on its interval beats, so App re-reads
    *  the list a beat later. */
   onPromptEnd?: () => void;
+  /** Last turn's prompt load (input + cache read + cache creation) — App
+   *  draws the footer's bottom-right ctx gauge (TUI corner-gauge parity);
+   *  history replay and session switches re-seed it too, 0 on reset. */
+  onCtx?: (tok: number) => void;
   reloadKey: number; // bump re-anchors the stream (rollback rewrote the ring)
   // Saved-session store feed for /resume /sessions pickers, plus the two
   // restore paths that need App state (restore swaps the selection,
@@ -303,7 +307,6 @@ export default function ChatView(props: {
   const feedRef = useRef<HTMLDivElement>(null);
   // Phase D: plan corner / status line / slash panel local state.
   const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [ctxTokens, setCtxTokens] = useState(0); // last turn's prompt load
   const [thinkOpen, setThinkOpen] = useState(false);
   const [cmdNote, setCmdNote] = useState(""); // local command receipt, 3s
   const [slashSel, setSlashSel] = useState(0);
@@ -426,7 +429,7 @@ export default function ChatView(props: {
     setBlocks([]);
     setErr("");
     setTodos([]);
-    setCtxTokens(0);
+    props.onCtx?.(0);
     void (async () => {
       // Both reads are unary (content-length) responses — they arrive
       // even while a streaming socket would sit unread. Parallel:
@@ -457,7 +460,7 @@ export default function ChatView(props: {
           }
           if (ev.typeName === "turn_end" && ev.usage) {
             const u = ev.usage;
-            setCtxTokens(Number(u.input + u.cacheRead + u.cacheCreation));
+            props.onCtx?.(Number(u.input + u.cacheRead + u.cacheCreation));
           }
           seeded = reduce(seeded, ev);
         }
@@ -524,7 +527,7 @@ export default function ChatView(props: {
             // prompt load (input + cache read + cache creation).
             if (ev.typeName === "turn_end" && ev.usage) {
               const u = ev.usage;
-              setCtxTokens(Number(u.input + u.cacheRead + u.cacheCreation));
+              props.onCtx?.(Number(u.input + u.cacheRead + u.cacheCreation));
             }
             setBlocks((b) => reduce(b, ev));
             // Advance the retry anchor with every processed event: a
@@ -663,8 +666,20 @@ export default function ChatView(props: {
     setInput(item.dir ? `${head}${item.cmd}` : `${head}${item.cmd} `);
   };
 
+  // Follow-the-tail with an opt-out: while the reader is parked at the
+  // bottom, new blocks snap the feed down; scrolling up pauses tracking so
+  // a run can be reviewed mid-flight, and coming back to the bottom
+  // re-arms it. (Unconditional scrollTo here was the "running 中不能往上
+  // 滚" bug — every delta yanked the view back down.)
+  const stickRef = useRef(true);
+  const onFeedScroll = () => {
+    const el = feedRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
   useEffect(() => {
-    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
+    const el = feedRef.current;
+    if (el && stickRef.current) el.scrollTo({ top: el.scrollHeight });
   }, [blocks]);
 
   // note prints a local command receipt into the status line (3s, the
@@ -930,7 +945,7 @@ export default function ChatView(props: {
 
   return (
     <div className={"chat" + (busy ? " streaming" : "")}>
-      <div className="chat-feed" ref={feedRef}>
+      <div className="chat-feed" ref={feedRef} onScroll={onFeedScroll}>
         {blocks.map((b, i) => (
           <BlockView key={`${i}:${b.kind}`} block={b} thinkOpen={thinkOpen} />
         ))}
@@ -1082,7 +1097,6 @@ export default function ChatView(props: {
             })()}
           </span>
         )}
-        {ctxTokens > 0 && <span className="sl-ctx">ctx {ctxTokens} tok</span>}
         <span className="sl-fill" />
         {cmdNote ? (
           <span className="sl-note">{cmdNote}</span>
@@ -1093,9 +1107,7 @@ export default function ChatView(props: {
             <span className="spin" aria-hidden="true" />
             running · interrupt to stop · Enter queues
           </span>
-        ) : (
-          <span className="sl-legend">/ for commands · shift+tab mode · ↑ history</span>
-        )}
+        ) : null}
       </div>
       {busy && (
         <div className="chat-controls">
@@ -1267,7 +1279,9 @@ function BlockView({ block, thinkOpen }: { block: Block; thinkOpen: boolean }) {
         // key remounts on toggle so <details> picks up the new open
         // state — /think flips every thinking block at once.
         <details key={String(thinkOpen)} className="blk-thinking" open={thinkOpen}>
-          <summary>thinking</summary>
+          <summary>
+            thinking<span className="think-key">ctrl+o</span>
+          </summary>
           <pre>{block.text}</pre>
         </details>
       );

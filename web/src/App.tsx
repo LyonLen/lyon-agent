@@ -17,7 +17,6 @@ import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
 import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
 import { collectLeaves, findParentSplit } from "./tiling/types";
 import { useFileTabs } from "./useFileTabs";
-import { LEGEND } from "./keys";
 
 // Dashboard is a separate route-level view — lazy so the chat pane's
 // first paint doesn't pay for replay/audit rendering (Phase F chunking).
@@ -46,6 +45,10 @@ export default function App() {
   // Bottom-left mode dock: click expands the three-mode picker; the chip
   // mirrors the selected session's mode (falls back to "default").
   const [modeMenu, setModeMenu] = useState(false);
+  // Footer ctx gauge (bottom-right): prompt load reported per turn_end by
+  // ChatView; the denominator is the session's context_window (reset to 0
+  // on session/rollback reseeds, so no stale gauge across switches).
+  const [ctxTok, setCtxTok] = useState(0);
   const modeDockRef = useRef<HTMLDivElement>(null);
   // Layout and preview tab stacks are session-bound: switching the selected
   // session restores that session's own pane tree and open tabs (each
@@ -391,9 +394,13 @@ export default function App() {
   // The selected session's mode feeds the dock chip in the chat footer.
   const curMode = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
 
-  // Resident status strip at the chat pane's bottom-left (TUI idleStatus
-  // parity, user-placed): mode chip — click expands the checkable picker,
-  // shift+tab cycles regardless of focus — then the key legend.
+  // Resident status strip at the chat pane's bottom (TUI idleStatus +
+  // corner-gauge parity): mode chip left with the idle hints (the resident
+  // key legend is gone — key help lives in /help, ctrl+o on the thinking
+  // block itself), context gauge pinned bottom-right.
+  const curSession = sessions.find((s) => s.id === selectedId);
+  const ctxWin = Number(curSession?.contextWindow ?? 0);
+  const ctxPct = ctxTok > 0 && ctxWin > 0 ? (ctxTok / ctxWin) * 100 : 0;
   const chatFooter = (
     <footer className="chat-footer">
       <div className="mode-dock" ref={modeDockRef}>
@@ -422,7 +429,15 @@ export default function App() {
           {curMode}
         </button>
       </div>
-      <span className="chat-legend">{LEGEND}</span>
+      <span className="chat-hint">/ for commands · shift+tab mode · ↑ history</span>
+      {ctxTok > 0 && ctxWin > 0 && (
+        <span
+          className={"ctx-gauge" + (ctxPct >= 85 ? " hot" : ctxPct >= 60 ? " warn" : "")}
+          title="context window load — same thresholds as the TUI corner gauge (cyan < 60 ≤ yellow ≤ 85 < red)"
+        >
+          ctx {ctxPct.toFixed(1)}% · {ctxTok.toLocaleString("en-US")}/{ctxWin.toLocaleString("en-US")}
+        </span>
+      )}
     </footer>
   );
 
@@ -463,6 +478,7 @@ export default function App() {
               onSteps={setSteps}
               onCommand={runCommand}
               onPromptEnd={scheduleTitleRefresh}
+              onCtx={setCtxTok}
               reloadKey={reloadKey}
               snapshots={saved}
               onRestore={(p) => void restore(p)}

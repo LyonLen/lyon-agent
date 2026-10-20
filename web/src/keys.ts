@@ -1,5 +1,6 @@
-// The web key table — one source for the resident legend footer and the
-// /help output. Mirrors TUI's idleLegend (cmd/lyon/tui.go:1023-1034)
+// The web key table — /help's output (the resident footer legend was
+// dropped: idle hints live on the chat footer, ctrl+o sits on the thinking
+// block itself). Mirrors TUI's idleLegend (cmd/lyon/tui.go:1023-1034)
 // minus the terminal-only chords: ctrl+t is reserved by browsers (new
 // tab, not interceptable), pgup/pgdn scroll natively, alt+e evolve is a
 // TUI-only panel.
@@ -21,8 +22,3 @@ export const KEY_TABLE: KeyRow[] = [
   { keys: "esc", what: "close the output drawer" },
   { keys: "y n a", what: "answer an approval (not typing)" },
 ];
-
-// One-line resident legend (footer). Keep it short — the full table is
-// in /help.
-export const LEGEND =
-  "enter send · shift+tab mode · / commands · @ files · alt+←→ width · alt+↑↓ height · ctrl+o thinking · esc output";

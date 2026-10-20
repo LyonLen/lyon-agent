@@ -355,6 +355,12 @@ button:focus-visible,
 
 .blk-thinking { color: var(--dim); }
 .blk-thinking pre { white-space: pre-wrap; margin: 4px 0 0; }
+/* the fold's own chord hint (the footer legend is gone): a small mono
+   tag right after the label, matching the summary's dim tone */
+.think-key {
+  margin-left: 8px; color: var(--fg-faint); font-size: 10px;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+}
 .blk-notice { color: var(--dim); font-style: italic; font-size: 12px; }
 .blk-notice summary { cursor: pointer; }
 .blk-notice summary::marker, .blk-tool summary::marker { color: transparent; }
@@ -598,18 +604,27 @@ button:focus-visible,
   to { opacity: 1; transform: none; }
 }
 
-/* resident status strip inside the chat pane (bottom-left): mode chip +
-   key legend — the pane's own footer, not the app's */
+/* resident status strip inside the chat pane (bottom): mode chip + idle
+   hints left, context gauge pinned right — the pane's own footer */
 .chat-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .chat-footer {
   display: flex; align-items: center; gap: 12px;
   height: 26px; padding: 0 10px; flex-shrink: 0;
   border-top: 1px solid var(--line); background: var(--bg-bar);
 }
-.chat-legend {
+.chat-hint {
   flex: 1; min-width: 0; color: var(--dim); font-size: 11px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* TUI corner gauge (cmd/lyon/usage.go pctColor): cyan headroom, yellow
+   approaching 60%, red past 85% — tabular so digits don't dance */
+.ctx-gauge {
+  flex-shrink: 0; color: var(--accent);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ctx-gauge.warn { color: var(--warn); }
+.ctx-gauge.hot { color: var(--danger); }
 /* mode dock: the chip shows the active mode, click expands the
    checkable picker above it */
 .mode-dock { position: relative; }
@@ -705,12 +720,10 @@ button:focus-visible,
 .mode-badge.bypass { color: var(--danger); border-color: var(--danger-line); }
 .mode-badge.default { color: var(--accent); border-color: var(--accent-line); }
 .sl-plan { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
-.sl-ctx { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sl-fill { flex: 1; }
 .sl-note { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sl-appr { color: var(--warn); white-space: nowrap; }
 .sl-hint { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.sl-legend { white-space: nowrap; }
 
 /* queue preview: a non-empty line while busy reads as a pending send */
 .queue-preview {
