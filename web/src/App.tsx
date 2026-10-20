@@ -106,6 +106,26 @@ export default function App() {
     }
   }, []);
 
+  // Interval titles (server: beat prompts 1, 6, 26, 46 …) are written by
+  // an LLM call that starts AFTER prompt_end lands — one refresh right
+  // away would race it and keep showing (untitled). Two beats: a fast one
+  // for the common case, a late one for a slow model round trip; a newer
+  // prompt_end re-arms both (previous timers cleared).
+  const titleTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const scheduleTitleRefresh = useCallback(() => {
+    for (const t of titleTimers.current) clearTimeout(t);
+    titleTimers.current = [];
+    for (const ms of [3500, 10000]) {
+      titleTimers.current.push(setTimeout(() => void refresh(), ms));
+    }
+  }, [refresh]);
+  useEffect(() => {
+    const timers = titleTimers.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+    };
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -442,6 +462,7 @@ export default function App() {
               onTodos={setTodos}
               onSteps={setSteps}
               onCommand={runCommand}
+              onPromptEnd={scheduleTitleRefresh}
               reloadKey={reloadKey}
               snapshots={saved}
               onRestore={(p) => void restore(p)}

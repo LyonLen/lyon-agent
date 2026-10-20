@@ -281,6 +281,10 @@ export default function ChatView(props: {
   onTodos: (t: TodoItem[]) => void;
   onSteps: (s: StepRow[]) => void;
   onCommand: (cmd: string) => void;
+  /** Live prompt_end only (not history replay): the server regenerates
+   *  session titles asynchronously on its interval beats, so App re-reads
+   *  the list a beat later. */
+  onPromptEnd?: () => void;
   reloadKey: number; // bump re-anchors the stream (rollback rewrote the ring)
   // Saved-session store feed for /resume /sessions pickers, plus the two
   // restore paths that need App state (restore swaps the selection,
@@ -503,6 +507,7 @@ export default function ChatView(props: {
             if (!ev) continue;
             if (ev.typeName === "prompt_end") {
               setBusy(false);
+              props.onPromptEnd?.();
             }
             // todo_write: exec_start (not sub) carries the COMPLETE list —
             // replace the whole plan (cmd/lyon/todos.go semantics). On the
