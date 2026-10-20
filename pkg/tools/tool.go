@@ -116,6 +116,113 @@ type Approvable interface {
 	NeedsApproval() bool
 }
 
+// SerialScoped is an optional Tool extension: instead of one session-wide
+// mutex, the tool names the resource its execution conflicts on. Two calls
+// with the same key serialize; different keys — and "" — run concurrently.
+// write_file/edit_file return the target path, so edits to different files
+// overlap while two writes to one file can never interleave.
+//
+// The lock class of one execution is: the key SerialKey yields when it is
+// non-empty; otherwise GlobalKey if the tool is not ParallelSafe; otherwise
+// no lock at all.
+type SerialScoped interface {
+	SerialKey(input json.RawMessage) string
+}
+
+// GlobalKey is the exclusive lock class: a holder conflicts with every
+// other serialized execution of the session, scoped to a file or not. It
+// is what a mutating tool takes when it cannot name a narrower key (all
+// mutating tools without SerialScoped, and shell commands that must not
+// interleave with each other).
+const GlobalKey = "global"
+
+// Serializer is the session's mutation gate. Two tiers: scoped holders
+// share the session (different per-resource keys overlap), while a holder
+// of GlobalKey excludes every other serialized execution — a shell command
+// that rewrites the tree must not race a file edit. The zero value is
+// ready to use.
+type Serializer struct {
+	global sync.RWMutex
+	keys   KeyedMutex
+}
+
+// Lock blocks until the class is free and returns the matching unlock,
+// which must be called exactly once.
+func (s *Serializer) Lock(key string) (unlock func()) {
+	if key == GlobalKey {
+		s.global.Lock()
+		return s.global.Unlock
+	}
+	s.global.RLock()
+	// Scoped keys live in their own namespace so a resource that happens to
+	// be named like the global class can never alias it.
+	unlockKey := s.keys.Lock("scope:" + key)
+	return func() {
+		unlockKey()
+		s.global.RUnlock()
+	}
+}
+
+// lockClass decides which lock one execution takes ("" = none, run
+// immediately). A tool that names a resource serializes on it — two edits
+// to one file queue, edits to two files overlap; otherwise a mutating
+// (non-parallel-safe) tool takes the exclusive class, which also excludes
+// every scoped holder: a shell command that rewrites the tree must not race
+// a file edit.
+func lockClass(t Tool, input json.RawMessage) string {
+	if sc, ok := t.(SerialScoped); ok {
+		if key := sc.SerialKey(input); key != "" {
+			return key
+		}
+	}
+	if !t.ParallelSafe() {
+		return GlobalKey
+	}
+	return ""
+}
+
+// KeyedMutex serializes executions by resource key: callers sharing a key
+// run one at a time, different keys overlap. The zero value is ready to
+// use. Entries are dropped when the last holder releases, so a long
+// session does not accumulate one mutex per path ever touched.
+type KeyedMutex struct {
+	mu sync.Mutex
+	m  map[string]*keyedEntry
+}
+
+type keyedEntry struct {
+	mu      sync.Mutex
+	waiters int
+}
+
+// Lock blocks until key is free and returns the matching unlock, which
+// must be called exactly once. Waiting does not hold the map lock, so
+// one busy key never stalls the others.
+func (k *KeyedMutex) Lock(key string) (unlock func()) {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = make(map[string]*keyedEntry)
+	}
+	e := k.m[key]
+	if e == nil {
+		e = &keyedEntry{}
+		k.m[key] = e
+	}
+	e.waiters++
+	k.mu.Unlock()
+
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		k.mu.Lock()
+		e.waiters--
+		if e.waiters == 0 {
+			delete(k.m, key) // no holder and no waiter: drop the entry
+		}
+		k.mu.Unlock()
+	}
+}
+
 // ApproveFunc decides whether one execution may proceed. It runs on the
 // goroutine that would execute the tool, before any serial lock or timeout
 // is taken. Returning false turns the call into an is_error tool result
@@ -124,9 +231,11 @@ type ApproveFunc func(ctx context.Context, e ExecEvent) bool
 
 // AdapterConfig carries the per-session policy applied when wrapping tools.
 type AdapterConfig struct {
-	// SerialMu is shared by every serial tool of one session so mutating
-	// tools never overlap within the session. Parallel-safe tools never take it.
-	SerialMu *sync.Mutex
+	// Serial is shared by every serial tool of one session so conflicting
+	// mutations never overlap within the session. Parallel-safe tools never
+	// take it, and a tool implementing SerialScoped narrows its lock to the
+	// resource key it names (see lockClass).
+	Serial *Serializer
 	// Timeout bounds a single tool execution. Zero means no bound.
 	Timeout time.Duration
 	// ResultCap truncates text results to this many bytes (0 = no cap).
@@ -229,11 +338,13 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 		}
 	}
 
-	// Serialize mutating tools within the session. The lock is taken before
-	// the timeout so queueing time does not eat the execution budget.
-	if !a.t.ParallelSafe() && a.cfg.SerialMu != nil {
-		a.cfg.SerialMu.Lock()
-		defer a.cfg.SerialMu.Unlock()
+	// Serialize mutating tools within the session: by the resource they name
+	// when they implement SerialScoped (same file serial, different files
+	// overlap), else exclusively. The lock is taken before the timeout so
+	// queueing time does not eat the execution budget.
+	if key := lockClass(a.t, input); key != "" && a.cfg.Serial != nil {
+		unlock := a.cfg.Serial.Lock(key)
+		defer unlock()
 	}
 	if a.cfg.Timeout > 0 {
 		var cancel context.CancelFunc

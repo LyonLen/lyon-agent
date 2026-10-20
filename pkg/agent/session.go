@@ -62,9 +62,10 @@ type Session struct {
 	closeOne  sync.Once
 	extObs    tools.Observer
 
-	// serialMu is held by non-parallel-safe tools during execution so
-	// mutating tools never overlap inside this session.
-	serialMu  sync.Mutex
+	// serial gates mutating tools during execution: per-resource for tools
+	// that name one (write_file/edit_file serialize only on the same file,
+	// #32), exclusive for shell and everything else.
+	serial    tools.Serializer
 	betaTools []anthropic.BetaTool // adapted once: deterministic across runner recreations
 	seq       atomic.Uint64        // shared ExecID counter across all tools
 	disSeq    atomic.Uint64        // run_subagents fan-out run ids (#53 SubID attribution)
@@ -248,7 +249,7 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 	// next turn boundary — tool handlers reach it via their ctx.
 	s.streamCtx = tools.WithMemoryChange(s.streamCtx, s.onMemoryChange)
 	adaptCfg := tools.AdapterConfig{
-		SerialMu:  &s.serialMu,
+		Serial:    &s.serial,
 		Timeout:   e.cfg.ToolTimeout,
 		ResultCap: e.cfg.ToolResultCap,
 		Observer:  s,

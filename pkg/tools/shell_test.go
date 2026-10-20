@@ -130,9 +130,9 @@ func TestAdaptSerializesUnsafeTools(t *testing.T) {
 	serial := &funcTool{name: "serial_probe", parallel: false, fn: probe}
 	parallel := &funcTool{name: "parallel_probe", parallel: true, fn: probe}
 
-	var serialMu sync.Mutex
-	a := Adapt(serial, AdapterConfig{SerialMu: &serialMu})
-	b := Adapt(parallel, AdapterConfig{SerialMu: &serialMu})
+	var ser Serializer
+	a := Adapt(serial, AdapterConfig{Serial: &ser})
+	b := Adapt(parallel, AdapterConfig{Serial: &ser})
 
 	// Serial pair: must never overlap → ~160ms.
 	var wg sync.WaitGroup

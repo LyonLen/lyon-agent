@@ -80,10 +80,10 @@
 //   - pkg/eval/exam.go SaveExam — os.WriteFile straight onto the shared
 //     exam file. Fix: os.CreateTemp + rename, like hooks.writeStatsFile.
 //   - pkg/flow/builtin.go Save — same. Fix: same.
-//   - pkg/tools/files.go WriteFile/EditFile — workspace file writes,
-//     serialized only per-session via SerialMu; a subagent or second
-//     session editing the same path can tear. Errors are now logged by
-//     the tools adapter seam; fix if needed: write tmp + rename.
+//   - pkg/tools/files.go WriteFile/EditFile — workspace file writes. Each
+//     write is tmp+rename (no tear), and the adapter now serializes them
+//     per confined path (#32); a subagent or second session editing the
+//     same path can still lose an update, which is why edits stay scoped.
 //
 // Fixed tmp name (in-process safe under a mutex, but cross-process the
 // last writer wins and the shared ".tmp" can be renamed while another

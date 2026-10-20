@@ -223,6 +223,22 @@ func (f *WriteFile) Description() string {
 
 func (f *WriteFile) ParallelSafe() bool { return false }
 
+// SerialKey implements SerialScoped: two writes to one file queue, writes to
+// different files overlap. An unresolvable path returns "" so the adapter
+// falls back to the exclusive class — Execute will reject it anyway, just
+// without letting it race anything.
+func (f *WriteFile) SerialKey(input json.RawMessage) string {
+	var in writeFileInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	abs, err := Confine(f.Root, in.Path)
+	if err != nil {
+		return ""
+	}
+	return "file:" + abs
+}
+
 // NeedsApproval implements Approvable: writing mutates the workspace.
 func (f *WriteFile) NeedsApproval() bool { return true }
 
@@ -292,6 +308,21 @@ func (f *EditFile) Description() string {
 }
 
 func (f *EditFile) ParallelSafe() bool { return false }
+
+// SerialKey implements SerialScoped: edit_file is a read-modify-write, so
+// two edits to one file must queue or the second would count a stale body.
+// Different files overlap.
+func (f *EditFile) SerialKey(input json.RawMessage) string {
+	var in editFileInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return ""
+	}
+	abs, err := Confine(f.Root, in.Path)
+	if err != nil {
+		return ""
+	}
+	return "file:" + abs
+}
 
 // NeedsApproval implements Approvable: editing mutates the workspace.
 func (f *EditFile) NeedsApproval() bool { return true }
