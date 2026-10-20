@@ -36,6 +36,9 @@ export default defineConfig({
       "/lyon.v1": lyondProxy("http://127.0.0.1:8080"),
       "/v1": lyondProxy("http://127.0.0.1:8080"),
       "/healthz": lyondProxy("http://127.0.0.1:8080"),
+      // Terminal WebSocket (terminal.go): ws:true so the upgrade proxies;
+      // the bearer token rides ?token= (browser WS cannot set headers).
+      "/terminal": { ...lyondProxy("http://127.0.0.1:8080"), ws: true },
     },
   },
 });

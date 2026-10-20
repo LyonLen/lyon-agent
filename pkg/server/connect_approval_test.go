@@ -46,6 +46,11 @@ func newApprovalFixture(t *testing.T, script []mockapi.Turn) (lyonv1connect.Sess
 	s.SetObserver(tools.NewMetrics())
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
+	// Close the store's sessions BEFORE the TempDir cleanup runs (LIFO): a
+	// session's Close waits out its pending run-dump writes, and without
+	// that the async dump writer races RemoveAll of the scratch home —
+	// stable "directory is not empty" failures on a slow disk.
+	t.Cleanup(s.store.CloseAll)
 	return lyonv1connect.NewSessionServiceClient(http.DefaultClient, ts.URL),
 		lyonv1connect.NewApprovalServiceClient(http.DefaultClient, ts.URL)
 }

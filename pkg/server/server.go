@@ -24,15 +24,23 @@ type Server struct {
 	mux   *http.ServeMux
 	obs   tools.Observer  // shared across sessions; feeds /metrics
 	appr  *ApprovalBridge // nil = no -approve; RPCs stay Unimplemented
+	term  *termHub        // web terminal PTY sessions (terminal.go)
 	start time.Time
 	token string // bearer token; empty = no auth (loopback-only deployments)
 }
 
 // New builds the server and its routes.
 func New(eng *agent.Engine, store *Store) *Server {
-	s := &Server{eng: eng, store: store, mux: http.NewServeMux(), start: time.Now()}
+	s := &Server{
+		eng: eng, store: store, mux: http.NewServeMux(),
+		term:  newTermHub(eng.Config().Workspace),
+		start: time.Now(),
+	}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
+	// Terminal: WebSocket upgrade (terminal.go) — same bearer wrapper as
+	// everything else, via the ?token= branch in authorized.
+	s.mux.HandleFunc("GET /terminal", s.handleTerminal)
 	s.mux.HandleFunc("POST /v1/sessions", s.handleCreate)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/messages", s.handleMessage)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDelete)
@@ -100,13 +108,19 @@ func (s *Server) Handler() http.Handler {
 }
 
 // authorized reports whether r carries the expected token, comparing in
-// constant time so the header cannot be probed byte by byte.
+// constant time so the header cannot be probed byte by byte. The query
+// fallback exists for the terminal WebSocket: browsers cannot set headers
+// on a WS handshake, so that one route rides ?token= (SCC does the same).
+// A token in a URL can land in logs — acceptable here because the listener
+// is loopback and the alternative (no auth) is worse.
 func authorized(r *http.Request, want string) bool {
 	got := ""
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		got = strings.TrimPrefix(h, "Bearer ")
 	} else if h := r.Header.Get("X-Lyon-Token"); h != "" {
 		got = h
+	} else if t := r.URL.Query().Get("token"); t != "" {
+		got = t
 	}
 	if got == "" {
 		return false

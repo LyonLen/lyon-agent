@@ -58,6 +58,25 @@ func ShellName() string {
 	return strings.TrimSuffix(strings.ToLower(filepath.Base(sh)), ".exe")
 }
 
+// InteractiveCommand resolves the SAME shell detectShell probed, but for a
+// TTY session (the web terminal pane): no -c / /c command-mode prefix —
+// the PTY IS the interface. The -i/-NoProfile flags mirror how a human
+// starts the shell; anything unknown spawns bare (cmd, fish, …).
+func InteractiveCommand() (string, []string, error) {
+	sh, _, err := detectShell()
+	if err != nil {
+		return "", nil, err
+	}
+	switch base := strings.TrimSuffix(strings.ToLower(filepath.Base(sh)), ".exe"); base {
+	case "bash", "sh", "zsh", "dash":
+		return sh, []string{"-i"}, nil
+	case "pwsh", "powershell":
+		return sh, []string{"-NoProfile"}, nil
+	default:
+		return sh, nil, nil
+	}
+}
+
 func (s *Shell) ParallelSafe() bool { return false }
 
 // NeedsApproval implements Approvable: shell commands can do anything the
