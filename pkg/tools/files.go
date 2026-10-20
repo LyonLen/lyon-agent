@@ -227,7 +227,7 @@ func (f *WriteFile) ParallelSafe() bool { return false }
 // different files overlap. An unresolvable path returns "" so the adapter
 // falls back to the exclusive class — Execute will reject it anyway, just
 // without letting it race anything.
-func (f *WriteFile) SerialKey(input json.RawMessage) string {
+func (f *WriteFile) SerialKey(_ context.Context, input json.RawMessage) string {
 	var in writeFileInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return ""
@@ -312,7 +312,7 @@ func (f *EditFile) ParallelSafe() bool { return false }
 // SerialKey implements SerialScoped: edit_file is a read-modify-write, so
 // two edits to one file must queue or the second would count a stale body.
 // Different files overlap.
-func (f *EditFile) SerialKey(input json.RawMessage) string {
+func (f *EditFile) SerialKey(_ context.Context, input json.RawMessage) string {
 	var in editFileInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return ""

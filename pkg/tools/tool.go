@@ -120,13 +120,18 @@ type Approvable interface {
 // mutex, the tool names the resource its execution conflicts on. Two calls
 // with the same key serialize; different keys — and "" — run concurrently.
 // write_file/edit_file return the target path, so edits to different files
-// overlap while two writes to one file can never interleave.
+// overlap while two writes to one file can never interleave. run_shell
+// returns GlobalKey only when its command may modify the workspace (#33)
+// and "" for the common read-only command, so shells overlap by default.
+//
+// ctx carries the session judge, when one is wired (SerialJudgeFrom) — the
+// tool uses it to turn a keyword suspicion into a decision.
 //
 // The lock class of one execution is: the key SerialKey yields when it is
-// non-empty; otherwise GlobalKey if the tool is not ParallelSafe; otherwise
-// no lock at all.
+// non-empty; "" (no lock) when the tool implements SerialScoped; otherwise
+// GlobalKey if the tool is not ParallelSafe; otherwise no lock at all.
 type SerialScoped interface {
-	SerialKey(input json.RawMessage) string
+	SerialKey(ctx context.Context, input json.RawMessage) string
 }
 
 // GlobalKey is the exclusive lock class: a holder conflicts with every
@@ -135,6 +140,28 @@ type SerialScoped interface {
 // mutating tools without SerialScoped, and shell commands that must not
 // interleave with each other).
 const GlobalKey = "global"
+
+// SerialJudge resolves a tool's own suspicion that an execution needs the
+// exclusive lock ("serial" = yes, anything else = let it overlap). It is
+// wired by the session (#33) so a keyword hit on a shell command costs one
+// cheap small-model call, and a command that hits nothing costs zero.
+type SerialJudge func(ctx context.Context, tool, subject string) bool
+
+type serialJudgeKey struct{}
+
+// WithSerialJudge installs the session's judge on a tool context.
+func WithSerialJudge(ctx context.Context, fn SerialJudge) context.Context {
+	if fn == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, serialJudgeKey{}, fn)
+}
+
+// SerialJudgeFrom returns the judge installed on ctx, or nil.
+func SerialJudgeFrom(ctx context.Context) SerialJudge {
+	fn, _ := ctx.Value(serialJudgeKey{}).(SerialJudge)
+	return fn
+}
 
 // Serializer is the session's mutation gate. Two tiers: scoped holders
 // share the session (different per-resource keys overlap), while a holder
@@ -164,16 +191,14 @@ func (s *Serializer) Lock(key string) (unlock func()) {
 }
 
 // lockClass decides which lock one execution takes ("" = none, run
-// immediately). A tool that names a resource serializes on it — two edits
-// to one file queue, edits to two files overlap; otherwise a mutating
-// (non-parallel-safe) tool takes the exclusive class, which also excludes
-// every scoped holder: a shell command that rewrites the tree must not race
-// a file edit.
-func lockClass(t Tool, input json.RawMessage) string {
+// immediately). A tool implementing SerialScoped decides for itself: the key
+// it names, or "" to overlap. Everything else falls back to the old rule —
+// parallel-safe runs free, mutating tools take the exclusive class, which
+// also excludes every scoped holder: a shell command that rewrites the tree
+// must not race a file edit.
+func lockClass(ctx context.Context, t Tool, input json.RawMessage) string {
 	if sc, ok := t.(SerialScoped); ok {
-		if key := sc.SerialKey(input); key != "" {
-			return key
-		}
+		return sc.SerialKey(ctx, input)
 	}
 	if !t.ParallelSafe() {
 		return GlobalKey
@@ -342,7 +367,7 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 	// when they implement SerialScoped (same file serial, different files
 	// overlap), else exclusively. The lock is taken before the timeout so
 	// queueing time does not eat the execution budget.
-	if key := lockClass(a.t, input); key != "" && a.cfg.Serial != nil {
+	if key := lockClass(ctx, a.t, input); key != "" && a.cfg.Serial != nil {
 		unlock := a.cfg.Serial.Lock(key)
 		defer unlock()
 	}

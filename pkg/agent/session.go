@@ -64,7 +64,8 @@ type Session struct {
 
 	// serial gates mutating tools during execution: per-resource for tools
 	// that name one (write_file/edit_file serialize only on the same file,
-	// #32), exclusive for shell and everything else.
+	// #32), exclusive for everything else. run_shell decides per command
+	// (#33) — a read-only command takes no lock at all.
 	serial    tools.Serializer
 	betaTools []anthropic.BetaTool // adapted once: deterministic across runner recreations
 	seq       atomic.Uint64        // shared ExecID counter across all tools
@@ -248,6 +249,9 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 	// (tools.WithMemoryChange) so the session can acknowledge them at the
 	// next turn boundary — tool handlers reach it via their ctx.
 	s.streamCtx = tools.WithMemoryChange(s.streamCtx, s.onMemoryChange)
+	// #33: the shell screen escalates a suspicious command to the judge, which
+	// rides the same ctx down to the tool.
+	s.streamCtx = s.withShellJudge(s.streamCtx)
 	adaptCfg := tools.AdapterConfig{
 		Serial:    &s.serial,
 		Timeout:   e.cfg.ToolTimeout,

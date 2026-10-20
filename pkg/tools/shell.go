@@ -21,8 +21,11 @@ import (
 // defense; this keeps the message itself small.
 const shellOutputLimit = 32 * 1024
 
-// Shell runs a command inside the workspace. It is a serial (mutating) tool:
-// commands share the workspace filesystem, so the adapter never overlaps them.
+// Shell runs a command inside the workspace. ParallelSafe stays false on
+// purpose: plan mode and nested subagents use it to keep write-capable tools
+// out of their reach. Concurrency is decided per command by SerialKey
+// (shell_serial.go, #33): a read-only command overlaps, a mutating one takes
+// the exclusive class.
 type Shell struct {
 	// Root is the working directory and confinement boundary for commands.
 	Root string

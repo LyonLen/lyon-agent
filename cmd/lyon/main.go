@@ -859,7 +859,11 @@ func cmdTools(args []string) int {
 	for _, name := range eng.Registry().Names() {
 		t, _ := eng.Registry().Get(name)
 		parallel := "serial"
-		if t.ParallelSafe() {
+		if _, scoped := t.(tools.SerialScoped); scoped {
+			// #32/#33: the tool names what it conflicts on — shell decides per
+			// command, file tools per path — so "serial" alone would mislead.
+			parallel = "scoped"
+		} else if t.ParallelSafe() {
 			parallel = "parallel-safe"
 		}
 		fmt.Printf("%s  [%s]\n    %s\n", paint(cCyan, name), parallel, t.Description())

@@ -73,8 +73,8 @@ var searchSkipExts = map[string]bool{
 
 // SearchFiles scans workspace files for a regular expression. Parallel-safe
 // (read-only): it spawns nothing and never takes the session's serial lock,
-// so a model firing several searches in one turn overlaps them — where the
-// same query through run_shell would queue one bash after another.
+// so a model firing several searches in one turn overlaps them. A read-only
+// shell command now overlaps too (#33), but still pays for a process spawn.
 type SearchFiles struct {
 	Root string
 }
@@ -83,7 +83,7 @@ func (s *SearchFiles) Name() string { return "search_files" }
 
 func (s *SearchFiles) Description() string {
 	return "Search workspace file contents for a regular expression (Go syntax) and return path:line:content matches grouped by file — parallel-safe and in-process, no shell involved. " +
-		"Prefer this over run_shell grep/rg for finding code: several search_files calls in one turn run concurrently, while shell commands queue serially one behind another. " +
+		"Prefer this over run_shell grep/rg for finding code: it is faster and needs no process spawn. " +
 		"glob filters which files are searched (*.go matches at any depth, **/*.md spans directories); context adds N lines around each match (rendered path:line-content). " +
 		"Case-insensitive unless case_sensitive=true; results stop at max_results (default 200) and are byte-capped by the session result cap. " +
 		"Binary files, .git, node_modules and other noise directories are skipped."

@@ -17,7 +17,7 @@ type scopedTool struct {
 	key string
 }
 
-func (t *scopedTool) SerialKey(json.RawMessage) string { return t.key }
+func (t *scopedTool) SerialKey(context.Context, json.RawMessage) string { return t.key }
 
 // overlapProbe counts concurrent executions and remembers the maximum.
 type overlapProbe struct {
@@ -114,14 +114,15 @@ func TestFileToolsSerialKey(t *testing.T) {
 		b, _ := json.Marshal(map[string]string{"path": p, "content": "x", "old_string": "x", "new_string": "y"})
 		return b
 	}
-	if k1, k2 := w.SerialKey(rel("a.txt")), e.SerialKey(rel("a.txt")); k1 != k2 || k1 == "" {
+	bg := context.Background()
+	if k1, k2 := w.SerialKey(bg, rel("a.txt")), e.SerialKey(bg, rel("a.txt")); k1 != k2 || k1 == "" {
 		t.Fatalf("same file keys differ: %q vs %q", k1, k2)
 	}
-	if w.SerialKey(rel("a.txt")) == w.SerialKey(rel("b.txt")) {
+	if w.SerialKey(bg, rel("a.txt")) == w.SerialKey(bg, rel("b.txt")) {
 		t.Fatal("different files share a key")
 	}
 	// An escaping path yields "" so the adapter falls back to exclusive.
-	if k := w.SerialKey(rel("../escape.txt")); k != "" {
+	if k := w.SerialKey(bg, rel("../escape.txt")); k != "" {
 		t.Fatalf("escape key = %q, want empty", k)
 	}
 }
