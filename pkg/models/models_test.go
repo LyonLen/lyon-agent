@@ -150,7 +150,7 @@ func TestFormatting(t *testing.T) {
 	if p := unknown.FormatPrice(); !strings.Contains(p, "未知") {
 		t.Fatalf("zero pricing should read as unknown: %q", p)
 	}
-	if c := unknown.FormatContext(); c != "200000" {
+	if c := unknown.FormatContext(); c != "200,000" {
 		t.Fatalf("FormatContext: %q", c)
 	}
 }

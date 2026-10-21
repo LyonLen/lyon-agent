@@ -12,6 +12,7 @@ import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
 import OutputDrawer from "./OutputDrawer";
 import { KEY_TABLE } from "../keys";
+import { fmtDuration } from "../fmt";
 
 // The markdown parser rides its own chunk — Suspense fallback shows the
 // raw text until it lands (Phase F split).
@@ -336,6 +337,19 @@ export default function ChatView(props: {
   const [err, setErr] = useState("");
   const [apprSel, setApprSel] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
+  // Composer grows with its content: one line at rest, six at most, then
+  // it scrolls. Done here rather than in CSS because it needs the
+  // content's scrollHeight; the stylesheet only sets a floor.
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const line = parseFloat(getComputedStyle(el).lineHeight) || 21;
+    const cap = Math.round(line * 6 + 10); // 6 lines + the 5px pad top/bottom
+    el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
+    el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
+  }, [input]);
   // Phase D: plan corner / status line / slash panel local state.
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [thinkOpen, setThinkOpen] = useState(false);
@@ -1214,6 +1228,8 @@ export default function ChatView(props: {
       )}
       <div className="chat-input">
         <textarea
+          ref={composerRef}
+          rows={1}
           value={input}
           placeholder={busy ? "busy — Enter queues for the next turn gap" : "prompt (Enter to send) · / for commands"}
           onChange={(e) => setInput(e.target.value)}
@@ -1353,13 +1369,8 @@ export default function ChatView(props: {
   );
 }
 
-// fmtTurnMs: seconds with one decimal under 90s (prompts often answer in
-// a few seconds), minutes+seconds above.
-function fmtTurnMs(ms: number): string {
-  if (ms < 90_000) return `${(ms / 1000).toFixed(1)}s`;
-  const s = Math.round(ms / 1000);
-  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
-}
+// Turn durations use the same shape as tool cards — a whole prompt that
+// answered in 3.4s and one that took 12m04s are both readable at a glance.
 
 function BlockView({
   block,
@@ -1384,7 +1395,7 @@ function BlockView({
             <MarkdownView>{block.text}</MarkdownView>
           </Suspense>
           {block.turnMs ? (
-            <div className="turn-ms">{fmtTurnMs(block.turnMs)}</div>
+            <div className="turn-ms">{fmtDuration(block.turnMs)}</div>
           ) : null}
         </div>
       );
@@ -1422,9 +1433,9 @@ function BlockView({
               {/* Replayed history has no timing — show the marker bare
                   instead of a misleading "0ms". */}
               {block.status === "done" &&
-                (block.durationMs ? `✓ ${block.durationMs}ms` : "✓")}
+                (block.durationMs ? `✓ ${fmtDuration(block.durationMs)}` : "✓")}
               {block.status === "failed" &&
-                (block.durationMs ? `✗ ${block.durationMs}ms` : "✗")}
+                (block.durationMs ? `✗ ${fmtDuration(block.durationMs)}` : "✗")}
               {block.status === "server" && "🌐 server"}
             </span>
           </summary>

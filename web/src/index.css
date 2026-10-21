@@ -313,11 +313,33 @@ button:focus-visible,
   color: var(--fg);
 }
 .out-more { font-size: 11px; color: var(--dim); padding: 2px 0; }
-.chat-input { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
-.chat-input textarea {
-  flex: 1; min-height: 56px; resize: vertical; padding: 8px;
-  background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius-1); font: inherit;
+/* composer: a floating rounded card, inset from the pane's edges instead
+   of a full-bleed bar welded to the bottom. No top rule — the card's own
+   border and the gap carry the separation, which reads softer than a
+   1px line running the pane's full width. Focus lights the whole card. */
+.chat-input {
+  display: flex; align-items: flex-end; gap: 8px;
+  margin: 10px 12px 8px; padding: 7px 7px 7px 12px;
+  background: var(--panel); border: 1px solid var(--line-faint);
+  border-radius: 14px; box-shadow: var(--shadow-1);
+  flex-shrink: 0;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
+.chat-input:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: var(--focus-ring), var(--shadow-1);
+}
+.chat-input textarea {
+  flex: 1; min-height: 26px; resize: none; padding: 5px 2px;
+  /* Height is driven by the auto-grow effect in ChatView (1 line idle,
+     up to ~6 lines, then it scrolls). A hardcoded rows=2 made a
+     one-line prompt sit in a padded two-row box. */
+  background: transparent; color: var(--fg); border: 0; outline: none;
+  font: inherit; line-height: 1.5;
+}
+.chat-input textarea::placeholder { color: var(--fg-faint); }
+.chat-input button { flex-shrink: 0; border-radius: 9px; padding: 6px 14px; }
+.chat-input:focus-within button:not(:disabled) { box-shadow: none; }
 
 /* --- motion: blocks rise in once on mount; the stream cursor breathes
        only while the seat is busy (Phase F) -------------------------------- */

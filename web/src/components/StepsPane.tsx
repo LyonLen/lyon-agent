@@ -1,4 +1,5 @@
 import type { StepRow } from "../types";
+import { fmtDuration } from "../fmt";
 
 // One clipped line of the freshest output — the "live output band" of the
 // TUI right column, per step.
@@ -34,7 +35,7 @@ export default function StepsPane({ steps }: { steps: StepRow[] }) {
               {s.status === "running"
                 ? liveTail(s.output)
                 : s.durationMs
-                  ? `${s.durationMs}ms`
+                  ? fmtDuration(s.durationMs)
                   : ""}
             </span>
           </summary>

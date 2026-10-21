@@ -229,6 +229,12 @@ var registry = []Info{
 		Cutoff: "2024-12",
 		Notes:  []string{"思维链输出计入 completion tokens"}},
 
+	{ID: "deepseek-v4.1-flash*", Family: "DeepSeek V4.1 Flash", Provider: "DeepSeek",
+		Context: 1000000,
+		Profile: Profile{Reasoning: 4, LongHaul: 4, Openness: 3, Speed: 5, Thrift: 4},
+		Vision:  true,
+		Notes:   []string{"1M 上下文，支持图像输入"}},
+
 	// ── 其他常见开源/托管 ───────────────────────────────────────────────
 	{ID: "qwen2.5-72b-instruct*", Family: "Qwen2.5 72B", Provider: "Alibaba",
 		Context: 131072, MaxOutput: 8192,
@@ -366,7 +372,15 @@ func (i *Info) FormatContext() string {
 	if i.Context == 0 {
 		return "未知"
 	}
-	return fmt.Sprintf("%d", i.Context)
+	s := fmt.Sprintf("%d", i.Context)
+	var b strings.Builder
+	for n, r := range s {
+		if n > 0 && (len(s)-n)%3 == 0 && r != '-' {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // Known reports whether both unit prices are on file — the only state

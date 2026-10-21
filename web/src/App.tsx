@@ -18,6 +18,7 @@ import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
 import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
 import { collectLeaves, findParentSplit } from "./tiling/types";
 import { useFileTabs } from "./useFileTabs";
+import { fmtCount } from "./fmt";
 
 // Dashboard is a separate route-level view — lazy so the chat pane's
 // first paint doesn't pay for replay/audit rendering (Phase F chunking).
@@ -503,7 +504,7 @@ export default function App() {
               style={{ width: `${ctxTok > 0 ? Math.max(ctxPct, 1.5) : 0}%` }}
             />
           </span>
-          {ctxTok}/{ctxWin}
+          {fmtCount(ctxTok)}/{fmtCount(ctxWin)}
           {ctxCost !== undefined && ctxCost > 0 && (
             <span className="ctx-cost"> · {fmtUSD(ctxCost)}</span>
           )}

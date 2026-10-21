@@ -9,6 +9,7 @@ import type {
   SnapshotRef,
 } from "../gen/lyon/v1/dashboard_pb";
 import { dashboardClient, errText } from "../api";
+import { fmtDuration } from "../fmt";
 
 function fmtTs(t?: Timestamp): string {
   return t ? timestampDate(t).toLocaleString() : "";
@@ -22,10 +23,7 @@ function fmtUptime(s: bigint): string {
 }
 
 function fmtDur(ms: bigint): string {
-  const v = Number(ms);
-  if (v < 1000) return `${v}ms`;
-  if (v < 60000) return `${(v / 1000).toFixed(1)}s`;
-  return `${Math.floor(v / 60000)}m ${Math.round((v % 60000) / 1000)}s`;
+  return fmtDuration(Number(ms));
 }
 
 // DashboardPanel: the read-only panels over $LYON_HOME — overview
