@@ -9,3 +9,8 @@ bin/
 *.out
 .lyon/
 tmp/
+# session rescue dumps (large; the rescued plans/requirements themselves
+# were promoted to docs/planning/)
+.claude/rescue-*/session-*.json.bak
+# local agent-tool settings (per-checkout, not a repo convention)
+.claude/settings.json

@@ -11,7 +11,7 @@ import (
 // SkillBrief is one on-disk skill as advertised in the system prompt:
 // just enough identity (name + one-line description + path) for the model
 // to decide whether to read the full SKILL.md with read_file. No mounting,
-// no executor — visibility only (EVOLUTION-GAPS.md task E2).
+// no executor — visibility only (docs/planning/archive/EVOLUTION-GAPS.md task E2).
 type SkillBrief struct {
 	Name        string
 	Description string

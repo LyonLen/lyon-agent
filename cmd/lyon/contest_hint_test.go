@@ -1,6 +1,6 @@
 package main
 
-// Task C of EVOLUTION-GAPS.md: /contest with an empty candidate field
+// Task C of docs/planning/archive/EVOLUTION-GAPS.md: /contest with an empty candidate field
 // (the single-model default — only the built-in self entrant) must say
 // so with an actionable create-a-candidate hint instead of silently
 // running a one-horse race. The field itself is file-backed
