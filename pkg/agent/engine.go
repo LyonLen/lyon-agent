@@ -133,6 +133,7 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	// LYON_DEBUG=1 logs every API request/response to stderr — request-body
 	// capture for diagnosing gateway quirks (cache, betas, rewrites).
 	clientOpts := []option.RequestOption{option.WithHTTPClient(httpClient)}
+	clientOpts = append(clientOpts, endpointOptions()...)
 	if os.Getenv("LYON_DEBUG") != "" {
 		clientOpts = append(clientOpts, option.WithDebugLog(log.New(os.Stderr, "[api] ", 0)))
 	}

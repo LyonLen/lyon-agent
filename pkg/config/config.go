@@ -39,10 +39,11 @@
 //	mcpServers        table     Claude-.mcp.json-shaped servers (below)
 //
 // Key matching treats '-' and '_' as equivalent (max_iter = max-iter), so
-// flags can be transcribed into the file as-is. Env vars (ANTHROPIC_MODEL,
-// LYON_MAX_ITER, …) sit below the file layers: they still apply when the
-// file leaves a key unset, and lose when the file sets it — same as they
-// always lost to an explicit flag.
+// flags can be transcribed into the file as-is. Env vars (LYON_MODEL,
+// LYON_MAX_ITER, …; the older ANTHROPIC_* names still apply below the LYON_
+// ones) sit below the file layers: they still apply when the file leaves a
+// key unset, and lose when the file sets it — same as they always lost to an
+// explicit flag.
 //
 // # mcpServers
 //

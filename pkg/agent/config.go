@@ -57,14 +57,15 @@ type Config struct {
 	//	           client tool calls, which would otherwise be unknown)
 	//	"off"    — no web tools
 	//
-	// Empty resolves in withDefaults: a non-Anthropic ANTHROPIC_BASE_URL
-	// (proxy gateway) implies "client", otherwise "server".
+	// Empty resolves in withDefaults: a non-Anthropic LYON_BASE_URL /
+	// ANTHROPIC_BASE_URL (proxy gateway) implies "client", otherwise "server".
 	WebToolMode string
 
 	// SubagentModel is the model for run_subagent delegations — the cost
 	// tier below the main loop. Empty resolves in withDefaults:
-	// LYON_SUBAGENT_MODEL, then ANTHROPIC_MODEL (gateways that serve a single
-	// model id must not be handed a second one), then claude-haiku-5-5.
+	// LYON_SUBAGENT_MODEL, then LYON_MODEL / ANTHROPIC_MODEL (gateways that
+	// serve a single model id must not be handed a second one), then
+	// claude-haiku-5-5.
 	SubagentModel string
 	// SubagentEffort pins output effort for subagent turns (default "low":
 	// they are cheap workers, not deliberators).
@@ -108,11 +109,11 @@ const DefaultModel = "claude-opus-5-5"
 // LYON_SUBAGENT_MODEL nor ANTHROPIC_MODEL says otherwise.
 const DefaultSubagentModel = "claude-haiku-5-5"
 
-// defaultModel resolves the model with this precedence: ANTHROPIC_MODEL
-// environment variable (set by proxy gateways that serve their own model
-// ids), then DefaultModel.
+// defaultModel resolves the model with this precedence: LYON_MODEL, then
+// ANTHROPIC_MODEL (proxy gateways that serve their own model ids), then
+// DefaultModel.
 func defaultModel() string {
-	if m := os.Getenv("ANTHROPIC_MODEL"); m != "" {
+	if m := envFirst(envModel, "ANTHROPIC_MODEL"); m != "" {
 		return m
 	}
 	return DefaultModel
@@ -168,13 +169,13 @@ func DefaultConfig() Config {
 }
 
 // defaultSubagentModel resolves the subagent tier: explicit
-// LYON_SUBAGENT_MODEL wins; else ANTHROPIC_MODEL (a gateway serving one id
-// would reject a second one); else the stock Haiku tier.
+// LYON_SUBAGENT_MODEL wins; else LYON_MODEL, then ANTHROPIC_MODEL (a gateway
+// serving one id would reject a second one); else the stock Haiku tier.
 func defaultSubagentModel() string {
 	if m := os.Getenv("LYON_SUBAGENT_MODEL"); m != "" {
 		return m
 	}
-	if m := os.Getenv("ANTHROPIC_MODEL"); m != "" {
+	if m := envFirst(envModel, "ANTHROPIC_MODEL"); m != "" {
 		return m
 	}
 	return DefaultSubagentModel
@@ -282,11 +283,11 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// autoWebToolMode sniffs the endpoint: a custom ANTHROPIC_BASE_URL host that
-// is not api.anthropic.com is treated as a gateway (which typically rewrites
+// autoWebToolMode sniffs the endpoint: a custom base URL host that is not
+// api.anthropic.com is treated as a gateway (which typically rewrites
 // server tools into client calls) and gets local web tools instead.
 func autoWebToolMode() string {
-	base := os.Getenv("ANTHROPIC_BASE_URL")
+	base := endpointBaseURL()
 	if base == "" {
 		return "server"
 	}

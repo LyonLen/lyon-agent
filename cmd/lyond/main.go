@@ -36,7 +36,7 @@ func main() {
 		workspace  = flag.String("workspace", ".", "tool confinement root")
 		token      = flag.String("token", "", "bearer token for all routes but /healthz (default: env LYON_TOKEN)")
 		insecure   = flag.Bool("insecure", false, "allow serving on a non-loopback address without a token")
-		model      = flag.String("model", "", "model id (default: engine default / ANTHROPIC_MODEL)")
+		model      = flag.String("model", "", "model id (default: engine default / LYON_MODEL or ANTHROPIC_MODEL)")
 		effort     = flag.String("effort", "", "output effort: low|medium|high|xhigh|max")
 		maxIter    = flag.Int("max-iter", 0, "max API iterations per prompt (default unlimited, env LYON_MAX_ITER)")
 		maxSess    = flag.Int("max-sessions", 1024, "admission cap (429 beyond)")

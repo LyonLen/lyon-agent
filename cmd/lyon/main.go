@@ -144,7 +144,7 @@ func registerFlags(fs *flag.FlagSet) commonFlags {
 	fs.Var(mcpCmds, "mcp", "connect a stdio MCP server: name=command args (repeatable)")
 	fs.Var(mcpURLs, "mcp-http", "connect a streamable HTTP MCP server: name=url (repeatable)")
 	return commonFlags{
-		model:      fs.String("model", "", "model id (default claude-opus-5-5)"),
+		model:      fs.String("model", "", "model id (default LYON_MODEL / ANTHROPIC_MODEL / claude-opus-5-5)"),
 		effort:     fs.String("effort", "", "effort level: low|medium|high|xhigh|max (default medium)"),
 		workspace:  fs.String("workspace", "", "workspace root for shell/file tools (default .)"),
 		system:     fs.String("system", "", "path to a custom system prompt file (kept frozen)"),
@@ -155,7 +155,7 @@ func registerFlags(fs *flag.FlagSet) commonFlags {
 		approve:    fs.Bool("approve", false, "prompt y/n before shell/write/edit tools (chat asks on a TTY by default; -approve=false disables; run asks only with -approve)"),
 		mcpCmds:    mcpCmds,
 		mcpURLs:    mcpURLs,
-		subagent:   fs.String("subagent-model", "", "model for run_subagent (default LYON_SUBAGENT_MODEL/ANTHROPIC_MODEL/claude-haiku-5-5)"),
+		subagent:   fs.String("subagent-model", "", "model for run_subagent (default LYON_SUBAGENT_MODEL/LYON_MODEL/ANTHROPIC_MODEL/claude-haiku-5-5)"),
 		compactTh:  fs.Float64("compact-threshold", 0, "compaction trigger as context fraction, e.g. 0.7 (negative disables; default 0.7)"),
 		ctxWindow:  fs.Int64("context-window", 0, "context window size for the compaction ratio (default 200000)"),
 		maxTurns:   fs.Int("max-turns", 0, "global cap on in-flight API turns (default unlimited)"),
