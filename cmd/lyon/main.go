@@ -450,7 +450,7 @@ func newApprovalHook() tools.ApproveFunc {
 		if err != nil {
 			return false // stdin closed → deny (fail closed)
 		}
-		switch strings.ToLower(strings.TrimSpace(line)) {
+		switch strings.ToLower(strings.TrimSpace(string(stdinBytes([]byte(line))))) {
 		case "y", "yes":
 			return true
 		default:
@@ -485,7 +485,7 @@ func cmdRun(args []string) int {
 			fmt.Fprintln(os.Stderr, "error: read stdin:", rerr)
 			return 2
 		}
-		prompt = string(data)
+		prompt = string(stdinBytes(data))
 	}
 	if strings.TrimSpace(prompt) == "" {
 		fmt.Fprintln(os.Stderr, "error: no prompt given")
@@ -697,7 +697,7 @@ func cmdChat(args []string) int {
 		if !scanner.Scan() {
 			break
 		}
-		line := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(string(stdinBytes(scanner.Bytes())))
 		if line == "" {
 			continue
 		}
