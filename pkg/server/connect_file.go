@@ -38,6 +38,12 @@ const (
 	fileBinaryCap   = 32 << 20  // 32MB binary preview/upload cap — office decks need headroom (SCC caps at 30MB)
 	fileSniffBytes  = 4 << 10   // head window for text/binary classification of unknown extensions
 	fileWriteCap    = 2 << 20   // 2MB text write cap (WriteFile is utf-8 full replacement)
+
+	// UploadFile is the binary path, so it is bounded by fileBinaryCap and
+	// not by fileWriteCap: a pasted screenshot is already ~3.5MB at the
+	// model's own ceiling (tools.maxImageBytes), and a 2MB upload cap
+	// rejected it two layers before the layer that has an opinion. WriteFile
+	// stays at 2MB — it carries a utf-8 full replacement, not pixels.
 )
 
 func (f *fileService) ListDirectory(_ context.Context, req *connect.Request[lyonv1.ListDirectoryRequest]) (*connect.Response[lyonv1.ListDirectoryResponse], error) {
@@ -368,9 +374,9 @@ func (f *fileService) Delete(_ context.Context, req *connect.Request[lyonv1.Dele
 
 func (f *fileService) UploadFile(_ context.Context, req *connect.Request[lyonv1.UploadFileRequest]) (*connect.Response[lyonv1.UploadFileResponse], error) {
 	msg := req.Msg
-	if len(msg.Data) > fileWriteCap {
+	if len(msg.Data) > fileBinaryCap {
 		return nil, connect.NewError(connect.CodeResourceExhausted,
-			fmt.Errorf("upload is %d bytes; the cap is %d", len(msg.Data), fileWriteCap))
+			fmt.Errorf("upload is %d bytes; the cap is %d", len(msg.Data), fileBinaryCap))
 	}
 	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
 	if err != nil {

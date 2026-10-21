@@ -291,7 +291,16 @@ func TestFileServiceWrites(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("overwrite upload: %v", err)
 	}
-	big := make([]byte, fileWriteCap+1)
+	// Upload is bounded by the binary cap, not the 2MB text-write cap: a
+	// pasted screenshot at the model's own 3.5MB ceiling must land.
+	shot := make([]byte, 3_500_000)
+	copy(shot, data)
+	if _, err := client.UploadFile(ctx, connect.NewRequest(&lyonv1.UploadFileRequest{
+		Path: "shot.png", Data: shot,
+	})); err != nil {
+		t.Fatalf("3.5MB upload (pasted screenshot): %v", err)
+	}
+	big := make([]byte, fileBinaryCap+1)
 	if _, err := client.UploadFile(ctx, connect.NewRequest(&lyonv1.UploadFileRequest{
 		Path: "big.bin", Data: big,
 	})); connectCode(err) != connect.CodeResourceExhausted {

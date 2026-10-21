@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
@@ -6,6 +7,7 @@ import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { errText, fileClient, sessionClient } from "../api";
+import { uploadPaste } from "../paste";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
 import type { StepRow } from "../types";
@@ -788,6 +790,63 @@ export default function ChatView(props: {
     noteTimer.current = setTimeout(() => setCmdNote(""), 3000);
   };
 
+  // pasteImages is the web twin of the TUI's alt+v (cmd/lyon/paste.go):
+  // clipboard bitmaps go into <workspace>/.lyon/paste through UploadFile,
+  // and the composer gets the "@rel " token that resolves to them at submit
+  // (tools.PromptBlocks). Same directory, same naming, same syntax as a
+  // picture the model received from the terminal — one attachment contract
+  // for both surfaces, so history replay reads identically.
+  const [pasting, setPasting] = useState(false);
+  const pasteImages = async (files: File[]) => {
+    if (files.length === 0 || pasting) return;
+    setPasting(true);
+    note("uploading image…");
+    const added: string[] = [];
+    const failed: string[] = [];
+    for (const f of files) {
+      try {
+        added.push(`@${await uploadPaste(f)} `);
+      } catch (e) {
+        failed.push(errText(e));
+      }
+    }
+    if (added.length > 0) {
+      const ins = added.join("");
+      // Insert at the caret when the composer has it, else append — the
+      // token is a normal part of the prompt, so it must not eat what the
+      // user already typed.
+      const el = composerRef.current;
+      const at = el && el.selectionStart != null ? el.selectionStart : input.length;
+      setInput((prev) => prev.slice(0, at) + ins + prev.slice(at));
+      requestAnimationFrame(() => {
+        const node = composerRef.current;
+        if (!node) return;
+        node.focus();
+        const pos = at + ins.length;
+        node.setSelectionRange(pos, pos);
+      });
+      note(`attached ${added.length} image${added.length === 1 ? "" : "s"}`);
+    }
+    if (failed.length > 0) setErr(failed.join("; "));
+    setPasting(false);
+  };
+
+  // Clipboard images own the paste when any are present; a text-only
+  // clipboard falls through to the browser's normal paste. A copied HTML
+  // fragment carries no image item, a screenshot carries nothing else, so
+  // the two never fight over one keystroke.
+  const onPaste = (e: ReactClipboardEvent) => {
+    const files: File[] = [];
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind !== "file") continue;
+      const f = item.getAsFile();
+      if (f && (f.type.startsWith("image/") || f.type === "")) files.push(f);
+    }
+    if (files.length === 0) return;
+    e.preventDefault(); // don't also paste the filename as text
+    void pasteImages(files);
+  };
+
   // execCommand runs one slash token: the local rows ChatView owns, the
   // cross-component ones routed up to App (/new /mode /steps /memory …).
   const execCommand = async (raw: string) => {
@@ -1233,6 +1292,7 @@ export default function ChatView(props: {
           value={input}
           placeholder={busy ? "busy — Enter queues for the next turn gap" : "prompt (Enter to send) · / for commands"}
           onChange={(e) => setInput(e.target.value)}
+          onPaste={onPaste}
           onKeyDown={(e) => {
             // Pick popups own the keyboard outright (TUI updatePick):
             // ↑↓ walk, Enter pick, Esc cancel, everything else swallowed —
