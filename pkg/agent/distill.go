@@ -194,7 +194,7 @@ func (s *Session) DistillWithReport(ctx context.Context) (DistillReport, error) 
 	}
 
 	params := anthropic.BetaMessageNewParams{
-		Model:     s.eng.cfg.SubagentModel,
+		Model:     s.eng.subagentModel(),
 		MaxTokens: distillMaxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: distillSystemPrompt}},
 		Messages: []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(

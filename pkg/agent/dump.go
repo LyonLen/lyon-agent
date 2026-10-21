@@ -210,7 +210,7 @@ type runDump struct {
 func (s *Session) beginRunDump(prompt, runModel string, started time.Time) {
 	model := runModel
 	if model == "" {
-		model = s.eng.cfg.Model
+		model = s.eng.model()
 	}
 	s.dumpRec.Store(&runDump{started: started, prompt: prompt, model: model})
 }

@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -14,6 +17,7 @@ import (
 
 	"lyon-agent/pkg/hooks"
 	"lyon-agent/pkg/logx"
+	"lyon-agent/pkg/models"
 	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/tools"
 )
@@ -21,16 +25,91 @@ import (
 // Engine is the shared, long-lived engine: one Anthropic client (reusing a
 // tuned connection pool for the whole process), one frozen config, one tool
 // registry. Sessions created from an Engine are independent and cheap.
+//
+// One piece of the config is NOT frozen: the model tiers. The web settings
+// panel can switch which brain answers (and which one nested runs use)
+// without restarting lyond, so the model id and the compaction window that
+// follows it live behind an atomic pointer — every other knob (workspace,
+// timeouts, prompts, approval) stays immutable, which is what lets sessions
+// read them without locks.
 type Engine struct {
 	client anthropic.Client
 	cfg    Config
 	reg    *tools.Registry
+	// tier is the swappable model half of cfg: main model, subagent
+	// model, and the context window used as the compaction denominator.
+	tier atomic.Pointer[modelTier]
 	// hooks is the observability/control hub: audit log, statistics and
 	// the security gate, shared by every session of this engine.
 	hooks *hooks.Manager
 	// turnSem, when non-nil, bounds in-flight runner iterations across all
 	// sessions of this engine.
 	turnSem chan struct{}
+}
+
+// modelTier is the mutable slice of the engine configuration.
+type modelTier struct {
+	model         string
+	subagent      string
+	contextWindow int64 // compaction denominator; 0 falls back to cfg
+}
+
+// tierNow reads the live tiers, falling back to the launch config for a
+// hand-built Engine that never went through NewEngine (tests).
+func (e *Engine) tierNow() modelTier {
+	if t := e.tier.Load(); t != nil {
+		return *t
+	}
+	return modelTier{model: e.cfg.Model, subagent: e.cfg.SubagentModel, contextWindow: e.cfg.ContextWindow}
+}
+
+// Models returns the live tiers: the model that answers, and the one
+// nested runs (run_subagent / run_subagents / distill / ask) delegate to.
+func (e *Engine) Models() (main, subagent string) {
+	t := e.tierNow()
+	return t.model, t.subagent
+}
+
+// model reads the live main model on the hot path.
+func (e *Engine) model() string { return e.tierNow().model }
+
+// subagentModel reads the live subagent tier on the hot path.
+func (e *Engine) subagentModel() string { return e.tierNow().subagent }
+
+// liveContextWindow is the compaction denominator for the live model.
+func (e *Engine) liveContextWindow() int64 {
+	t := e.tierNow()
+	if t.contextWindow > 0 {
+		return t.contextWindow
+	}
+	return e.cfg.ContextWindow
+}
+
+// SetModels switches the engine's model tiers at runtime. The main model
+// must be non-empty; an empty subagent model means "single-model" — nested
+// runs then use the main model (what a gateway serving one id needs). The
+// context window follows the main model's knowledge-base entry when there
+// is one, so compaction thresholds and the ctx gauge use the new model's
+// real size instead of the launch-time fallback. Switching mid-session
+// costs that session's prompt-cache prefix — the caller asked for it.
+func (e *Engine) SetModels(main, subagent string) error {
+	main = strings.TrimSpace(main)
+	if main == "" {
+		return errors.New("model id is required")
+	}
+	subagent = strings.TrimSpace(subagent)
+	if subagent == "" {
+		subagent = main
+	}
+	if len(main) > 200 || len(subagent) > 200 {
+		return errors.New("model id is too long")
+	}
+	window := e.cfg.ContextWindow
+	if info := models.Lookup(main); info != nil && info.Context > 0 {
+		window = info.Context
+	}
+	e.tier.Store(&modelTier{model: main, subagent: subagent, contextWindow: window})
+	return nil
 }
 
 // acquireTurn takes a turn slot, blocking until one frees or ctx ends.
@@ -139,14 +218,39 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	}
 	client := anthropic.NewClient(clientOpts...)
 	e := &Engine{client: client, cfg: cfg, reg: reg, hooks: hm}
+	// Seed the tier with the knowledge-base window, not the launch fallback:
+	// the gauge already reports windowForModel(), and compaction must divide
+	// by the same number from the first turn (a 1M model launched with the
+	// default 200k flag would otherwise compact five times too early).
+	window := cfg.ContextWindow
+	if info := models.Lookup(cfg.Model); info != nil && info.Context > 0 {
+		window = info.Context
+	}
+	e.tier.Store(&modelTier{
+		model:         cfg.Model,
+		subagent:      cfg.SubagentModel,
+		contextWindow: window,
+	})
 	if cfg.MaxConcurrentTurns > 0 {
 		e.turnSem = make(chan struct{}, cfg.MaxConcurrentTurns)
 	}
 	return e
 }
 
-// Config returns the engine's effective (defaults-applied) configuration.
-func (e *Engine) Config() Config { return e.cfg }
+// Config returns the engine's effective (defaults-applied) configuration,
+// with the swappable model tiers overlaid at their current values. Code that
+// mutates behaviour at runtime reads this; sessions read the hot-path
+// accessors below so a model switch never has to take a lock.
+func (e *Engine) Config() Config {
+	c := e.cfg
+	t := e.tierNow()
+	c.Model = t.model
+	c.SubagentModel = t.subagent
+	if t.contextWindow > 0 {
+		c.ContextWindow = t.contextWindow
+	}
+	return c
+}
 
 // Registry returns the engine's tool registry.
 func (e *Engine) Registry() *tools.Registry { return e.reg }
@@ -193,7 +297,7 @@ func (e *Engine) Warmup(ctx context.Context) error {
 		})
 	}
 	params := anthropic.BetaMessageNewParams{
-		Model:     e.cfg.Model,
+		Model:     e.model(),
 		MaxTokens: 1,
 		System: []anthropic.BetaTextBlockParam{{
 			Text:         e.cfg.SystemPrompt,
@@ -206,7 +310,7 @@ func (e *Engine) Warmup(ctx context.Context) error {
 	}
 	_, err := e.client.Beta.Messages.New(ctx, params)
 	if err != nil {
-		logx.Warn("engine", "warmup request failed (engine continues cold)", "model", e.cfg.Model, "err", err)
+		logx.Warn("engine", "warmup request failed (engine continues cold)", "model", params.Model, "err", err)
 		return fmt.Errorf("warmup: %w", err)
 	}
 	return nil

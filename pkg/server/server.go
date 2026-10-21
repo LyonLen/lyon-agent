@@ -72,6 +72,11 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(apprPath, apprHandler)
 	planPath, planHandler := lyonv1connect.NewPlanServiceHandler(&planService{})
 	s.mux.Handle(planPath, planHandler)
+	// Settings: the effective config + model knowledge base, and the
+	// runtime model switch. Reading and writing both go through the engine
+	// itself, so what the panel shows is what the next turn will use.
+	setPath, setHandler := lyonv1connect.NewSettingsServiceHandler(&settingsService{s: s})
+	s.mux.Handle(setPath, setHandler)
 	return s
 }
 

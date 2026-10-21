@@ -109,14 +109,14 @@ func (s *Session) runSubagent(ctx context.Context, input json.RawMessage) ([]ant
 		task += "\n\nContext:\n" + c
 	}
 
-	cfg := s.eng.cfg
-	answer, usage, _, err := s.runNested(ctx, cfg.SubagentModel, task, "", "")
+	model := s.eng.subagentModel()
+	answer, usage, _, err := s.runNested(ctx, model, task, "", "")
 	if err != nil {
 		return nil, err
 	}
 	return tools.TextResult(fmt.Sprintf(
 		"[subagent model=%s in=%d out=%d cache_read=%d]\n%s",
-		cfg.SubagentModel, usage.Input, usage.Output, usage.CacheRead, answer,
+		model, usage.Input, usage.Output, usage.CacheRead, answer,
 	)), nil
 }
 

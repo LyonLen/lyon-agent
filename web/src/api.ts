@@ -12,6 +12,7 @@ import { FileService } from "./gen/lyon/v1/file_pb";
 import { MemoryService } from "./gen/lyon/v1/memory_pb";
 import { DashboardService } from "./gen/lyon/v1/dashboard_pb";
 import { ApprovalService } from "./gen/lyon/v1/approval_pb";
+import { SettingsService } from "./gen/lyon/v1/settings_pb";
 
 // v1 auth is the static lyond bearer token, kept in localStorage and
 // injected by a transport interceptor (plan §4.7 — one interceptor covers
@@ -50,6 +51,9 @@ export const dashboardClient = createClient(DashboardService, transport);
 // ApprovalService answers Unimplemented until lyond starts with -approve;
 // the pending watcher in App.tsx stops its retry loop on exactly that code.
 export const approvalClient = createClient(ApprovalService, transport);
+// SettingsService reads the effective engine config + model knowledge base
+// and switches the live model tier — no restart, next turn picks it up.
+export const settingsClient = createClient(SettingsService, transport);
 
 export function errText(err: unknown): string {
   const ce = ConnectError.from(err);

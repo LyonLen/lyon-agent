@@ -130,7 +130,7 @@ func (s *Session) dispatch(ctx context.Context, input json.RawMessage) ([]anthro
 			if c := strings.TrimSpace(t.Context); c != "" {
 				task += "\n\nContext:\n" + c
 			}
-			model := s.eng.cfg.SubagentModel
+			model := s.eng.subagentModel()
 			if s.eng.cfg.RouteFor != nil {
 				if m := strings.TrimSpace(s.eng.cfg.RouteFor(t.Task)); m != "" {
 					model = m

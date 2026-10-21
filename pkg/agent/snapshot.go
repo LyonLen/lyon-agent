@@ -92,7 +92,7 @@ func (s *Session) Export() Snapshot {
 	return Snapshot{
 		Version:            snapshotVersion,
 		Workspace:          s.eng.cfg.Workspace,
-		Model:              s.eng.cfg.Model,
+		Model:              s.eng.model(),
 		Title:              title,
 		FirstPrompt:        first,
 		SavedAt:            time.Now(),

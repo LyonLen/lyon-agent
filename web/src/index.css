@@ -700,12 +700,15 @@ button:focus-visible,
 }
 
 /* resident status strip inside the chat pane (bottom): mode chip + idle
-   hints left, context gauge pinned right — the pane's own footer */
+   hints left, context gauge pinned right — the pane's own footer.
+   It floats with the composer: same 12px horizontal inset, its own 8px
+   bottom gap, no rule and no bar background. Welded to the pane edge it
+   read as chrome; inset it reads as part of the input card's family. */
 .chat-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .chat-footer {
   display: flex; align-items: center; gap: 12px;
-  height: 26px; padding: 0 10px; flex-shrink: 0;
-  border-top: 1px solid var(--line); background: var(--bg-bar);
+  height: 26px; margin: 0 12px 8px; padding: 0 2px; flex-shrink: 0;
+  border-top: 0; background: transparent;
 }
 .chat-hint {
   flex: 1; min-width: 0; color: var(--dim); font-size: 11px;
@@ -714,7 +717,16 @@ button:focus-visible,
 /* model tag (#55): which brain answers here + an eye when it takes images */
 .chat-model {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
-  color: var(--dim); font-size: 11px; white-space: nowrap;
+  padding: 1px 6px; margin: 0;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-1);
+  color: var(--dim); font: inherit; font-size: 11px; white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease);
+}
+.chat-model:hover, .chat-model:focus-visible {
+  color: var(--fg); background: var(--bg-hover); border-color: var(--accent-line);
+  outline: none;
 }
 .chat-model svg { color: var(--accent); }
 /* HP-bar context gauge (#49/#54): the band color lives INSIDE the bar,
@@ -727,13 +739,25 @@ button:focus-visible,
   white-space: nowrap;
 }
 .ctx-bar {
-  width: 88px; height: 7px; box-sizing: border-box; overflow: hidden;
-  border: 1px solid var(--line); border-radius: 4px; background: #0b0f14;
+  /* display:block is load-bearing: as an inline span (the markup default)
+     width/height are ignored and the fill would never paint at any
+     percentage — the track alone showed, which read as "no progress". */
+  display: block;
+  width: 110px; height: 8px; box-sizing: border-box; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 4px;
+  /* Quarter ticks: with a 1M window most of a session sits in the first
+     few percent, so a bare track reads as "no progress" no matter what
+     the digits say. The marks give the eye a scale. */
+  background: #0b0f14 repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 25%);
 }
 .ctx-fill {
+  display: block; /* same reason as .ctx-bar — width/height on an inline span are ignored */
   height: 100%; background: var(--ok);
   transition: width var(--dur-2) var(--ease), background var(--dur-2) var(--ease);
 }
+/* A loaded session always shows a sliver: 3% of a 110px bar is ~3px, which
+   the border swallows. 5px is the smallest fill that still reads. */
+.ctx-fill.on { min-width: 5px; }
 .ctx-gauge.warn .ctx-fill { background: var(--warn); }
 .ctx-gauge.hot .ctx-fill { background: var(--danger-soft); }
 /* cumulative cost stays green in any heat state — dollars, not load
@@ -992,6 +1016,137 @@ button:focus-visible,
 .mem-forget { font-size: 11px; }
 .mem-note { padding: 8px 10px; font-size: 11px; color: var(--dim); }
 .mem-err { padding: 6px 10px; font-size: 12px; }
+
+/* ── Settings pane: the live engine card + knowledge-base picker + the
+   environment inventory. Same rhythm as memory: sticky head, flat rows,
+   monospace for ids/values. ─────────────────────────────────────────── */
+
+.set-panel { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+.mono { font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; }
+/* A settings pane can be dragged down to ~180px, so every row here wraps
+   instead of forcing a horizontal scrollbar on the pane. */
+.set-head {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--bg-bar); z-index: 1;
+}
+.set-stat {
+  flex: 1 1 100%; min-width: 0;
+  font-size: 11px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-stat b { color: var(--fg); font-weight: 600; }
+.set-flash { flex: 1; min-width: 0; font-size: 11px; color: var(--ok);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-check {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--dim); white-space: nowrap; cursor: pointer;
+}
+.set-check input { accent-color: var(--accent); }
+.set-search {
+  width: 180px; padding: 3px 8px; font-size: 11px;
+  background: var(--bg-sunken); color: var(--fg);
+  border: 1px solid var(--line); border-radius: var(--radius-1); outline: none;
+  transition: border-color var(--dur-1);
+}
+.set-search:focus { border-color: var(--accent-line); }
+.set-err { padding: 6px 10px; font-size: 12px; }
+
+/* The one card about THIS process — boxed so it never reads as a list row. */
+.set-card {
+  margin: 8px 10px; padding: 8px 10px;
+  background: var(--bg-card); border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+}
+.set-card-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim); margin-bottom: 6px;
+}
+.set-grid {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 4px 14px; font-size: 11px;
+}
+.set-grid > span:nth-child(odd) { color: var(--dim); white-space: nowrap; }
+.set-val { color: var(--fg); min-width: 0; word-break: break-word; }
+.set-dim { color: var(--dim); }
+.set-note {
+  margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line);
+  font-size: 11px; line-height: 1.55; color: var(--dim);
+}
+
+.set-list-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 10px 3px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.set-picked {
+  display: inline-flex; align-items: center; gap: 6px;
+  text-transform: none; letter-spacing: 0;
+  font-size: 11px; color: var(--fg);
+  padding: 2px 4px 2px 8px; margin-left: auto;
+  background: var(--accent-a10); border: 1px solid var(--accent-line);
+  border-radius: var(--radius-1);
+}
+.set-picked b { font-weight: 600; font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; }
+.set-picked button { font-size: 11px; padding: 2px 7px; }
+
+.set-rows { display: flex; flex-direction: column; }
+.set-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 10px; border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background var(--dur-1);
+}
+.set-row:hover { background: var(--bg-hover); }
+.set-row.live { background: var(--bg-row); box-shadow: inset 2px 0 0 var(--ok); }
+.set-row.picked { background: var(--bg-select); box-shadow: inset 2px 0 0 var(--accent); }
+.set-row-main { flex: 1; min-width: 0; }
+.set-row-id {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-row-sub {
+  font-size: 11px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-row-num {
+  flex-shrink: 0; font-size: 10px; color: var(--dim);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.set-row-prof { flex-shrink: 0; font-size: 10px; color: var(--dim); letter-spacing: -1px; }
+
+.set-badge {
+  flex-shrink: 0;
+  font-size: 9px; line-height: 13px; padding: 0 4px;
+  color: var(--dim); border: 1px solid var(--line); border-radius: 7px;
+}
+.set-badge.live { color: var(--ok); border-color: var(--ok); }
+.set-badge.sub { color: var(--accent); border-color: var(--accent-line); }
+.set-badge.vision { color: var(--warn); border-color: var(--warn-line); }
+
+.set-env {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px;
+  padding: 4px 10px; border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+/* Fixed columns collapse to their content once the pane is narrower than
+   name+value+note; the note then takes the next line at full width. */
+.set-env-name {
+  flex: 0 1 auto; width: 190px; min-width: 0; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-env.on .set-env-name { color: var(--fg); }
+.set-env-val {
+  flex: 0 1 auto; width: 130px; min-width: 0; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-env.on .set-env-val { color: var(--ok); }
+.set-env-note {
+  flex: 1 1 120px; min-width: 0; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ── Office previews (pptx / docx / xlsx — ported from portal global.css,
    --preview-* tokens remapped onto lyon's) ──────────────────────────── */

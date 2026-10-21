@@ -23,7 +23,7 @@ func (s *Session) Ask(ctx context.Context, system, user string, maxTokens int64)
 // Same statelessness as Ask: concurrent per-candidate calls are safe.
 func (s *Session) AskModel(ctx context.Context, model, system, user string, maxTokens int64) (string, error) {
 	if model == "" {
-		model = s.eng.cfg.SubagentModel
+		model = s.eng.subagentModel()
 	}
 	resp, err := s.eng.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 		Model:     model,

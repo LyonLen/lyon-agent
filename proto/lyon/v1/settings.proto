@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// SettingsService: the running engine's effective configuration plus the
+// model knowledge base (pkg/models), so the web panel can answer "which
+// brain is answering, and what can it do" without a restart.
+//
+// lyond is configured at launch — flags plus LYON_*/ANTHROPIC_* environment
+// — and deliberately does NOT read ~/.lyon/config.toml (the CLI does).
+// This panel therefore reports what the process actually uses, not what a
+// file on disk says it should; env values are listed set/unset with
+// credential-shaped ones masked, never echoed.
+service SettingsService {
+  rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+
+  // UpdateSettings switches the engine's model tiers at runtime. Empty
+  // (absent) fields keep their current value. Long-lived sessions pick the
+  // change up on their next turn; already-streamed history is untouched,
+  // and a per-prompt SubmitPrompt.model override still wins for that one
+  // prompt. The knowledge-base window of the new model becomes the ctx
+  // gauge's denominator immediately.
+  rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+}
+
+message GetSettingsRequest {}
+
+message GetSettingsResponse {
+  EngineSettings engine = 1;
+  repeated ModelInfo models = 2;
+  repeated EnvVar env = 3;
+}
+
+message UpdateSettingsRequest {
+  optional string model = 1;           // "" is rejected, not "reset"
+  optional string subagent_model = 2;  // "" disables the cost tier (nested runs use the main model)
+}
+message UpdateSettingsResponse { EngineSettings engine = 1; }
+
+// ModelInfo mirrors pkg/models.Info — the knowledge base is the single
+// source of truth for windows, prices and capabilities on both surfaces.
+message ModelInfo {
+  string id = 1;             // exact id, or a pattern ending in '*'
+  string family = 2;
+  string provider = 3;
+  int64 context = 4;         // 0 = unstated
+  int64 max_output = 5;      // 0 = unstated
+  bool vision = 6;           // accepts image input
+  bool reasoning = 7;        // sampling params fixed
+  ModelPricing pricing = 8;
+  ModelProfile profile = 9;
+  string temperature = 10;   // vendor recommendation, free text
+  string top_p = 11;
+  string cutoff = 12;        // "YYYY-MM" or ""
+  repeated string notes = 13;
+}
+
+message ModelPricing {
+  double input = 1;        // USD per million tokens
+  double output = 2;
+  double cache_read = 3;   // 0 + cache_write 0 = Anthropic's 0.1x/1.25x
+  double cache_write = 4;
+  bool known = 5;          // both unit prices on file → cost can be computed
+}
+
+// Five curated 0–5 dimensions (pkg/models Profile). Blanks read as a flat
+// 3 by the server, so a client never has to special-case zero.
+message ModelProfile {
+  int32 reasoning = 1;
+  int32 long_haul = 2;
+  int32 openness = 3;
+  int32 speed = 4;
+  int32 thrift = 5;
+}
+
+// EngineSettings is the effective, defaults-applied configuration — the
+// same values the compaction gate, the subagent tier and the ctx gauge use.
+message EngineSettings {
+  string model = 1;
+  string subagent_model = 2;
+  string effort = 3;
+  string subagent_effort = 4;
+  int64 max_tokens = 5;
+  int64 subagent_max_tokens = 6;
+  int32 max_iterations = 7;      // 0 = unlimited
+  double compact_threshold = 8;  // fraction of context_window; negative = disabled
+  int64 context_window = 9;      // effective gauge denominator for `model`
+  string workspace = 10;
+  string web_tool_mode = 11;     // server | client | off
+  string openai_base = 12;       // non-empty = OpenAI-protocol translation
+  int32 max_concurrent_turns = 13;
+  repeated string shell_allow = 14;
+  bool approval_bridge = 15;     // -approve: tools park until a web client decides
+  // Gauge note: the model knowledge base wins over context_window whenever
+  // it has the id on file (windowForModel), which is what the footer shows.
+  string gauge_model_source = 16; // "knowledge-base" | "config"
+}
+
+// EnvVar is one relevant environment variable as this process sees it.
+// Credential-shaped names are masked server-side; the panel never echoes a
+// secret even to an authenticated client.
+message EnvVar {
+  string name = 1;
+  bool set = 2;
+  string value = 3;
+  bool masked = 4;
+  string note = 5;
+}

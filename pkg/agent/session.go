@@ -523,7 +523,7 @@ func (s *Session) loop() {
 func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMessageNewParams {
 	cfg := s.eng.cfg
 	return anthropic.BetaMessageNewParams{
-		Model:     cfg.Model,
+		Model:     s.eng.model(),
 		MaxTokens: cfg.MaxTokens,
 		Messages:  msgs,
 		System: []anthropic.BetaTextBlockParam{{
@@ -866,7 +866,7 @@ func (s *Session) maybeCompact(u Usage) bool {
 	if th < 0 {
 		return false
 	}
-	window := float64(s.eng.cfg.ContextWindow)
+	window := float64(s.eng.liveContextWindow())
 	if window <= 0 {
 		return false
 	}

@@ -146,7 +146,7 @@ func (s *Session) compactNow(pctx context.Context, prompt string, trigger Usage,
 	turnStart := time.Now()
 
 	params := anthropic.BetaMessageNewParams{
-		Model:     s.eng.cfg.Model,
+		Model:     s.eng.model(),
 		MaxTokens: compactMaxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: compactSystemPrompt}},
 		Messages: []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(

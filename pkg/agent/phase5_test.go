@@ -35,7 +35,9 @@ func drainEvents(sess *Session) []Event {
 }
 
 func TestMaybeCompactThresholdPredicate(t *testing.T) {
-	sess := newTestSessionForRunner(t, Config{CompactThreshold: 0.5, ContextWindow: 1000})
+	// An off-registry id keeps ContextWindow authoritative — a model the
+	// knowledge base knows uses the KB window instead (SetModels rule).
+	sess := newTestSessionForRunner(t, Config{Model: "test-unknown-model-9000", CompactThreshold: 0.5, ContextWindow: 1000})
 
 	// 40% of window: below threshold.
 	if sess.maybeCompact(Usage{Input: 400}) {
