@@ -139,7 +139,7 @@ func (s *Server) Handler() http.Handler {
 // authorized reports whether r carries the expected token, comparing in
 // constant time so the header cannot be probed byte by byte. The query
 // fallback exists for the terminal WebSocket: browsers cannot set headers
-// on a WS handshake, so that one route rides ?token= (SCC does the same).
+// on a WS handshake, so that one route rides ?token= (a sibling product does the same).
 // A token in a URL can land in logs — acceptable here because the listener
 // is loopback and the alternative (no auth) is worse.
 func authorized(r *http.Request, want string) bool {

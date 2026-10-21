@@ -32,7 +32,7 @@ function loadSnips(): string[] {
 // and replays the tail on reconnect, so a refresh, a pane close, or a
 // hop to another session never costs the shell; only 30min idle
 // reaping, deleting the chat session, or lyond exiting ends it. Mirrors
-// SCC's Terminal.tsx: fit on tile resize, exponential reconnect backoff
+// a sibling product's Terminal.tsx: fit on tile resize, exponential reconnect backoff
 // 1s→30s, app-level ping (no WS ping API in browsers).
 export default function TerminalPane({
   sessionId,
@@ -121,7 +121,7 @@ export default function TerminalPane({
             return;
           }
           if (note.type === "exited") {
-            // A dead shell respawns on reattach (SCC/tmux semantics) —
+            // A dead shell respawns on reattach (tmux semantics) —
             // closing this socket makes the reconnect build a fresh one.
             term.write(
               "\r\n\x1b[2m[shell exited — starting a new one]\x1b[0m\r\n",
@@ -153,7 +153,7 @@ export default function TerminalPane({
           );
           return;
         }
-        // Exponential backoff 1s→30s (SCC): a lyond restart heals itself.
+        // Exponential backoff 1s→30s (sibling-product cadence): a lyond restart heals itself.
         attempt += 1;
         const delay = Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5));
         term.write(

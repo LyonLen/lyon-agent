@@ -1,5 +1,5 @@
 // PptxPreview — pure pptx render into a host element (ported from the
-// portal's PptxPreview; lyon has no sandboxed share page, so the split is
+// sibling product's pptx renderer; lyon has no sandboxed share page, so the split is
 // simpler: this component owns the host ref + initPptxPreview lifecycle,
 // PptxDeck owns scale/zoom/page geometry around it).
 //

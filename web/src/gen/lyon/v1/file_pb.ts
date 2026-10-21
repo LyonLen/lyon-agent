@@ -571,7 +571,7 @@ export const FileKindSchema: GenEnum<FileKind> = /*@__PURE__*/
  * Read RPCs serve the preview. Write RPCs (v2) are user-initiated panel
  * operations, not agent tool calls: they never enter the agent approval
  * gate (no ExecEvent exists for them) — destructive intent is confirmed by
- * the client before the call (portal precedent), and the server still
+ * the client before the call (sibling-product precedent), and the server still
  * fail-closes on containment, existing-target conflicts, and size caps.
  *
  * @generated from service lyon.v1.FileService

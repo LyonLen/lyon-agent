@@ -1,7 +1,7 @@
 import { Component, type ReactNode } from "react";
 
-// ErrorBoundary is the top of the degradation chain (portal
-// ErrorBoundary.tsx): a render-phase crash lands here instead of a white
+// ErrorBoundary is the top of the degradation chain (a sibling product's
+// ErrorBoundary): a render-phase crash lands here instead of a white
 // page, and retry remounts the subtree — data fetches below re-run on
 // their own. State stays local; no logging surface exists yet.
 export default class ErrorBoundary extends Component<

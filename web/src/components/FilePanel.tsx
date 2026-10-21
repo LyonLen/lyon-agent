@@ -5,8 +5,8 @@ import { errText, fileClient } from "../api";
 import { joinPath } from "../filePreview";
 import SkeletonRows from "./Skeleton";
 
-// Dotfile visibility, remembered per browser (SCC FileExplorer's
-// scc_file_explorer_hide_dotfiles): default hidden like `ls` without -a.
+// Dotfile visibility, remembered per browser (sibling-product convention):
+// default hidden, like `ls` without -a.
 const HIDE_DOTFILES_KEY = "lyon_files_hide_dot_v1";
 
 // FilePanel is the workspace browser shell (plan Phase B): navigate,
@@ -15,10 +15,10 @@ const HIDE_DOTFILES_KEY = "lyon_files_hide_dot_v1";
 // which App turns into a preview tab in the most fitting preview pane.
 
 // One destructive ask. actions replace the sheet's buttons — delete gets
-// a single danger confirm, an upload collision gets the portal trio
-// (skip / overwrite / cancel), each entry fires its own run (portal
-// resolveConflicts, FileExplorer.tsx:939 — decisions are made before the
-// RPCs, not per-file mid-flight).
+// a single danger confirm, an upload collision gets the usual trio
+// (skip / overwrite / cancel), each entry fires its own run (sibling-product
+// resolveConflicts: decisions are made before the RPCs, not per-file
+// mid-flight).
 type Confirm = {
   title: string;
   detail: string;
@@ -48,7 +48,7 @@ export default function FilePanel({
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [moving, setMoving] = useState<null | { name: string; from: string }>(null);
   const [dragOver, setDragOver] = useState(false);
-  // Context menu (SCC FileExplorer parity): right-click a row or the list
+  // Context menu (sibling FileExplorer parity): right-click a row or the list
   // background. `entry` null = background (new file/folder only); `copied`
   // briefly flips a menu label to confirm a clipboard write.
   const [menu, setMenu] = useState<{
@@ -169,7 +169,7 @@ export default function FilePanel({
 
   // Live workspace: the agent edits files while the panel watches — poll
   // the open directory every 5s and only re-render on a real diff
-  // (portal FileEventsContext rule: root + open dir, diff name/size/mtime).
+  // (file-events rule: root + open dir, diff name/size/mtime).
   useEffect(() => {
     const iv = setInterval(() => {
       void (async () => {
@@ -275,7 +275,7 @@ export default function FilePanel({
     setMoving(null);
   };
 
-  // Uploads check the target dir first (portal performTransfer): one
+  // Uploads check the target dir first (the sibling product's transfer): one
   // collision sheet decides skip/overwrite/cancel for the whole drop
   // instead of erroring per file. Skip keeps the colliding names out.
   const uploadFiles = async (files: FileList | null) => {
@@ -416,7 +416,7 @@ export default function FilePanel({
         onDragOver={(e) => e.preventDefault()}
         onDragLeave={() => {
           // one leave per child boundary too — close only when the whole
-          // subtree has been exited (portal dragCounterRef, minus capture).
+          // subtree has been exited (drag-counter rule, minus capture).
           dragDepth.current = Math.max(0, dragDepth.current - 1);
           if (dragDepth.current === 0) setDragOver(false);
         }}
@@ -638,7 +638,7 @@ export default function FilePanel({
 }
 
 // ConfirmSheet: in-panel modal — backdrop click / Esc cancels, every
-// decision is an explicit button (danger first, portal okButtonProps).
+// decision is an explicit button (danger first, the sibling product's ok-button).
 function ConfirmSheet({ confirm, onCancel }: { confirm: Confirm; onCancel: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();

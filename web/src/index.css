@@ -44,7 +44,7 @@
   --scrim: #000000aa;
   --shadow-soft: #00000088;
   --shadow-strong: #000000cc;
-  /* ---- motion ladder (SCC cadence, lyon hue — colors above unchanged) ---- */
+  /* ---- motion ladder (sibling-product cadence, lyon hue — colors above unchanged) ---- */
   --ease: cubic-bezier(0.16, 1, 0.3, 1); /* entrances & pane moves */
   --dur-1: 100ms; /* hover/press feedback, seps, tints */
   --dur-2: 180ms; /* popups, drawers, maximize/dock geometry */
@@ -76,11 +76,11 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); }
 
-/* Soft 4px rails everywhere (SCC global.css:31-40) — without this every
+/* Soft 4px rails everywhere (a sibling product's global.css:31-40) — without this every
    pane wears Windows' native 16px gray block, which reads as 生硬: no
    transparency, no hover ramp, no hue. Thumb = accent at 18% (32% on
    hover), 2px radius; the CodeMirror scroller keeps its own wider
-   hover-reveal further below (SCC editor exception likewise). */
+   hover-reveal further below (that product's editor exception likewise). */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(77, 163, 255, 0.18); border-radius: 2px; }
@@ -174,7 +174,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
   transition: background var(--dur-1);
 }
 .picker-item:hover { background: var(--bg-hover); }
-/* two-row item (SCC icon list): title over a dim one-line description */
+/* two-row item (sibling-product icon list): title over a dim one-line description */
 .picker-labels { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .picker-desc { font-size: 11px; line-height: 1.3; color: var(--dim); }
 /* pane contents that previously lived in a fixed column fill the card */
@@ -404,7 +404,7 @@ button:focus-visible,
   .run-badge::before { animation: none; }
 }
 
-/* file-list context menu (SCC FileExplorer parity) */
+/* file-list context menu (sibling FileExplorer parity) */
 .ctx-menu {
   position: fixed; z-index: 90; min-width: 170px; padding: 4px;
   background: #141a21; border: 1px solid var(--line);
@@ -1179,7 +1179,7 @@ button:focus-visible,
 }
 .set-more:hover { color: var(--fg); border-color: var(--line-soft); }
 
-/* ── Office previews (pptx / docx / xlsx — ported from portal global.css,
+/* ── Office previews (pptx / docx / xlsx — ported from a sibling product's global.css,
    --preview-* tokens remapped onto lyon's) ──────────────────────────── */
 
 /* Shared full-bleed mounts inside .pv-office (the viewers' roots are
@@ -1438,7 +1438,7 @@ button:focus-visible,
   white-space: nowrap;
 }
 
-/* ── CodeEditor (CodeMirror 6 — ported from portal global.css cm-host /
+/* ── CodeEditor (CodeMirror 6 — ported from a sibling product's global.css cm-host /
    diff block; token map: preview-stage-deep→--bg-sunken, brand accent
    rgba→rgba(77,163,255,x), oneDark carries syntax colors) ─────────────── */
 .ce { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -1510,9 +1510,9 @@ button.ce-save { font-size: 11px; padding: 1px 8px; }
   border-top: 5px solid #ef4444;
 }
 
-/* markdown rendered layer + 「本页目录」rail (SCC CodeEditor parity) — the
+/* markdown rendered layer + 「本页目录」rail (sibling-product parity) — the
    absolute .ce-md overlay covers the never-unmounted CM host; the rail
-   shows only at ≥3 headings (a two-item rail is noise, portal threshold) */
+   shows only at ≥3 headings (a two-item rail is noise, sibling-product threshold) */
 .ce-md { position: absolute; inset: 0; display: flex; }
 .ce-rendered {
   position: relative; flex: 1; min-width: 0; overflow: auto;
@@ -1549,7 +1549,7 @@ button.ce-save { font-size: 11px; padding: 1px 8px; }
   color: var(--accent);
 }
 
-/* diff popup (structure mirrored from the portal's inline styles) */
+/* diff popup (structure mirrored from the sibling product's inline styles) */
 .diff-popup {
   position: absolute; max-height: 280px; display: flex; flex-direction: column;
   background: var(--bg-card);

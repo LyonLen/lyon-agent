@@ -1,7 +1,7 @@
 // Workspace layout state: the tile tree, focus, and maximize, plus the
 // operations App drives from UI and slash commands. Persistence rides
 // localStorage under lyon_layout_v1 — sanitized on read, debounced on
-// write (the SCC OpenclawPage pattern). The key is namespaced per session
+// write (the sibling page pattern). The key is namespaced per session
 // (lyon_layout_v1:<sid>) so switching sessions restores each session's own
 // pane arrangement; a session with no stored layout inherits whatever is
 // on screen as its starting point.

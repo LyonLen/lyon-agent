@@ -406,8 +406,8 @@ export default function App() {
     }
   };
 
-  // openPreviewFile routes a file click to a preview pane (SCC
-  // OpenclawPage order): the most recently active preview leaf → the
+  // openPreviewFile routes a file click to a preview pane (the sibling product
+  // the sibling page order): the most recently active preview leaf → the
   // first one → split a new pane beside files/chat. splitLeafAt hands
   // back the fresh nodeId so the tab record can be seeded before paint.
   const openPreviewFile = (path: string, kind?: FileKind) => {
@@ -541,7 +541,7 @@ export default function App() {
 
   // Pane registry for the tiling workspace: each kind renders its content
   // standalone; layout, focus, and persistence live in useWorkspaceLayout.
-  // Icons mirror SCC's pane picker (title + one-line description each).
+  // Icons mirror a sibling product's pane picker (title + one-line description each).
   const panes: PaneDef[] = [
     {
       kind: "sessions",
@@ -704,7 +704,7 @@ export default function App() {
     },
   ];
 
-  // The dock menu closes on outside click and Escape (portal menu rules).
+  // The dock menu closes on outside click and Escape (usual menu rules).
   useEffect(() => {
     if (!modeMenu) return;
     const onDown = (e: MouseEvent) => {

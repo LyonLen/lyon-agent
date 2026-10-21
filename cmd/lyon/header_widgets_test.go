@@ -183,7 +183,7 @@ func TestWidgetWeatherCell(t *testing.T) {
 	}
 
 	dashPutCell("weather", &weatherData{Temp: 28, Code: 3, Wind: 18, Hi: 29, Lo: 25}, time.Now(), false)
-	dashPutCell("geo", &geoData{City: "Hong Kong", IP: "203.198.239.124"}, time.Now(), false)
+	dashPutCell("geo", &geoData{City: "Hong Kong", IP: "203.0.113.9"}, time.Now(), false)
 	lines := stripColor(strings.Join(m.widgetWeatherCell().lines, "\n"))
 	for _, want := range []string{"28°C", tr("overcast", "阴"), "18km/h", "29/25°", "Hong Kong"} {
 		if !strings.Contains(lines, want) {

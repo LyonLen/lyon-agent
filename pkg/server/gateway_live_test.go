@@ -8,7 +8,8 @@ import (
 
 // Opt-in live probe: hits the endpoint the process is configured against
 // and prints the list the panel would show. Run with
-//   LYON_LIVE_GATEWAY=1 go test ./pkg/server -run TestLiveGatewayModels -v
+//
+//	LYON_LIVE_GATEWAY=1 go test ./pkg/server -run TestLiveGatewayModels -v
 func TestLiveGatewayModels(t *testing.T) {
 	if os.Getenv("LYON_LIVE_GATEWAY") == "" {
 		t.Skip("set LYON_LIVE_GATEWAY=1 to hit the configured endpoint")

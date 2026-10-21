@@ -1,4 +1,4 @@
-// Per-leaf file-tab stacks for preview panes (the SCC OpenclawPage
+// Per-leaf file-tab stacks for preview panes (the sibling page
 // Record<leafId, {files, active}> pattern). Keyed by tile nodeId so a
 // dragged/swapped pane keeps its tabs; entries for leaves that left the
 // tree are pruned when the layout changes, and the record persists under

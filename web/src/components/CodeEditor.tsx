@@ -1,5 +1,5 @@
 // CodeEditor — CodeMirror 6 editing surface for text/code/markdown
-// previews (ported from the portal's CodeEditor, stripped to what lyon
+// previews (ported from the sibling product's CodeEditor, stripped to what lyon
 // needs: no tabs cache — PreviewPane remounts per path via key —, no AI
 // ghost text, no share/quote toolbar; save goes through FileService
 // WriteFile).
@@ -83,7 +83,7 @@ import MarkdownView from "./Markdown";
 const REHYPE_PLUGINS = [rehypeSlug];
 
 // Per-file rendered/source preference, remembered across reloads
-// (portal mdModeByPath pattern). Default: rendered.
+// (mdModeByPath pattern). Default: rendered.
 const MD_MODE_KEY = "lyon_md_mode_v1";
 
 function loadMdMode(path: string): "raw" | "rendered" {
@@ -338,7 +338,7 @@ export default function CodeEditor({
   const [docText, setDocText] = useState(() => draftCache.get(path)?.doc ?? content);
   const [popup, setPopup] = useState<{ hunk: DiffHunk; top: number; left: number } | null>(null);
 
-  // ── Markdown「本页目录」rail (SCC CodeEditor parity) ──────────────────────
+  // ── Markdown「本页目录」rail (sibling-product parity) ──────────────────────
   // Headings are collected from the RENDERED DOM (rehype-slug owns the ids;
   // reading the elements keeps scroll targets and TOC rows in exact
   // correspondence — no source regex to drift from the renderer).
@@ -624,8 +624,8 @@ export default function CodeEditor({
                 </MarkdownView>
               </Suspense>
             </div>
-            {/* 本页目录: SCC's right rail — hidden under 3 headings (a
-                two-item rail is noise, matching the portal threshold) */}
+            {/* 本页目录: a sibling product's right rail — hidden under 3 headings (a
+                two-item rail is noise, matching that threshold) */}
             {toc.length >= 3 && (
               <div className="md-toc-rail">
                 <div className="md-toc-title">本页目录</div>

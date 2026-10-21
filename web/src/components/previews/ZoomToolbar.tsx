@@ -1,5 +1,5 @@
 // ZoomToolbar — floating bottom-center zoom control (ported from the
-// portal's ZoomToolbar, self-drawn buttons instead of antd). 1 = each
+// sibling product's zoom bar, self-drawn buttons instead of antd). 1 = each
 // preview type's native behavior; click the % to reset to 1. The bar
 // fades out after the pointer sits still (so it never blocks a slide or
 // a full-bleed image) and returns on the next move or hover.

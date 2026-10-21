@@ -1,5 +1,5 @@
 // Normalized geometry for the tile tree: every rect is a fraction of the
-// workspace [0,1], rendered as percentages. Ported from stereo-claw-cloud's
+// workspace [0,1], rendered as percentages. Ported from a sibling product's
 // TilingWorkspace.computeGeometry.
 
 import type { TileNode } from "./types";

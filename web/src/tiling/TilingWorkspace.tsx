@@ -1,7 +1,7 @@
 // TilingWorkspace — renders the tile tree from useWorkspaceLayout as flat
 // absolute-positioned panes keyed by nodeId (splits never remount existing
 // panes), with resize handles, title-bar drag-to-dock/swap, maximize, and
-// a pane picker for splits. Ported from stereo-claw-cloud's
+// a pane picker for splits. Ported from a sibling product's
 // TilingWorkspace (zero-dependency, no antd — lyon draws its own icons).
 
 import {
@@ -56,7 +56,7 @@ const CloseIcon = () => (
 export interface PaneDef {
   kind: PaneKind;
   title: string;
-  /** Second line in the pane picker (SCC-style icon list). */
+  /** Second line in the pane picker (the sibling product-style icon list). */
   desc?: string;
   icon?: ReactNode;
   /**

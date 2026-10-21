@@ -1,4 +1,4 @@
-// SkeletonRows: one shimmer block per would-be row (portal precedent —
+// SkeletonRows: one shimmer block per would-be row (sibling-product precedent —
 // loading reads as structure, not as an empty panel). Shared by the file
 // list and the preview pane.
 export default function SkeletonRows({ n }: { n: number }) {

@@ -1,10 +1,10 @@
 // DocxPreview — .docx → HTML via mammoth, rendered inline (ported from
-// the portal's DocxPreview; lyon only mounts trusted workspace files, so
+// the sibling product's DocxPreview; lyon only mounts trusted workspace files, so
 // the sandboxed-iframe mode of the share page is dropped). The caller
 // fetches the bytes; this component owns conversion + the reading card.
 //
 // The white card + scoped DOCX_CONTENT_CSS come straight from the
-// portal: mammoth's bare HTML ships no borders/spacing, and the card
+// the sibling product: mammoth's bare HTML ships no borders/spacing, and the card
 // gives it a paper to read on.
 
 import { useEffect, useState, type CSSProperties } from "react";

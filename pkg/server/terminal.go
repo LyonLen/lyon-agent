@@ -18,7 +18,7 @@ import (
 )
 
 // Terminal bridge: GET /terminal?session=<id> upgrades to a WebSocket and
-// pins to a per-session PTY. Protocol mirrors stereo-claw-cloud's terminal
+// pins to a per-session PTY. Protocol mirrors a sibling product's terminal
 // channel (minus the k8s/tmux layers — lyon is one local process):
 //
 //	binary  client→server: stdin bytes        server→client: PTY output
@@ -400,7 +400,7 @@ func mustJSON(v any) []byte {
 
 // handleTerminal is the HTTP upgrade entry. Auth rides Handler()'s bearer
 // wrapper, which accepts ?token= as well (browsers cannot set headers on
-// a WebSocket handshake — the same constraint SCC works around the same
+// a WebSocket handshake — the same constraint a sibling product works around the same
 // way).
 func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	sid := r.URL.Query().Get("session")

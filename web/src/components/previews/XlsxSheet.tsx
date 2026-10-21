@@ -1,4 +1,4 @@
-// XlsxSheet — interactive spreadsheet renderer (ported from the portal's
+// XlsxSheet — interactive spreadsheet renderer (ported from the sibling product's
 // XlsxSheet; antd Tabs/Button replaced with self-drawn controls): sheet
 // tabs + column sort + cell drag-select + CSV export + sticky headers /
 // row numbers. Workbook parsing (XLSX.read, including the CSV text

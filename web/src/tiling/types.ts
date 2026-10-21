@@ -1,4 +1,4 @@
-// Tile tree model for the workspace (ported from stereo-claw-cloud's
+// Tile tree model for the workspace (ported from a sibling product's
 // TilingWorkspace, generalized: a leaf names a pane *kind* — instances are
 // the leaves themselves, so the same kind may appear twice). Pure functions
 // only; React state lives in useWorkspaceLayout.

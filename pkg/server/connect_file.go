@@ -35,7 +35,7 @@ var _ lyonv1connect.FileServiceHandler = (*fileService)(nil)
 const (
 	fileListCap     = 512       // directory entries before truncated=true
 	fileTextPreview = 512 << 10 // 512KB text preview cap (mirrors the session adapter's ResultCap)
-	fileBinaryCap   = 32 << 20  // 32MB binary preview/upload cap — office decks need headroom (SCC caps at 30MB)
+	fileBinaryCap   = 32 << 20  // 32MB binary preview/upload cap — office decks need headroom (a sibling product caps at 30MB)
 	fileSniffBytes  = 4 << 10   // head window for text/binary classification of unknown extensions
 	fileWriteCap    = 2 << 20   // 2MB text write cap (WriteFile is utf-8 full replacement)
 

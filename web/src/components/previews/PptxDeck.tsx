@@ -1,4 +1,4 @@
-// PptxDeck — the pptx presentation shell (ported from the portal's
+// PptxDeck — the pptx presentation shell (ported from the sibling product's
 // PptxDeck; antd controls replaced with self-drawn ones): continuous
 // (list) / paged (slide) dual mode + a collapsible left thumbnail bar +
 // zoom + wheel/keyboard page flipping.
@@ -27,7 +27,7 @@ const PAD_BOTTOM_TOLERANCE = 33;
 // than (viewport - padding) does the scroll-then-flip logic engage.
 const AVAIL_H_SLACK = 52;
 
-// Double-chevron SVGs (SCC used antd's DoubleLeft/DoubleRightOutlined).
+// Double-chevron SVGs (a sibling product used antd's DoubleLeft/DoubleRightOutlined).
 const ChevLIcon = () => (
   <svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M8.5 3L5 7l3.5 4M11.5 3L8 7l3.5 4" />
@@ -65,7 +65,7 @@ export default function PptxDeck({ content, filename, onLoadingChange }: {
     localStorage.getItem("lyon_pptx_view_mode") === "slide" ? "slide" : "list",
   );
   const [barOpen, setBarOpen] = useState(() => {
-    // Narrow viewports always start collapsed (portal decision): the
+    // Narrow viewports always start collapsed (sibling-product decision): the
     // 148px bar eats ~40% of a 390px phone. Desktop keeps the stored
     // preference; no preference means open.
     if (typeof window.matchMedia === "function" &&

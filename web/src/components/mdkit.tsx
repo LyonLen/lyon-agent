@@ -73,7 +73,7 @@ export function resolveRel(dir: string, href: string): string {
 
 // MdImage: relative srcs go through ReadBinaryFile → object URL so md
 // previews can show workspace images; failures degrade to alt text
-// (portal MdImage behavior), never a broken-image glyph.
+// (the sibling product's image behavior), never a broken-image glyph.
 function MdImage({
   src,
   alt,

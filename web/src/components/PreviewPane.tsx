@@ -20,7 +20,7 @@ const PptxDeck = lazy(() => import("./previews/PptxDeck"));
 const DocxPreview = lazy(() => import("./previews/DocxPreview"));
 const XlsxSheet = lazy(() => import("./previews/XlsxSheet"));
 
-// XlsxView — the fetch-shell half the portal spreads across its viewers:
+// XlsxView — the fetch-shell half of a sibling product's viewer split:
 // XLSX.read here (dynamic import keeps SheetJS lazy), grid rendering in
 // XlsxSheet. XLSX.read sniffs the CSV text variant on its own, so .csv
 // rides the same path as .xlsx.
@@ -46,7 +46,7 @@ function XlsxView({ data, filename }: { data: ArrayBuffer; filename: string }) {
 }
 
 // ZoomImage: Ctrl+wheel zooms about the cursor (the content point under
-// the pointer stays put — portal ImageView's anchor rule, algebraic
+// the pointer stays put — the sibling product's image anchor rule, algebraic
 // version for the transform path), drag pans, double-click resets. The
 // wheel listener must be native + non-passive — React attaches wheel
 // passively, so preventDefault there is ignored and the page behind
