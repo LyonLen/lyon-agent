@@ -43,6 +43,9 @@ export default function App() {
   // ChatView's reducer; reloadKey forces the transcript stream to
   // re-anchor after a rollback rewrote the ring.
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  // Leaf id to shake once after a plan-chip click that only focused an
+  // already-open pane (see openPlan). Cleared on a timer.
+  const [shakeLeaf, setShakeLeaf] = useState("");
   const [steps, setSteps] = useState<StepRow[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
   // Bottom-left mode dock: click expands the three-mode picker; the chip
@@ -59,6 +62,22 @@ export default function App() {
   // session restores that session's own pane tree and open tabs (each
   // inherits the on-screen state the first time it is selected).
   const ws = useWorkspaceLayout(selectedId);
+
+  // The plan chip in the chat footer doubles as the plan pane's remote
+  // control: open the pane when it is absent, else focus it and shake the
+  // tile so the eye lands on it. openPane already focuses an existing pane,
+  // but the shake needs the leaf id and a pause the hook does not model.
+  const openPlan = () => {
+    if (!ws.hasPane("plan")) {
+      ws.openPane("plan");
+      return;
+    }
+    const id = ws.leafOf("plan");
+    if (!id) return;
+    ws.setFocus(id);
+    setShakeLeaf(id);
+    window.setTimeout(() => setShakeLeaf((cur) => (cur === id ? "" : cur)), 600);
+  };
   const fileTabs = useFileTabs(ws.root, selectedId);
   // External directory navigation for the files pane (markdown links,
   // slash routing): seq bumps so re-requesting the same path reloads.
@@ -568,6 +587,7 @@ export default function App() {
               pending={seatPending}
               onDecide={decide}
               onTodos={setTodos}
+              onOpenPlan={openPlan}
               onSteps={setSteps}
               onCommand={runCommand}
               onPromptEnd={scheduleTitleRefresh}
@@ -797,6 +817,7 @@ export default function App() {
         <TilingWorkspace
           ws={ws}
           panes={panes}
+          shakeLeaf={shakeLeaf}
         />
       )}
       {/* (the resident mode chip + legend now live inside the chat pane —

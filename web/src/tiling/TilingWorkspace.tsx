@@ -220,9 +220,12 @@ interface PaneDragState {
 export default function TilingWorkspace({
   ws,
   panes,
+  shakeLeaf,
 }: {
   ws: WorkspaceLayout;
   panes: PaneDef[];
+  /** Leaf id to shake briefly (plan-chip focus affordance); "" = none. */
+  shakeLeaf?: string;
 }) {
   const { root, focus, maximized, setFocus, setMaximized } = ws;
   const [picker, setPicker] = useState<{ leafId: string; dir: Dir } | null>(null);
@@ -400,7 +403,11 @@ export default function TilingWorkspace({
           <div
             key={leaf.nodeId}
             data-leaf-id={leaf.nodeId}
-            className={"tile-leaf" + (focus === leaf.nodeId ? " focused" : "")}
+            className={
+              "tile-leaf" +
+              (focus === leaf.nodeId ? " focused" : "") +
+              (shakeLeaf === leaf.nodeId ? " shake" : "")
+            }
             style={{
               position: isMax ? "fixed" : "absolute",
               left: isMax ? 0 : `${leaf.left * 100}%`,

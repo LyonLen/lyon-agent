@@ -109,6 +109,20 @@ function replaceAt(blocks: Block[], i: number, next: Block): Block[] {
   return [...blocks.slice(0, i), next, ...blocks.slice(i + 1)];
 }
 
+// The live thinking block auto-opens so the reader can watch the run (#47),
+// but a long chain-of-thought would bury the feed: once it passes this many
+// lines it folds itself and only the "live · ctrl+o to expand" hint remains.
+// A global ctrl+o fold still opens it for the ordinary reason.
+const LIVE_THINK_MAX_LINES = 10;
+
+// Line count for the live-thinking fold gate — hand-rolled so the per-delta
+// render path doesn't allocate a split array for the whole (growing) text.
+function lineCount(s: string): number {
+  let n = 1;
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
+  return n;
+}
+
 // lastThinking is the newest thinking block's index (-1 when the turn has
 // none): the one block the live view keeps open while the seat streams.
 function lastThinking(blocks: Block[]): number {
@@ -310,6 +324,9 @@ export default function ChatView(props: {
     remember: boolean,
   ) => void;
   onTodos: (t: TodoItem[]) => void;
+  /** Open the plan pane, or focus + shake it when it is already open (the
+   *  footer plan chip's click). */
+  onOpenPlan?: () => void;
   onSteps: (s: StepRow[]) => void;
   onCommand: (cmd: string) => void;
   /** Live prompt_end only (not history replay): the server regenerates
@@ -1095,10 +1112,12 @@ export default function ChatView(props: {
             block={b}
             thinkOpen={thinkOpen}
             // The newest thinking block while the seat streams is the run
-            // the reader came to watch: show its body even under a closed
-            // fold (#47, "展开，让用户看着运行"). It stays open through the
-            // answer that follows and folds when the run ends; everything
-            // older stays folded.
+            // the reader came to watch: BlockView shows its body even under
+            // a closed fold (#47, "展开，让用户看着运行") — but only while
+            // it stays short (LIVE_THINK_MAX_LINES); a long chain-of-thought
+            // folds itself rather than bury the feed. It stays open through
+            // the answer that follows and folds when the run ends;
+            // everything older stays folded.
             live={busy && i === lastThinking(blocks)}
           />
         ))}
@@ -1259,12 +1278,17 @@ export default function ChatView(props: {
             pane, so a finished prompt must not leave 6/6 parked above the
             input box. */}
         {busy && todos.length > 0 && (
-          <span className="sl-plan">
+          <button
+            type="button"
+            className="sl-plan"
+            title="open the plan pane"
+            onClick={() => props.onOpenPlan?.()}
+          >
             {(() => {
               const p = todoProgress(todos);
               return `📋 ${p.done}/${p.total}${p.current ? ` ▸ ${p.current}` : ""}`;
             })()}
-          </span>
+          </button>
         )}
         <span className="sl-fill" />
         {cmdNote ? (
@@ -1274,17 +1298,18 @@ export default function ChatView(props: {
         ) : busy ? (
           <span className="sl-hint">
             <span className="spin" aria-hidden="true" />
-            running · interrupt to stop · Enter queues
+            running ·{" "}
+            <button
+              type="button"
+              className="sl-stop"
+              onClick={() => void interrupt()}
+            >
+              interrupt
+            </button>{" "}
+            to stop · Enter queues
           </span>
         ) : null}
       </div>
-      {busy && (
-        <div className="chat-controls">
-          <button className="ghost danger" onClick={() => void interrupt()}>
-            interrupt
-          </button>
-        </div>
-      )}
       <div className="chat-input">
         <textarea
           ref={composerRef}
@@ -1460,15 +1485,20 @@ function BlockView({
         </div>
       );
     case "thinking": {
-      // live is only the auto-open: under a globally open fold the block is
-      // open for the ordinary reason and its hint stays the chord hint.
-      const auto = !!live && !thinkOpen;
+      // live is the newest block while the seat streams. Auto-open it so the
+      // reader can watch the run (#47) — but only while it stays short: once
+      // it passes LIVE_THINK_MAX_LINES it folds itself so a long
+      // chain-of-thought doesn't bury the feed. A global ctrl+o fold opens
+      // it for the ordinary reason (the hint then reads the chord, not live).
+      const isLive = !!live;
+      const auto =
+        isLive && !thinkOpen && lineCount(block.text) <= LIVE_THINK_MAX_LINES;
       return (
         <ThinkingBlock
-          key={`${String(thinkOpen)}:${String(auto)}`}
+          key={`${String(thinkOpen)}:${String(auto)}:${String(isLive)}`}
           block={block}
           thinkOpen={thinkOpen || auto}
-          live={auto}
+          live={isLive}
         />
       );
     }
@@ -1521,10 +1551,9 @@ function BlockView({
 
 // ThinkingBlock splits out so it can track its own open state: ctrl+o
 // flips thinkOpen (the key remounts and re-seeds), while a manual summary
-// click rides the native toggle event. The hint always reads whichever way
-// the block currently sits — an open block says collapse, not expand.
-// A live-block hint stays "live" even when a manual click opens the body
-// under a closed fold: the auto-open reason is still what put it there.
+// click rides the native toggle event. The hint reads whichever way the
+// block currently sits — an open block says collapse, not expand; a live
+// block says live, and offers the way back in once it has folded itself.
 function ThinkingBlock({
   block,
   thinkOpen,
@@ -1535,6 +1564,13 @@ function ThinkingBlock({
   live: boolean;
 }) {
   const [open, setOpen] = useState(thinkOpen);
+  const hint = live
+    ? open
+      ? "live"
+      : "live · ctrl+o to expand"
+    : open
+      ? "ctrl+o to collapse"
+      : "ctrl+o to expand";
   return (
     <details
       className="blk-thinking"
@@ -1543,9 +1579,7 @@ function ThinkingBlock({
     >
       <summary>
         thinking
-        <span className={"think-key" + (live ? " live" : "")}>
-          {live ? "live" : open ? "ctrl+o to collapse" : "ctrl+o to expand"}
-        </span>
+        <span className={"think-key" + (live ? " live" : "")}>{hint}</span>
       </summary>
       <pre>{block.text}</pre>
     </details>

@@ -113,6 +113,17 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
   overflow: hidden;
 }
 .tile-leaf.focused .tile-card { border-color: var(--accent-line); }
+
+/* Plan-chip focus affordance: a one-shot nudge so the eye finds an
+   already-open plan pane when the footer chip is clicked. */
+@keyframes pane-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+.tile-leaf.shake { animation: pane-shake 0.5s var(--ease); }
 .tile-card.drag-source { opacity: 0.55; transition: opacity var(--dur-1); }
 .pane-header {
   display: flex; align-items: center; gap: 2px;
@@ -291,7 +302,6 @@ button:focus-visible,
 .chat-err-row { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
 .chat-err-row .chat-err { flex: 1; padding-right: 0; }
 .chat-err-row button { font-size: 12px; padding: 1px 8px; flex-shrink: 0; }
-.chat-controls { display: flex; gap: 6px; padding: 4px 12px; }
 
 /* output drawer: multi-line command results above the status line */
 .out-drawer {
@@ -857,11 +867,25 @@ button:focus-visible,
 .mode-badge.plan { color: var(--warn); border-color: var(--warn-line); }
 .mode-badge.bypass { color: var(--danger); border-color: var(--danger-line); }
 .mode-badge.default { color: var(--accent); border-color: var(--accent-line); }
-.sl-plan { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.sl-plan {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%;
+  background: none; border: 0; padding: 0; margin: 0; font: inherit;
+  color: inherit; cursor: pointer; text-align: left;
+}
+.sl-plan:hover { color: var(--fg); }
 .sl-fill { flex: 1; }
 .sl-note { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sl-appr { color: var(--warn); white-space: nowrap; }
 .sl-hint { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* The status hint doubles as the stop control — no separate button row; the
+   inline "interrupt" reads as a link but fires the run's interrupt. */
+.sl-stop {
+  background: none; border: 0; padding: 0; margin: 0; font: inherit;
+  color: var(--danger); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.sl-stop:hover { text-decoration-thickness: 2px; }
+.sl-stop:disabled { opacity: 0.5; cursor: default; }
 
 /* queue list: the parked prompts themselves (TUI queueRows), above the
    draft preview so what was already sent stays distinguishable */
@@ -1581,4 +1605,5 @@ button.ce-save { font-size: 11px; padding: 1px 8px; }
   .pptx-bar, .pptx-flip-btn, .pptx-scroll {
     transition: none !important;
   }
+  .tile-leaf.shake { animation: none !important; }
 }
