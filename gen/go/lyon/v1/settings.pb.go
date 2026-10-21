@@ -58,10 +58,22 @@ func (*GetSettingsRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetSettingsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Engine        *EngineSettings        `protobuf:"bytes,1,opt,name=engine,proto3" json:"engine,omitempty"`
-	Models        []*ModelInfo           `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"`
-	Env           []*EnvVar              `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Engine *EngineSettings        `protobuf:"bytes,1,opt,name=engine,proto3" json:"engine,omitempty"`
+	// models is the list the configured ENDPOINT actually serves, not a
+	// built-in market table: the panel must show what this gateway has, so a
+	// gateway model the knowledge base has never seen still gets a row.
+	Models []*ModelInfo `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"`
+	Env    []*EnvVar    `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty"`
+	// models_source names where models came from: "gateway" when the
+	// endpoint's own /models answered, "error" when that call failed and
+	// models is empty (no preset fallback — a preset table would name models
+	// this endpoint may not serve, which is the mislead this panel avoids).
+	ModelsSource string `protobuf:"bytes,4,opt,name=models_source,json=modelsSource,proto3" json:"models_source,omitempty"`
+	// models_error carries the failure reason (status, auth, DNS) verbatim
+	// when models_source is "error", so an operator can debug the endpoint
+	// without reading lyond's log.
+	ModelsError   string `protobuf:"bytes,5,opt,name=models_error,json=modelsError,proto3" json:"models_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -115,6 +127,20 @@ func (x *GetSettingsResponse) GetEnv() []*EnvVar {
 		return x.Env
 	}
 	return nil
+}
+
+func (x *GetSettingsResponse) GetModelsSource() string {
+	if x != nil {
+		return x.ModelsSource
+	}
+	return ""
+}
+
+func (x *GetSettingsResponse) GetModelsError() string {
+	if x != nil {
+		return x.ModelsError
+	}
+	return ""
 }
 
 type UpdateSettingsRequest struct {
@@ -213,8 +239,10 @@ func (x *UpdateSettingsResponse) GetEngine() *EngineSettings {
 	return nil
 }
 
-// ModelInfo mirrors pkg/models.Info — the knowledge base is the single
-// source of truth for windows, prices and capabilities on both surfaces.
+// ModelInfo is one row of the picker. The id list comes from the endpoint
+// (see models_source); pkg/models supplies windows, prices and capabilities
+// whenever it recognizes an id, and an unknown id renders as a bare row
+// (Provider = the endpoint's owned_by, everything else unstated).
 type ModelInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // exact id, or a pattern ending in '*'
@@ -761,11 +789,13 @@ var File_lyon_v1_settings_proto protoreflect.FileDescriptor
 const file_lyon_v1_settings_proto_rawDesc = "" +
 	"\n" +
 	"\x16lyon/v1/settings.proto\x12\alyon.v1\"\x14\n" +
-	"\x12GetSettingsRequest\"\x95\x01\n" +
+	"\x12GetSettingsRequest\"\xdd\x01\n" +
 	"\x13GetSettingsResponse\x12/\n" +
 	"\x06engine\x18\x01 \x01(\v2\x17.lyon.v1.EngineSettingsR\x06engine\x12*\n" +
 	"\x06models\x18\x02 \x03(\v2\x12.lyon.v1.ModelInfoR\x06models\x12!\n" +
-	"\x03env\x18\x03 \x03(\v2\x0f.lyon.v1.EnvVarR\x03env\"{\n" +
+	"\x03env\x18\x03 \x03(\v2\x0f.lyon.v1.EnvVarR\x03env\x12#\n" +
+	"\rmodels_source\x18\x04 \x01(\tR\fmodelsSource\x12!\n" +
+	"\fmodels_error\x18\x05 \x01(\tR\vmodelsError\"{\n" +
 	"\x15UpdateSettingsRequest\x12\x19\n" +
 	"\x05model\x18\x01 \x01(\tH\x00R\x05model\x88\x01\x01\x12*\n" +
 	"\x0esubagent_model\x18\x02 \x01(\tH\x01R\rsubagentModel\x88\x01\x01B\b\n" +

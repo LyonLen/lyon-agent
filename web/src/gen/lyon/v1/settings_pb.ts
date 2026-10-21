@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/settings.proto.
  */
 export const file_lyon_v1_settings: GenFile = /*@__PURE__*/
-  fileDesc("ChZseW9uL3YxL3NldHRpbmdzLnByb3RvEgdseW9uLnYxIhQKEkdldFNldHRpbmdzUmVxdWVzdCKAAQoTR2V0U2V0dGluZ3NSZXNwb25zZRInCgZlbmdpbmUYASABKAsyFy5seW9uLnYxLkVuZ2luZVNldHRpbmdzEiIKBm1vZGVscxgCIAMoCzISLmx5b24udjEuTW9kZWxJbmZvEhwKA2VudhgDIAMoCzIPLmx5b24udjEuRW52VmFyImUKFVVwZGF0ZVNldHRpbmdzUmVxdWVzdBISCgVtb2RlbBgBIAEoCUgAiAEBEhsKDnN1YmFnZW50X21vZGVsGAIgASgJSAGIAQFCCAoGX21vZGVsQhEKD19zdWJhZ2VudF9tb2RlbCJBChZVcGRhdGVTZXR0aW5nc1Jlc3BvbnNlEicKBmVuZ2luZRgBIAEoCzIXLmx5b24udjEuRW5naW5lU2V0dGluZ3MilAIKCU1vZGVsSW5mbxIKCgJpZBgBIAEoCRIOCgZmYW1pbHkYAiABKAkSEAoIcHJvdmlkZXIYAyABKAkSDwoHY29udGV4dBgEIAEoAxISCgptYXhfb3V0cHV0GAUgASgDEg4KBnZpc2lvbhgGIAEoCBIRCglyZWFzb25pbmcYByABKAgSJgoHcHJpY2luZxgIIAEoCzIVLmx5b24udjEuTW9kZWxQcmljaW5nEiYKB3Byb2ZpbGUYCSABKAsyFS5seW9uLnYxLk1vZGVsUHJvZmlsZRITCgt0ZW1wZXJhdHVyZRgKIAEoCRINCgV0b3BfcBgLIAEoCRIOCgZjdXRvZmYYDCABKAkSDQoFbm90ZXMYDSADKAkiZQoMTW9kZWxQcmljaW5nEg0KBWlucHV0GAEgASgBEg4KBm91dHB1dBgCIAEoARISCgpjYWNoZV9yZWFkGAMgASgBEhMKC2NhY2hlX3dyaXRlGAQgASgBEg0KBWtub3duGAUgASgIImUKDE1vZGVsUHJvZmlsZRIRCglyZWFzb25pbmcYASABKAUSEQoJbG9uZ19oYXVsGAIgASgFEhAKCG9wZW5uZXNzGAMgASgFEg0KBXNwZWVkGAQgASgFEg4KBnRocmlmdBgFIAEoBSKDAwoORW5naW5lU2V0dGluZ3MSDQoFbW9kZWwYASABKAkSFgoOc3ViYWdlbnRfbW9kZWwYAiABKAkSDgoGZWZmb3J0GAMgASgJEhcKD3N1YmFnZW50X2VmZm9ydBgEIAEoCRISCgptYXhfdG9rZW5zGAUgASgDEhsKE3N1YmFnZW50X21heF90b2tlbnMYBiABKAMSFgoObWF4X2l0ZXJhdGlvbnMYByABKAUSGQoRY29tcGFjdF90aHJlc2hvbGQYCCABKAESFgoOY29udGV4dF93aW5kb3cYCSABKAMSEQoJd29ya3NwYWNlGAogASgJEhUKDXdlYl90b29sX21vZGUYCyABKAkSEwoLb3BlbmFpX2Jhc2UYDCABKAkSHAoUbWF4X2NvbmN1cnJlbnRfdHVybnMYDSABKAUSEwoLc2hlbGxfYWxsb3cYDiADKAkSFwoPYXBwcm92YWxfYnJpZGdlGA8gASgIEhoKEmdhdWdlX21vZGVsX3NvdXJjZRgQIAEoCSJQCgZFbnZWYXISDAoEbmFtZRgBIAEoCRILCgNzZXQYAiABKAgSDQoFdmFsdWUYAyABKAkSDgoGbWFza2VkGAQgASgIEgwKBG5vdGUYBSABKAkyrgEKD1NldHRpbmdzU2VydmljZRJICgtHZXRTZXR0aW5ncxIbLmx5b24udjEuR2V0U2V0dGluZ3NSZXF1ZXN0GhwubHlvbi52MS5HZXRTZXR0aW5nc1Jlc3BvbnNlElEKDlVwZGF0ZVNldHRpbmdzEh4ubHlvbi52MS5VcGRhdGVTZXR0aW5nc1JlcXVlc3QaHy5seW9uLnYxLlVwZGF0ZVNldHRpbmdzUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
+  fileDesc("ChZseW9uL3YxL3NldHRpbmdzLnByb3RvEgdseW9uLnYxIhQKEkdldFNldHRpbmdzUmVxdWVzdCKtAQoTR2V0U2V0dGluZ3NSZXNwb25zZRInCgZlbmdpbmUYASABKAsyFy5seW9uLnYxLkVuZ2luZVNldHRpbmdzEiIKBm1vZGVscxgCIAMoCzISLmx5b24udjEuTW9kZWxJbmZvEhwKA2VudhgDIAMoCzIPLmx5b24udjEuRW52VmFyEhUKDW1vZGVsc19zb3VyY2UYBCABKAkSFAoMbW9kZWxzX2Vycm9yGAUgASgJImUKFVVwZGF0ZVNldHRpbmdzUmVxdWVzdBISCgVtb2RlbBgBIAEoCUgAiAEBEhsKDnN1YmFnZW50X21vZGVsGAIgASgJSAGIAQFCCAoGX21vZGVsQhEKD19zdWJhZ2VudF9tb2RlbCJBChZVcGRhdGVTZXR0aW5nc1Jlc3BvbnNlEicKBmVuZ2luZRgBIAEoCzIXLmx5b24udjEuRW5naW5lU2V0dGluZ3MilAIKCU1vZGVsSW5mbxIKCgJpZBgBIAEoCRIOCgZmYW1pbHkYAiABKAkSEAoIcHJvdmlkZXIYAyABKAkSDwoHY29udGV4dBgEIAEoAxISCgptYXhfb3V0cHV0GAUgASgDEg4KBnZpc2lvbhgGIAEoCBIRCglyZWFzb25pbmcYByABKAgSJgoHcHJpY2luZxgIIAEoCzIVLmx5b24udjEuTW9kZWxQcmljaW5nEiYKB3Byb2ZpbGUYCSABKAsyFS5seW9uLnYxLk1vZGVsUHJvZmlsZRITCgt0ZW1wZXJhdHVyZRgKIAEoCRINCgV0b3BfcBgLIAEoCRIOCgZjdXRvZmYYDCABKAkSDQoFbm90ZXMYDSADKAkiZQoMTW9kZWxQcmljaW5nEg0KBWlucHV0GAEgASgBEg4KBm91dHB1dBgCIAEoARISCgpjYWNoZV9yZWFkGAMgASgBEhMKC2NhY2hlX3dyaXRlGAQgASgBEg0KBWtub3duGAUgASgIImUKDE1vZGVsUHJvZmlsZRIRCglyZWFzb25pbmcYASABKAUSEQoJbG9uZ19oYXVsGAIgASgFEhAKCG9wZW5uZXNzGAMgASgFEg0KBXNwZWVkGAQgASgFEg4KBnRocmlmdBgFIAEoBSKDAwoORW5naW5lU2V0dGluZ3MSDQoFbW9kZWwYASABKAkSFgoOc3ViYWdlbnRfbW9kZWwYAiABKAkSDgoGZWZmb3J0GAMgASgJEhcKD3N1YmFnZW50X2VmZm9ydBgEIAEoCRISCgptYXhfdG9rZW5zGAUgASgDEhsKE3N1YmFnZW50X21heF90b2tlbnMYBiABKAMSFgoObWF4X2l0ZXJhdGlvbnMYByABKAUSGQoRY29tcGFjdF90aHJlc2hvbGQYCCABKAESFgoOY29udGV4dF93aW5kb3cYCSABKAMSEQoJd29ya3NwYWNlGAogASgJEhUKDXdlYl90b29sX21vZGUYCyABKAkSEwoLb3BlbmFpX2Jhc2UYDCABKAkSHAoUbWF4X2NvbmN1cnJlbnRfdHVybnMYDSABKAUSEwoLc2hlbGxfYWxsb3cYDiADKAkSFwoPYXBwcm92YWxfYnJpZGdlGA8gASgIEhoKEmdhdWdlX21vZGVsX3NvdXJjZRgQIAEoCSJQCgZFbnZWYXISDAoEbmFtZRgBIAEoCRILCgNzZXQYAiABKAgSDQoFdmFsdWUYAyABKAkSDgoGbWFza2VkGAQgASgIEgwKBG5vdGUYBSABKAkyrgEKD1NldHRpbmdzU2VydmljZRJICgtHZXRTZXR0aW5ncxIbLmx5b24udjEuR2V0U2V0dGluZ3NSZXF1ZXN0GhwubHlvbi52MS5HZXRTZXR0aW5nc1Jlc3BvbnNlElEKDlVwZGF0ZVNldHRpbmdzEh4ubHlvbi52MS5VcGRhdGVTZXR0aW5nc1JlcXVlc3QaHy5seW9uLnYxLlVwZGF0ZVNldHRpbmdzUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
 
 /**
  * @generated from message lyon.v1.GetSettingsRequest
@@ -35,6 +35,10 @@ export type GetSettingsResponse = Message<"lyon.v1.GetSettingsResponse"> & {
   engine?: EngineSettings | undefined;
 
   /**
+   * models is the list the configured ENDPOINT actually serves, not a
+   * built-in market table: the panel must show what this gateway has, so a
+   * gateway model the knowledge base has never seen still gets a row.
+   *
    * @generated from field: repeated lyon.v1.ModelInfo models = 2;
    */
   models: ModelInfo[];
@@ -43,6 +47,25 @@ export type GetSettingsResponse = Message<"lyon.v1.GetSettingsResponse"> & {
    * @generated from field: repeated lyon.v1.EnvVar env = 3;
    */
   env: EnvVar[];
+
+  /**
+   * models_source names where models came from: "gateway" when the
+   * endpoint's own /models answered, "error" when that call failed and
+   * models is empty (no preset fallback — a preset table would name models
+   * this endpoint may not serve, which is the mislead this panel avoids).
+   *
+   * @generated from field: string models_source = 4;
+   */
+  modelsSource: string;
+
+  /**
+   * models_error carries the failure reason (status, auth, DNS) verbatim
+   * when models_source is "error", so an operator can debug the endpoint
+   * without reading lyond's log.
+   *
+   * @generated from field: string models_error = 5;
+   */
+  modelsError: string;
 };
 
 /**
@@ -96,8 +119,10 @@ export const UpdateSettingsResponseSchema: GenMessage<UpdateSettingsResponse> = 
   messageDesc(file_lyon_v1_settings, 3);
 
 /**
- * ModelInfo mirrors pkg/models.Info — the knowledge base is the single
- * source of truth for windows, prices and capabilities on both surfaces.
+ * ModelInfo is one row of the picker. The id list comes from the endpoint
+ * (see models_source); pkg/models supplies windows, prices and capabilities
+ * whenever it recognizes an id, and an unknown id renders as a bare row
+ * (Provider = the endpoint's owned_by, everything else unstated).
  *
  * @generated from message lyon.v1.ModelInfo
  */
@@ -427,8 +452,9 @@ export const EnvVarSchema: GenMessage<EnvVar> = /*@__PURE__*/
 
 /**
  * SettingsService: the running engine's effective configuration plus the
- * model knowledge base (pkg/models), so the web panel can answer "which
- * brain is answering, and what can it do" without a restart.
+ * model list the configured endpoint actually serves (pkg/models enriches
+ * the ids it recognizes), so the web panel can answer "which brain is
+ * answering, and what can it do" without a restart.
  *
  * lyond is configured at launch — flags plus LYON_*\/ANTHROPIC_* environment
  * — and deliberately does NOT read ~/.lyon/config.toml (the CLI does).

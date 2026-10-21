@@ -1,8 +1,10 @@
 // SettingsPane — the running engine's brain, as it actually is.
 //
-// Two jobs, one pane: (1) answer "which model is answering and what can it
-// do" from the knowledge base (pkg/models, the same table the TUI's /model
-// card prints), and (2) switch the main / subagent tier at runtime through
+// Three jobs, one pane: (1) answer "which model is answering and what can
+// it do", (2) list the models the endpoint actually serves — the server
+// fetches the gateway's own /models and enriches the ids pkg/models knows,
+// so a gateway model the table never heard of still gets a row, and (3)
+// switch the main / subagent tier at runtime through
 // SettingsService.UpdateSettings — the engine's atomic tier, so long-lived
 // sessions pick the change up on their next turn and the ctx gauge adopts
 // the new model's window immediately.
@@ -10,7 +12,8 @@
 // lyond is configured at launch (flags + environment) and never reads
 // ~/.lyon/config.toml, so the lower half reports the process's effective
 // config and environment inventory read-only. Credential-shaped variables
-// arrive masked and are rendered as "set" — never echoed.
+// arrive masked and are rendered as "set" — never echoed. Env rows sort
+// configured-first so what this process actually sees reads at a glance.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { errText, settingsClient } from "../api";
@@ -38,6 +41,8 @@ function ctxText(n: bigint): string {
 export default function SettingsPane() {
   const [engine, setEngine] = useState<EngineSettings | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [source, setSource] = useState(""); // "gateway" | "error"
+  const [modelsError, setModelsError] = useState("");
   const [env, setEnv] = useState<EnvVar[]>([]);
   const [err, setErr] = useState("");
   const [flash, setFlash] = useState("");
@@ -46,6 +51,9 @@ export default function SettingsPane() {
   const [visionOnly, setVisionOnly] = useState(false);
   const [picked, setPicked] = useState(""); // row selected as the next main model
   const [saving, setSaving] = useState(false);
+  // Unset variables are inventory, not signal: they stay folded behind a
+  // "show more" until asked for, so the configured few own the panel.
+  const [showAllEnv, setShowAllEnv] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,6 +62,8 @@ export default function SettingsPane() {
       const res = await settingsClient.getSettings({});
       setEngine(res.engine ?? null);
       setModels(res.models);
+      setSource(res.modelsSource);
+      setModelsError(res.modelsError);
       setEnv(res.env);
     } catch (e) {
       setErr(errText(e));
@@ -94,6 +104,17 @@ export default function SettingsPane() {
       );
     });
   }, [models, q, visionOnly]);
+
+  // Env rows read configured-first: what this process actually sees sits at
+  // the top, the unset tail is just inventory. Array.sort is stable, so the
+  // catalog order holds within each group.
+  const envSorted = useMemo(
+    () => [...env].sort((a, b) => Number(b.set) - Number(a.set)),
+    [env],
+  );
+  const envSet = envSorted.filter((e) => e.set).length;
+  const envUnset = envSorted.length - envSet;
+  const envShown = showAllEnv ? envSorted : envSorted.filter((e) => e.set);
 
   const apply = async (model: string, sub?: string) => {
     if (!model.trim()) return;
@@ -208,9 +229,14 @@ export default function SettingsPane() {
         </div>
       </div>
 
-      {/* Picker: the knowledge base, filterable. */}
+      {/* Picker: the endpoint's own models, filterable. */}
       <div className="set-list-head">
-        <span>模型知识库 {rows.length}/{models.length}</span>
+        <span>
+          网关模型 {rows.length}/{models.length}
+          <span className="set-dim">
+            {source === "gateway" ? " · 来自网关 /models" : ""}
+          </span>
+        </span>
         {picked && (
           <span className="set-picked">
             选中 <b>{picked}</b>
@@ -233,6 +259,9 @@ export default function SettingsPane() {
           </span>
         )}
       </div>
+      {modelsError && (
+        <div className="set-err err">网关模型拉取失败：{modelsError}</div>
+      )}
       <div className="set-rows">
         {rows.map((m) => {
           const isLive = m.id.toLowerCase() === live.toLowerCase();
@@ -274,10 +303,12 @@ export default function SettingsPane() {
       {/* Environment inventory: read-only, credentials masked server-side. */}
       <div className="set-list-head">
         <span>环境变量（只读）</span>
-        <span className="set-dim">启动即固定 — 改需重启 lyond</span>
+        <span className="set-dim">
+          {envSet} 已配置 · 共 {envSorted.length} — 启动即固定，改需重启 lyond
+        </span>
       </div>
       <div className="set-rows">
-        {env.map((e) => (
+        {envShown.map((e) => (
           <div key={e.name} className={"set-env" + (e.set ? " on" : "")}>
             <span className="mono set-env-name">{e.name}</span>
             <span className="set-env-val mono">
@@ -293,6 +324,11 @@ export default function SettingsPane() {
           </div>
         ))}
       </div>
+      {envUnset > 0 && (
+        <button className="set-more" onClick={() => setShowAllEnv((v) => !v)}>
+          {showAllEnv ? "收起未设置" : `show more — 未设置 ${envUnset} 项`}
+        </button>
+      )}
     </div>
   );
 }

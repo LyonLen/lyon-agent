@@ -1147,6 +1147,13 @@ button:focus-visible,
   flex: 1 1 120px; min-width: 0; color: var(--dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Reveals the folded tail of unset variables — a quiet, full-width row. */
+.set-more {
+  width: 100%; margin: 2px 0 6px; padding: 5px 8px;
+  background: var(--bg-sunken); border: 1px dashed var(--line);
+  border-radius: 6px; color: var(--dim); font-size: 12px; cursor: pointer;
+}
+.set-more:hover { color: var(--fg); border-color: var(--line-soft); }
 
 /* ── Office previews (pptx / docx / xlsx — ported from portal global.css,
    --preview-* tokens remapped onto lyon's) ──────────────────────────── */

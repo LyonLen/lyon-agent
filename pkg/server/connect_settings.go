@@ -14,9 +14,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -169,20 +173,146 @@ func (s *settingsService) engineProto() *lyonv1.EngineSettings {
 	}
 }
 
-func (s *settingsService) GetSettings(_ context.Context, _ *connect.Request[lyonv1.GetSettingsRequest]) (*connect.Response[lyonv1.GetSettingsResponse], error) {
-	infos := models.All()
-	list := make([]*lyonv1.ModelInfo, 0, len(infos))
-	for i := range infos {
-		list = append(list, modelProto(&infos[i]))
+// envFirst returns the first of keys set to a non-empty value — mirrors
+// pkg/agent's unexported helper so the panel resolves the endpoint and its
+// credential exactly the way the engine's client does.
+func envFirst(keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
 	}
+	return ""
+}
+
+// gatewayClient is package-level so repeated panel loads reuse one pool.
+var gatewayClient = &http.Client{Timeout: 8 * time.Second}
+
+// gatewayModel is one entry from an endpoint's model list, kept to the two
+// fields Anthropic's and OpenAI's shapes agree on.
+type gatewayModel struct {
+	id    string
+	owner string
+}
+
+// modelsEndpoint resolves the URL that lists the endpoint's models. An
+// OpenAI-protocol base already carries its /v1, so models hang directly off
+// it; an Anthropic base is a bare host (gateways like New API) or a
+// /v1-less URL, so /v1/models is appended. No base at all means the
+// Anthropic default host.
+func modelsEndpoint(openaiBase string) string {
+	if b := strings.TrimRight(strings.TrimSpace(openaiBase), "/"); b != "" {
+		return b + "/models"
+	}
+	base := envFirst("LYON_BASE_URL", "ANTHROPIC_BASE_URL")
+	if base == "" {
+		base = "https://api.anthropic.com"
+	}
+	return strings.TrimRight(base, "/") + "/v1/models"
+}
+
+// gatewayKey is the credential the engine would send: an API key wins over
+// an auth token, LYON_* over ANTHROPIC_* (mirrors agent.endpointOptions).
+func gatewayKey() string {
+	if k := envFirst("LYON_API_KEY", "ANTHROPIC_API_KEY"); k != "" {
+		return k
+	}
+	return envFirst("LYON_AUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN")
+}
+
+// fetchGatewayModels asks the endpoint for its model list. Both credential
+// headers ride along so one path serves Anthropic-protocol gateways
+// (x-api-key) and OpenAI-protocol ones (Authorization: Bearer).
+func fetchGatewayModels(ctx context.Context, url, key string) ([]gatewayModel, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	if key != "" {
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := gatewayClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d %s", resp.StatusCode, firstLine(body))
+	}
+	var doc struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	out := make([]gatewayModel, 0, len(doc.Data))
+	for _, m := range doc.Data {
+		if id := strings.TrimSpace(m.ID); id != "" {
+			out = append(out, gatewayModel{id: id, owner: strings.TrimSpace(m.OwnedBy)})
+		}
+	}
+	return out, nil
+}
+
+// firstLine trims an error body to one readable line for the panel.
+func firstLine(b []byte) string {
+	s := strings.TrimSpace(string(b))
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 200 {
+		s = s[:200] + "…"
+	}
+	return s
+}
+
+// buildModels sources the picker from the endpoint's own list, enriching
+// the ids the knowledge base recognizes. An unknown gateway id still gets a
+// row (bare; provider = owned_by). A failed fetch yields no rows plus the
+// reason — never a preset table, which would name models this endpoint may
+// not serve.
+func buildModels(ctx context.Context, openaiBase string) ([]*lyonv1.ModelInfo, string, string) {
+	gw, err := fetchGatewayModels(ctx, modelsEndpoint(openaiBase), gatewayKey())
+	if err != nil {
+		return nil, "error", err.Error()
+	}
+	list := make([]*lyonv1.ModelInfo, 0, len(gw))
+	for _, m := range gw {
+		if info := models.Lookup(m.id); info != nil {
+			list = append(list, modelProto(info))
+			continue
+		}
+		owner := m.owner
+		if owner == "" {
+			owner = "网关"
+		}
+		list = append(list, &lyonv1.ModelInfo{
+			Id:       m.id,
+			Provider: owner,
+			Notes:    []string{"来自网关；知识库无该模型（窗口与价格未注明）"},
+		})
+	}
+	return list, "gateway", ""
+}
+
+func (s *settingsService) GetSettings(ctx context.Context, _ *connect.Request[lyonv1.GetSettingsRequest]) (*connect.Response[lyonv1.GetSettingsResponse], error) {
+	list, source, mErr := buildModels(ctx, s.s.eng.Config().OpenAIBase)
 	env := make([]*lyonv1.EnvVar, 0, len(envCatalog))
 	for _, e := range envCatalog {
 		env = append(env, envProto(e))
 	}
 	return connect.NewResponse(&lyonv1.GetSettingsResponse{
-		Engine: s.engineProto(),
-		Models: list,
-		Env:    env,
+		Engine:       s.engineProto(),
+		Models:       list,
+		Env:          env,
+		ModelsSource: source,
+		ModelsError:  mErr,
 	}), nil
 }
 

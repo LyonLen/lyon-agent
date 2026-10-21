@@ -5,8 +5,9 @@ package lyon.v1;
 option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
 
 // SettingsService: the running engine's effective configuration plus the
-// model knowledge base (pkg/models), so the web panel can answer "which
-// brain is answering, and what can it do" without a restart.
+// model list the configured endpoint actually serves (pkg/models enriches
+// the ids it recognizes), so the web panel can answer "which brain is
+// answering, and what can it do" without a restart.
 //
 // lyond is configured at launch — flags plus LYON_*/ANTHROPIC_* environment
 // — and deliberately does NOT read ~/.lyon/config.toml (the CLI does).
@@ -29,8 +30,20 @@ message GetSettingsRequest {}
 
 message GetSettingsResponse {
   EngineSettings engine = 1;
+  // models is the list the configured ENDPOINT actually serves, not a
+  // built-in market table: the panel must show what this gateway has, so a
+  // gateway model the knowledge base has never seen still gets a row.
   repeated ModelInfo models = 2;
   repeated EnvVar env = 3;
+  // models_source names where models came from: "gateway" when the
+  // endpoint's own /models answered, "error" when that call failed and
+  // models is empty (no preset fallback — a preset table would name models
+  // this endpoint may not serve, which is the mislead this panel avoids).
+  string models_source = 4;
+  // models_error carries the failure reason (status, auth, DNS) verbatim
+  // when models_source is "error", so an operator can debug the endpoint
+  // without reading lyond's log.
+  string models_error = 5;
 }
 
 message UpdateSettingsRequest {
@@ -39,8 +52,10 @@ message UpdateSettingsRequest {
 }
 message UpdateSettingsResponse { EngineSettings engine = 1; }
 
-// ModelInfo mirrors pkg/models.Info — the knowledge base is the single
-// source of truth for windows, prices and capabilities on both surfaces.
+// ModelInfo is one row of the picker. The id list comes from the endpoint
+// (see models_source); pkg/models supplies windows, prices and capabilities
+// whenever it recognizes an id, and an unknown id renders as a bare row
+// (Provider = the endpoint's owned_by, everything else unstated).
 message ModelInfo {
   string id = 1;             // exact id, or a pattern ending in '*'
   string family = 2;
