@@ -69,6 +69,13 @@ func renderHistory(msgs []anthropic.BetaMessageParam) string {
 					if c.OfText != nil && strings.TrimSpace(c.OfText.Text) != "" {
 						parts = append(parts, c.OfText.Text)
 					}
+					// A picture cannot survive summarization, but the fact
+					// that the turn carried one must: the caption text names
+					// the file, and this marker keeps the summary honest
+					// about the model having seen it.
+					if c.OfImage != nil {
+						parts = append(parts, "(image attached)")
+					}
 				}
 				if len(parts) > 0 {
 					emit(role, "← tool result: "+strings.Join(parts, "\n"))

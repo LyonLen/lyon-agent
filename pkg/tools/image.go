@@ -141,17 +141,26 @@ func (v *ViewImage) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 // image block — the image-attachment syntax. Prompts without attachments
 // come back as exactly one text block carrying the prompt verbatim, so the
 // prompt cache and existing tests see no difference.
+//
+// An @token that names an image but fails to load (missing file, wrong
+// format, over the size limit) stays in the plain text where the model can
+// read the reason: the token is kept verbatim and followed by the load
+// error in brackets. Silent degradation is what made "the model never saw
+// my image" unguessable — the model sees the token either way, so it must
+// also see why no picture came with it.
 func PromptBlocks(root, prompt string) []anthropic.BetaContentBlockParamUnion {
 	if !strings.Contains(prompt, "@") {
 		return []anthropic.BetaContentBlockParamUnion{anthropic.NewBetaTextBlock(prompt)}
 	}
 	var (
 		blocks []anthropic.BetaContentBlockParamUnion
-		last   int // start of the plain-text span not yet flushed
+		buf    strings.Builder // text not yet emitted as a block
+		start  int             // index of the first byte not yet in buf
 	)
-	flush := func(end int) {
-		if end > last {
-			blocks = append(blocks, anthropic.NewBetaTextBlock(prompt[last:end]))
+	flush := func() {
+		if buf.Len() > 0 {
+			blocks = append(blocks, anthropic.NewBetaTextBlock(buf.String()))
+			buf.Reset()
 		}
 	}
 	i := 0
@@ -165,7 +174,8 @@ func PromptBlocks(root, prompt string) []anthropic.BetaContentBlockParamUnion {
 		if path, ok := attachmentPath(tok); ok {
 			mt, data, w, h, err := loadImage(root, path)
 			if err == nil {
-				flush(i)
+				buf.WriteString(prompt[start:i])
+				flush()
 				blocks = append(blocks,
 					anthropic.NewBetaTextBlock(imageNote(path, mt, w, h)),
 					anthropic.NewBetaImageBlock(anthropic.BetaBase64ImageSourceParam{
@@ -173,16 +183,33 @@ func PromptBlocks(root, prompt string) []anthropic.BetaContentBlockParamUnion {
 						Data:      base64.StdEncoding.EncodeToString(data),
 					}),
 				)
-				last = next
+				start = next
+			} else {
+				buf.WriteString(prompt[start:next])
+				buf.WriteString(errorNote(prompt[i:next], err))
+				start = next
 			}
 		}
 		i = next
 	}
-	flush(len(prompt))
+	buf.WriteString(prompt[start:])
+	flush()
 	if len(blocks) == 0 {
 		return []anthropic.BetaContentBlockParamUnion{anthropic.NewBetaTextBlock(prompt)}
 	}
 	return blocks
+}
+
+// errorNote renders one failed attachment as "[token: reason]" so the token
+// itself stays visible in the prompt text next to the explanation.
+func errorNote(token string, err error) string {
+	msg := err.Error()
+	// Drop the leading "<path>: " loadImage repeats — the token right here
+	// already names the file, and the reason is the part worth reading.
+	if i := strings.Index(msg, ": "); i >= 0 {
+		msg = msg[i+2:]
+	}
+	return fmt.Sprintf(" [%s: %s]", token, msg)
 }
 
 // scanAtToken returns the raw attachment token starting at the '@' at

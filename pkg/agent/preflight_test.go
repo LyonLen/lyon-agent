@@ -329,6 +329,94 @@ func TestGuardPreflightPassthrough(t *testing.T) {
 	}
 }
 
+// TestGuardPreflightLiftsToolResultImage: an image nested inside a
+// tool_result (how the SDK's tool runner ships view_image output) is
+// re-anchored as a sibling top-level block of the same user message — the
+// only placement the gateway actually reads. The tool_result itself keeps
+// its text body and its position.
+func TestGuardPreflightLiftsToolResultImage(t *testing.T) {
+	body := `{"model":"m","messages":[` +
+		`{"role":"user","content":[` +
+		`{"type":"tool_result","tool_use_id":"t1","content":[` +
+		`{"type":"text","text":"screenshot 800x600"},` +
+		`{"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}}]},` +
+		`{"type":"text","text":"what is this?"}]}]}`
+	out, changed := guardPreflight([]byte(body))
+	if !changed {
+		t.Fatal("nested image reported as clean")
+	}
+	msgs := parseWire(t, out)
+	if len(msgs) != 1 {
+		t.Fatalf("want 1 message, got %d:\n%s", len(msgs), out)
+	}
+	var blocks []map[string]json.RawMessage
+	if err := json.Unmarshal(msgs[0]["content"], &blocks); err != nil || len(blocks) != 3 {
+		t.Fatalf("want 3 sibling blocks (tool_result, image, text), got %d (%v)\n%s",
+			len(blocks), err, out)
+	}
+	var t0, t1, t2 string
+	_ = json.Unmarshal(blocks[0]["type"], &t0)
+	_ = json.Unmarshal(blocks[1]["type"], &t1)
+	_ = json.Unmarshal(blocks[2]["type"], &t2)
+	if t0 != "tool_result" || t1 != "image" || t2 != "text" {
+		t.Fatalf("block order: %q %q %q\n%s", t0, t1, t2, out)
+	}
+	// The tool_result keeps its identity and its text; only the image left.
+	var inner []map[string]json.RawMessage
+	if err := json.Unmarshal(blocks[0]["content"], &inner); err != nil || len(inner) != 1 {
+		t.Fatalf("tool_result content: %d blocks (%v)\n%s", len(inner), err, out)
+	}
+	if got := textOf(t, map[string]json.RawMessage{"content": blocks[0]["content"]}); got != "screenshot 800x600" {
+		t.Fatalf("tool_result text mutated: %q", got)
+	}
+	var id string
+	_ = json.Unmarshal(blocks[0]["tool_use_id"], &id)
+	if id != "t1" {
+		t.Fatalf("tool_use_id lost: %q", id)
+	}
+}
+
+// TestGuardPreflightImageOnlyResultKeepsTextBody: a tool_result carrying
+// nothing but an image would be left empty by the lift — the API rejects an
+// empty content array, so a one-line notice takes the image's place.
+func TestGuardPreflightImageOnlyResultKeepsTextBody(t *testing.T) {
+	body := `{"model":"m","messages":[` +
+		`{"role":"user","content":[` +
+		`{"type":"tool_result","tool_use_id":"t1","content":[` +
+		`{"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}}]}]}]}`
+	out, changed := guardPreflight([]byte(body))
+	if !changed {
+		t.Fatal("image-only result reported as clean")
+	}
+	msgs := parseWire(t, out)
+	var blocks []map[string]json.RawMessage
+	if err := json.Unmarshal(msgs[0]["content"], &blocks); err != nil || len(blocks) != 2 {
+		t.Fatalf("want tool_result + image, got %d (%v)\n%s", len(blocks), err, out)
+	}
+	if got := textOf(t, map[string]json.RawMessage{"content": blocks[0]["content"]}); !strings.Contains(got, "image") {
+		t.Fatalf("emptied tool_result has no notice: %q\n%s", got, out)
+	}
+	var typ string
+	_ = json.Unmarshal(blocks[1]["type"], &typ)
+	if typ != "image" {
+		t.Fatalf("sibling block type = %q", typ)
+	}
+	assertWireClean(t, out)
+}
+
+// TestGuardPreflightLeavesAssistantAndStringResults: only images inside a
+// user message's tool_result move. Assistant turns and string-form results
+// are untouched (string content is text by definition).
+func TestGuardPreflightLeavesAssistantAndStringResults(t *testing.T) {
+	body := `{"model":"m","messages":[` +
+		`{"role":"assistant","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}}]},` +
+		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"plain"}]}]}`
+	out, changed := guardPreflight([]byte(body))
+	if changed || string(out) != body {
+		t.Fatalf("unrelated body altered:\n got %s\nwant %s", out, body)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // reactive layer: citation parsing + repair
 // ---------------------------------------------------------------------------

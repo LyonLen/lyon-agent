@@ -226,6 +226,7 @@ func expandMessage(m anthropicMessage) []oaiMessage {
 		}
 		var out []oaiMessage
 		var parts []oaiPart
+		var attached []oaiPart // images that rode inside a tool_result
 		for _, b := range blocks {
 			switch b.Type {
 			case "text":
@@ -240,11 +241,22 @@ func expandMessage(m anthropicMessage) []oaiMessage {
 					ToolCallID: b.ToolUseID,
 					Content:    toolResultText(b),
 				})
+				attached = append(attached, toolResultImages(b)...)
 			default:
 				// documents / unknown blocks: keep a breadcrumb rather
 				// than silently vanishing.
 				parts = append(parts, oaiPart{Type: "text", Text: "[unsupported block: " + b.Type + "]"})
 			}
+		}
+		// OpenAI's tool role is text-only, so a tool_result's images ride in
+		// the user message of this turn — after the tool messages that must
+		// directly follow the assistant tool_calls. Without this the model
+		// only ever reads "[image omitted]" and never sees the picture.
+		if len(attached) > 0 {
+			parts = append(parts, attached...)
+		}
+		if len(parts) == 1 && parts[0].Type == "image_url" {
+			parts = append([]oaiPart{{Type: "text", Text: "[the tool returned an image]"}}, parts...)
 		}
 		if len(parts) > 0 {
 			out = append(out, oaiMessage{Role: "user", Content: partsOrString(parts)})
@@ -283,6 +295,22 @@ func toolResultText(tr anthropicBlock) string {
 	}
 	if strings.TrimSpace(out) == "" {
 		return "(empty)"
+	}
+	return out
+}
+
+// toolResultImages returns the image parts carried inside a tool_result —
+// the shape view_image's pictures arrive in.
+func toolResultImages(tr anthropicBlock) []oaiPart {
+	_, blocks := parseContent(tr.Content)
+	var out []oaiPart
+	for _, bl := range blocks {
+		if bl.Type != "image" {
+			continue
+		}
+		if p, ok := imagePart(bl.Source); ok {
+			out = append(out, p)
+		}
 	}
 	return out
 }

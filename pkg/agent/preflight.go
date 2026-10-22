@@ -168,6 +168,9 @@ func guardPreflight(body []byte) ([]byte, bool) {
 		return body, false
 	}
 	fixed, changed := sanitizeWireMessages(arr)
+	if lifted, did := liftToolResultImages(fixed); did {
+		fixed, changed = lifted, true
+	}
 	if !changed {
 		return body, false
 	}
@@ -358,6 +361,158 @@ func jsonRaw(v any) (json.RawMessage, bool) {
 		return nil, false
 	}
 	return b, true
+}
+
+// ---------------------------------------------------------------------------
+// Wire seam: tool-result images → sibling blocks
+// ---------------------------------------------------------------------------
+
+// liftNotice replaces an emptied tool_result body once its images move out.
+const liftNotice = "[image attached after this result]"
+
+// liftToolResultImages re-anchors images that ride INSIDE a tool_result onto
+// the same user message as sibling top-level blocks. The Anthropic SDK's
+// tool runner builds every tool-result turn as one NewBetaUserMessage with
+// OfToolResult blocks, so view_image's picture lands nested in a
+// tool_result — a shape some gateways silently drop, leaving the model with
+// metadata only (the "模型不能读图" report). The gateway accepts the same
+// image only as a sibling block of the tool_result in the same message, so
+// the guard rewrites the shape on the wire and leaves the runner's typed
+// history alone.
+//
+// A tool_result that carried nothing but images keeps a one-line text body
+// so the block stays legal. Returns the input untouched when nothing moved.
+func liftToolResultImages(arr []json.RawMessage) ([]json.RawMessage, bool) {
+	changed := false
+	out := make([]json.RawMessage, 0, len(arr))
+	for _, raw := range arr {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(raw, &m) != nil {
+			out = append(out, raw)
+			continue
+		}
+		if r, _ := wireRoleString(m); r != "user" {
+			out = append(out, raw)
+			continue
+		}
+		blocks, ok := wireContentArray(m)
+		if !ok {
+			out = append(out, raw)
+			continue
+		}
+		rebuilt, did := liftBlocks(blocks)
+		if !did {
+			out = append(out, raw)
+			continue
+		}
+		if b, ok := jsonRaw(rebuilt); ok {
+			m["content"] = b
+			if mb, ok := jsonRaw(m); ok {
+				out = append(out, mb)
+				changed = true
+				continue
+			}
+		}
+		out = append(out, raw)
+	}
+	if !changed {
+		return arr, false
+	}
+	return out, true
+}
+
+// liftBlocks walks one message's content array, pulling image blocks out of
+// any tool_result and placing them directly behind it.
+func liftBlocks(blocks []json.RawMessage) ([]json.RawMessage, bool) {
+	out := make([]json.RawMessage, 0, len(blocks))
+	changed := false
+	for _, raw := range blocks {
+		var blk map[string]json.RawMessage
+		if json.Unmarshal(raw, &blk) != nil {
+			out = append(out, raw)
+			continue
+		}
+		var typ string
+		if json.Unmarshal(blk["type"], &typ) != nil || typ != "tool_result" {
+			out = append(out, raw)
+			continue
+		}
+		inner, ok := blockContentArray(blk)
+		if !ok {
+			out = append(out, raw)
+			continue
+		}
+		kept := make([]json.RawMessage, 0, len(inner))
+		lifted := make([]json.RawMessage, 0, 1)
+		for _, ib := range inner {
+			if isImageBlock(ib) {
+				lifted = append(lifted, ib)
+				continue
+			}
+			kept = append(kept, ib)
+		}
+		if len(lifted) == 0 {
+			out = append(out, raw)
+			continue
+		}
+		if len(kept) == 0 {
+			// An image-only result: the block needs a text body to stay legal.
+			if note, ok := jsonRaw(map[string]any{"type": "text", "text": liftNotice}); ok {
+				kept = append(kept, note)
+			} else {
+				out = append(out, raw)
+				continue
+			}
+		}
+		ib, ok1 := jsonRaw(kept)
+		nb, ok2 := jsonRaw(blk)
+		if !ok1 || !ok2 {
+			out = append(out, raw)
+			continue
+		}
+		var nm map[string]json.RawMessage
+		if json.Unmarshal(nb, &nm) != nil {
+			out = append(out, raw)
+			continue
+		}
+		nm["content"] = ib
+		if mb, ok := jsonRaw(nm); ok {
+			out = append(out, mb)
+			out = append(out, lifted...)
+			changed = true
+			continue
+		}
+		out = append(out, raw)
+	}
+	if !changed {
+		return blocks, false
+	}
+	return out, true
+}
+
+// blockContentArray returns a block's nested content array (a tool_result's
+// content), false when the block has none or holds a plain string.
+func blockContentArray(blk map[string]json.RawMessage) ([]json.RawMessage, bool) {
+	raw, ok := blk["content"]
+	if !ok {
+		return nil, false
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) != nil || len(arr) == 0 {
+		return nil, false
+	}
+	return arr, true
+}
+
+// isImageBlock reports whether a raw content block is an image.
+func isImageBlock(raw json.RawMessage) bool {
+	var blk struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &blk) != nil {
+		return false
+	}
+	return blk.Type == "image"
 }
 
 // ---------------------------------------------------------------------------

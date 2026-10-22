@@ -134,8 +134,15 @@ func TestPromptBlocksAttachesImage(t *testing.T) {
 	if blocks[2].OfImage == nil {
 		t.Fatalf("third block = %+v, want image", blocks[2])
 	}
-	if blocks[3].OfText == nil || blocks[3].OfText.Text != " 和 @missing.png" {
+	// The unresolved token stays in the text, and the reason it produced no
+	// image rides along — a silently dropped attachment is unguessable from
+	// the model's side.
+	tail := blocks[3].OfText
+	if tail == nil || !strings.HasPrefix(tail.Text, " 和 @missing.png") {
 		t.Fatalf("tail text = %+v", blocks[3])
+	}
+	if !strings.Contains(tail.Text, "@missing.png:") {
+		t.Fatalf("tail text does not explain the failed attachment: %q", tail.Text)
 	}
 }
 
