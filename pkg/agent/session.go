@@ -631,6 +631,11 @@ func (s *Session) drive(prompt, runModel string) {
 	// len(turns)+1 the same way.
 	turnIdx := len(s.turns)
 	empty := 0 // consecutive iterator rounds with zero events
+	// lastStop is the final turn's stop reason. "max_tokens" means the
+	// response was CUT OFF mid-sentence at the output cap — the runner takes
+	// that as a completed turn, so without carrying it to prompt_end the UI
+	// shows a clean "done" over a truncated answer (the 回复被截断 report).
+	lastStop := ""
 
 	// stopReason distinguishes a closed session from an Interrupt: both
 	// cancel pctx, which derives from the session context.
@@ -738,6 +743,7 @@ func (s *Session) drive(prompt, runModel string) {
 				Duration:   time.Since(turnStart),
 				At:         time.Now(),
 			}
+			lastStop = stop
 			s.record(stat)
 			s.emit(Event{
 				Type:       EventTurnEnd,
@@ -789,6 +795,11 @@ func (s *Session) drive(prompt, runModel string) {
 		// loop before the last turn's tools could run. Renderers surface it
 		// instead of showing a silent "done".
 		budgetStop = "max_iterations"
+	} else if promptErr == "" && lastStop == "max_tokens" {
+		// The cap cut the answer off. Nothing failed, so Err stays empty;
+		// StopReason tells every renderer (TUI, web, stats) that the text
+		// ends where the budget ran out, not where the model finished.
+		budgetStop = "max_tokens"
 	}
 
 	// Release the submit lock and the interrupt handle BEFORE announcing

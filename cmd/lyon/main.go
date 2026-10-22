@@ -1133,6 +1133,9 @@ func render(ev agent.Event) {
 		case ev.StopReason == "max_iterations":
 			fmt.Printf("\n%s %s\n", paint(cYellow, "⚡ budget reached"),
 				paint(cDim, fmt.Sprintf("%d API calls%s — run again to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations, dur)))
+		case ev.StopReason == "max_tokens":
+			fmt.Printf("\n%s %s\n", paint(cYellow, "✂ cut off at the output cap"),
+				paint(cDim, fmt.Sprintf("%d API calls%s — the reply ends mid-thought · raise with -max-tokens / LYON_MAX_TOKENS", ev.Iterations, dur)))
 		default:
 			fmt.Printf("\n%s %s\n", paint(cGreen, "✓ done"), paint(cDim, fmt.Sprintf("%d API calls%s", ev.Iterations, dur)))
 		}

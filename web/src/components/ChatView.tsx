@@ -290,6 +290,19 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       if (ev.error) {
         return [...blocks, { kind: "error", text: ev.error }];
       }
+      // The output cap ended the reply mid-sentence: nothing failed, but
+      // "done" over a truncated answer is a lie — say why it stops there.
+      if (ev.stopReason === "max_tokens") {
+        return [
+          ...blocks,
+          {
+            kind: "notice",
+            text:
+              ev.detail ||
+              "reply cut off at the output token cap — raise max_tokens to finish",
+          },
+        ];
+      }
       return blocks;
     default:
       // message_start / turn_end / subagent_start / unknown — nothing to

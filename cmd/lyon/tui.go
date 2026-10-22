@@ -721,6 +721,7 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		// Surface completion as a system toast — long runs are watched by
 		// notification, not by staring at the transcript.
 		budget := ev.StopReason == "max_iterations" // loop cut by MaxIterations
+		cutOff := ev.StopReason == "max_tokens"     // reply truncated at the output cap
 		switch {
 		case ev.Err == agent.ErrInterrupted.Error():
 			notifyDone("lyon: interrupted", "the run was stopped — history repaired")
@@ -729,6 +730,8 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 		case budget:
 			notifyDone("lyon: iteration budget reached",
 				fmt.Sprintf("%d API calls — press enter to continue the task", ev.Iterations))
+		case cutOff:
+			notifyDone("lyon: reply cut off", "output token cap reached — raise -max-tokens / LYON_MAX_TOKENS")
 		default:
 			notifyDone("lyon: run finished",
 				fmt.Sprintf("%d API calls complete — press enter for the next prompt", ev.Iterations))
@@ -757,6 +760,17 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			m.countRound()
 			// The grade sees the partial answer as it stands — honest,
 			// not withheld: a cut run that answered nothing scores low.
+			m.kickScore(ev.Iterations)
+		} else if cutOff {
+			dur := ""
+			if ev.DurationMS > 0 {
+				dur = " · " + fmtDur(ev.DurationMS)
+			}
+			m.pushStyled(paint(cYellow, "✂ "+tr("reply cut off", "回复被截断")),
+				paint(cDim, tr(fmt.Sprintf("%d API calls%s — the output token cap ended the answer mid-thought · raise with -max-tokens / LYON_MAX_TOKENS", ev.Iterations, dur),
+					fmt.Sprintf("%d 次 API 调用%s — 输出上限把回答截断在半句 · -max-tokens / LYON_MAX_TOKENS 可调高", ev.Iterations, dur))))
+			m.status = idleStatus
+			m.countRound()
 			m.kickScore(ev.Iterations)
 		} else {
 			dur := ""
