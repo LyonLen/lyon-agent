@@ -108,16 +108,18 @@ func main() {
 	}
 
 	eng := agent.NewEngine(cfg, nil)
-	// Live drafts (#45): a session mirrors itself to disk at every
-	// prompt_end, so a hard kill costs at most the running prompt. Drafts
-	// left behind belong to a previous process that died without its exit
-	// path; archive them before serving so they appear in "saved" right away.
-	if n, err := agent.SweepDrafts(eng.Config().Workspace); err != nil {
-		log.Printf("drafts: recovered %d, then: %v", n, err)
-	} else if n > 0 {
-		log.Printf("drafts: recovered %d session(s) from the previous run", n)
-	}
 	store := server.NewStore(*maxSess, *ttl)
+	// The dump is the seat. A session mirrors itself to disk on every state
+	// change, and whatever a previous process left behind is indexed here —
+	// not swept into a handful of archive blobs. Each draft keeps its own id,
+	// so the list shows the same conversations under the same ids and the
+	// first RPC to one reads it back (Server.acquire) instead of 404ing or
+	// minting a duplicate row.
+	if n, err := store.LoadDrafts(eng.Config().Workspace); err != nil {
+		log.Printf("sessions: loaded %d, then: %v", n, err)
+	} else if n > 0 {
+		log.Printf("sessions: %d saved conversation(s) indexed from disk", n)
+	}
 	srv := server.New(eng, store)
 	if appr != nil {
 		srv.SetApproval(appr)

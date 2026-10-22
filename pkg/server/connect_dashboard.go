@@ -326,13 +326,22 @@ func (s *dashboardService) ListAudit(_ context.Context, req *connect.Request[lyo
 
 // ListSnapshots lists the workspace's saved sessions (the /resume
 // store) — same call the TUI's history panel makes.
+//
+// Snapshots whose conversation is already a seat are hidden: that row is
+// already in the live list, and offering it again as "saved" is how one
+// conversation used to appear twice — once live, once as an archive copy of
+// itself.
 func (s *dashboardService) ListSnapshots(_ context.Context, _ *connect.Request[lyonv1.ListSnapshotsRequest]) (*connect.Response[lyonv1.ListSnapshotsResponse], error) {
 	refs, err := agent.ListSnapshots(s.s.eng.Config().Workspace)
 	if err != nil {
 		return nil, fileOSErr(err, "sessions")
 	}
+	seats := s.s.store.SeatIDs()
 	out := &lyonv1.ListSnapshotsResponse{Snapshots: make([]*lyonv1.SnapshotRef, 0, len(refs))}
 	for _, r := range refs {
+		if r.ID != "" && seats[r.ID] {
+			continue
+		}
 		out.Snapshots = append(out.Snapshots, &lyonv1.SnapshotRef{
 			Title:    r.Title,
 			Messages: int32(r.Messages),

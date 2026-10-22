@@ -55,6 +55,9 @@ func (s *Session) SetMode(m Mode) (Mode, error) {
 		return prev, nil
 	}
 	s.mode.Store(&m)
+	// Session state is disk state: a restart must not resurrect a session
+	// in a mode the user already left (or, worse, forget a bypass).
+	s.notifyDirty()
 	s.eng.hooks.Fire(hooks.Record{
 		Event:  hooks.EvMode,
 		Detail: fmt.Sprintf("%s → %s", prev, m),

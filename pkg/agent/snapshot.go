@@ -27,9 +27,23 @@ const snapshotVersion = 1
 // are additive (empty on old files, ignored by old readers — version
 // stays compatible).
 type Snapshot struct {
-	Version            int
-	Workspace          string
-	Model              string
+	Version   int
+	Workspace string
+	Model     string
+	// ID is the session's seat id (/v1/sessions/{id}): the durable key
+	// that lets a dump be re-adopted under the same id after a restart
+	// instead of showing up as a new session. Empty on files written by
+	// older builds and on TUI sessions (which have no seat).
+	ID string
+	// CreatedAt/LastActive are the seat's registration times, so a dump
+	// lists in the same order (and with the same age) it had while live.
+	// Zero on old/TUI files.
+	CreatedAt  time.Time
+	LastActive time.Time
+	// Mode is the session mode at write time (mode.go), so a restart
+	// restores plan/bypass instead of silently reverting to default.
+	// Empty means default (old files).
+	Mode               string
 	Title              string // auto intent label (title.go)
 	FirstPrompt        string // first user prompt — title intent context
 	SavedAt            time.Time
@@ -47,21 +61,75 @@ type Snapshot struct {
 	Todos json.RawMessage
 }
 
+// SetSeat names the session with its server-side seat id and registration
+// time. Store.Create calls it before the draft exists, so the very first
+// dump on disk already carries the id the client was handed back — a
+// restart re-adopts the conversation under that same id instead of minting
+// a new seat and a duplicate row.
+func (s *Session) SetSeat(id string, created time.Time) {
+	s.mu.Lock()
+	s.seatID = id
+	s.createdAt = created
+	s.lastActive = created
+	s.mu.Unlock()
+}
+
+// SeatID is the session's server-side id, "" for TUI sessions and draft
+// files written by builds that predate seats.
+func (s *Session) SeatID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.seatID
+}
+
+// Seat returns the seat id and registration times together — what
+// Store.Create registers the hub under. A session restored from a dump
+// already carries all three, which is how the same seat comes back under its
+// own id instead of as a copy.
+func (s *Session) Seat() (id string, created, lastActive time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.seatID, s.createdAt, s.lastActive
+}
+
+// DisplayTitle is the row label a dump renders: its stored intent title, else
+// the placeholder derived from its first prompt (#44). Mirrors Title() for a
+// session that is not in memory.
+func (s Snapshot) DisplayTitle() string {
+	if s.Title != "" {
+		return s.Title
+	}
+	return placeholderTitle(s.FirstPrompt)
+}
+
+// MarkActive records that the seat was just used, so the next dump carries
+// a fresh LastActive and a restarted lyond lists the session in the order
+// the user last touched it.
+func (s *Session) MarkActive(t time.Time) {
+	s.mu.Lock()
+	if t.After(s.lastActive) {
+		s.lastActive = t
+	}
+	s.mu.Unlock()
+}
+
 // SetUIState attaches renderer-side state (the TUI's steps panel) so the
 // next Export carries it into the snapshot. Callers settle any in-flight
 // prompt first — this is a plain field write on the exit path.
 func (s *Session) SetUIState(raw []byte) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.uiState = append(json.RawMessage(nil), raw...)
+	s.mu.Unlock()
+	s.notifyDirty() // renderer state is part of the dump
 }
 
 // SetTodos attaches the renderer's step plan (#66) for the next Export —
 // same contract as SetUIState.
 func (s *Session) SetTodos(raw []byte) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.uiTodos = append(json.RawMessage(nil), raw...)
+	s.mu.Unlock()
+	s.notifyDirty()
 }
 
 // Export captures the conversation history. histMu makes it wait for an
@@ -86,13 +154,28 @@ func (s *Session) Export() Snapshot {
 	}
 	s.mu.Lock()
 	title, first := s.title, s.firstPrompt
+	id, created, lastActive := s.seatID, s.createdAt, s.lastActive
 	uiState := append(json.RawMessage(nil), s.uiState...)
 	uiTodos := append(json.RawMessage(nil), s.uiTodos...)
 	s.mu.Unlock()
+	// LastActive never moves backwards (a slow mirror landing after a
+	// newer one must not reorder the list) and never lies: the mirror
+	// writes on every state change, so this is when the seat last moved.
+	now := time.Now()
+	if now.After(lastActive) {
+		lastActive = now
+	}
+	if lastActive.IsZero() {
+		lastActive = now
+	}
 	return Snapshot{
 		Version:            snapshotVersion,
 		Workspace:          s.eng.cfg.Workspace,
 		Model:              s.eng.model(),
+		ID:                 id,
+		CreatedAt:          created,
+		LastActive:         lastActive,
+		Mode:               string(s.Mode()),
 		Title:              title,
 		FirstPrompt:        first,
 		SavedAt:            time.Now(),
@@ -142,7 +225,24 @@ func (s *Session) Restore(snap Snapshot) {
 	}
 	s.uiState = append(json.RawMessage(nil), snap.Steps...) // nil on Reset
 	s.uiTodos = append(json.RawMessage(nil), snap.Todos...) // nil on Reset
+	if snap.ID != "" {
+		s.seatID = snap.ID
+	}
+	if !snap.CreatedAt.IsZero() {
+		s.createdAt = snap.CreatedAt
+	}
+	if !snap.LastActive.IsZero() {
+		s.lastActive = snap.LastActive
+	}
 	s.mu.Unlock()
+	// Mode is atomic, not mu-guarded: restore it outside the lock. An
+	// unknown value from a newer build falls back to the current mode —
+	// a dump must never make a session unusable.
+	if snap.Mode != "" {
+		if m := Mode(snap.Mode); m == ModeDefault || m == ModePlan || m == ModeBypass {
+			s.mode.Store(&m)
+		}
+	}
 }
 
 // Reset clears the conversation back to fresh-session state — history,
@@ -345,18 +445,38 @@ func (s *Session) ArchiveIfNew() (bool, error) {
 }
 
 // SnapshotRef is one entry of a workspace's session store: where it lives
-// plus enough metadata to list it without a full restore.
+// plus enough metadata to list it without a full restore. ID is the seat the
+// dump belongs to (empty on files written before seats existed), so a lister
+// can tell which entries are already open conversations.
 type SnapshotRef struct {
 	Path     string
 	SavedAt  time.Time
 	Messages int
 	Title    string
+	ID       string
 }
 
 // ListSnapshots returns every saved session for a workspace — latest slot
-// and archive together — newest first by SavedAt.
+// and archive together — newest first by SavedAt, with byte-identical
+// histories collapsed to their newest copy.
+//
+// The collapse is what keeps the list honest. Every exit used to archive the
+// conversation, so one conversation that was opened, resumed and quit a few
+// times left a row per visit; the rows differ in SavedAt and nothing else.
+// Identical history means identical conversation, so only the newest copy is
+// worth showing.
 func ListSnapshots(workspace string) ([]SnapshotRef, error) {
-	var refs []SnapshotRef
+	type entry struct {
+		ref  SnapshotRef
+		snap Snapshot
+	}
+	var found []entry
+	add := func(p string, s *Snapshot) {
+		found = append(found, entry{
+			ref:  SnapshotRef{Path: p, SavedAt: s.SavedAt, Messages: len(s.Messages), Title: s.Title, ID: s.ID},
+			snap: *s,
+		})
+	}
 	latestPath, err := SnapshotPath(workspace)
 	if err != nil {
 		return nil, err
@@ -366,7 +486,7 @@ func ListSnapshots(workspace string) ([]SnapshotRef, error) {
 		return nil, err
 	}
 	if latest != nil {
-		refs = append(refs, SnapshotRef{Path: latestPath, SavedAt: latest.SavedAt, Messages: len(latest.Messages), Title: latest.Title})
+		add(latestPath, latest)
 	}
 	dir, err := sessionDir(workspace)
 	if err != nil {
@@ -385,10 +505,38 @@ func ListSnapshots(workspace string) ([]SnapshotRef, error) {
 		if err != nil || s == nil {
 			continue // one corrupt archive entry must not hide the rest
 		}
-		refs = append(refs, SnapshotRef{Path: p, SavedAt: s.SavedAt, Messages: len(s.Messages), Title: s.Title})
+		add(p, s)
 	}
-	sort.Slice(refs, func(i, j int) bool { return refs[i].SavedAt.After(refs[j].SavedAt) })
+	sort.Slice(found, func(i, j int) bool { return found[i].ref.SavedAt.After(found[j].ref.SavedAt) })
+
+	seen := make(map[string]bool, len(found))
+	refs := make([]SnapshotRef, 0, len(found))
+	for _, f := range found {
+		key, ok := historyKey(f.snap.Messages)
+		if ok {
+			if seen[key] {
+				continue // the same conversation, newer copy already listed
+			}
+			seen[key] = true
+		}
+		refs = append(refs, f.ref)
+	}
 	return refs, nil
+}
+
+// historyKey fingerprints a message history for dedupe ("" when it cannot be
+// marshaled, in which case the entry is always listed — never hide a
+// conversation because of a hashing hiccup).
+func historyKey(msgs []anthropic.BetaMessageParam) (string, bool) {
+	if len(msgs) == 0 {
+		return "", false
+	}
+	b, err := json.Marshal(msgs)
+	if err != nil {
+		return "", false
+	}
+	sum := sha256.Sum256(b)
+	return string(sum[:]), true
 }
 
 // SaveSnapshot persists snap as the workspace's latest slot, atomically

@@ -9,12 +9,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
-// TestMain pins $LYON_HOME to a scratch dir for the whole package: the
-// store's delete/reap/shutdown paths archive snapshots to disk (Phase A),
-// and no test may touch the real ~/.lyon. Individual tests override with
-// t.Setenv when they need their own root; both stack fine.
+// TestMain pins $LYON_HOME to a scratch dir for the whole package: seats are
+// dump files under it, so no test may touch the real ~/.lyon. Individual
+// tests override with t.Setenv when they need their own root; both stack fine.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "lyon-server-home-")
 	if err != nil {
@@ -23,8 +23,37 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("LYON_HOME", dir)
 	code := m.Run()
-	os.RemoveAll(dir)
+	settleRemoveAll(dir)
 	os.Exit(code)
+}
+
+// scratchHome points LYON_HOME at a fresh temp dir with a retrying cleanup.
+// Sessions mirror themselves to disk on every state change, so a write is
+// very often in flight (or delete-pending) when the framework's one-shot
+// RemoveAll walks the tree — on Windows that surfaces as "directory is not
+// empty" even when every assertion passed. Same hardening as pkg/eval
+// (scratchHome), pkg/market (scratchHome) and pkg/memory (scratchTempDir).
+// No parallel tests here — the env is process-wide. Returns the dir.
+func scratchHome(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Cleanup(func() { settleRemoveAll(dir) })
+	t.Setenv("LYON_HOME", dir)
+	return dir
+}
+
+// settleRemoveAll retries a doomed RemoveAll until the OS lets go of the
+// files, giving up after ~2s. Log-only: a straggler must not fail a test that
+// already passed its assertions.
+func settleRemoveAll(dir string) {
+	var err error
+	for i := 0; i < 40; i++ {
+		if err = os.RemoveAll(dir); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	fmt.Fprintf(os.Stderr, "settle cleanup failed for %s: %v\n", dir, err)
 }
 
 // testClient is a thin httptest wrapper for route tests that must not hit

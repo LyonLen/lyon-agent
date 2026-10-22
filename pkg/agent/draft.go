@@ -8,14 +8,18 @@ import (
 	"sync"
 )
 
-// Live drafts (#45): a live session mirrors its conversation to a
-// per-session draft file at every prompt_end, so a hard kill — taskkill /F,
-// OOM, power loss — costs at most the prompt that was running. Drafts live
-// one level below the workspace archive (sessions/<hash16>/drafts/), where
-// ListSnapshots' archive scan ignores them: a live session must not appear
-// twice (live row + saved row). A draft only becomes a saved session when
-// the next lyond startup sweeps it (SweepDrafts); a clean exit archives the
-// final state itself and drops the draft.
+// Live drafts: the dump IS the session. A live session mirrors its
+// conversation into a per-session draft file on every state change, so a hard
+// kill — taskkill /F, OOM, power loss — costs at most the prompt that was
+// running, and a clean exit has nothing left to write. Drafts live one level
+// below the workspace archive (sessions/<hash16>/drafts/), where
+// ListSnapshots' archive scan ignores them: the seat list is the only place a
+// conversation appears.
+//
+// They are not swept or archived. Each draft carries its seat id, so the next
+// lyond startup indexes them (Store.LoadDrafts) and re-adopts one on first
+// touch — same id, same conversation, one row. Archiving them at startup is
+// what turned every restart into another SAVED row.
 
 // draftsDir is the live-draft directory for a workspace.
 func draftsDir(workspace string) (string, error) {
@@ -71,16 +75,31 @@ type Draft struct {
 }
 
 // NewDraft starts mirroring the session to path (which need not exist yet).
-// Writes happen only on Touch — the caller decides which history states are
-// stable enough to persist.
-func (s *Session) NewDraft(path string) *Draft { return &Draft{sess: s, path: path} }
+// Writes happen on Touch — either the caller's or the one every session
+// state change now fires (notifyDirty): the dump on disk is the record, so
+// the mirror follows the conversation as it moves, not just at prompt_end.
+func (s *Session) NewDraft(path string) *Draft {
+	d := &Draft{sess: s, path: path}
+	s.mirror.Store(d)
+	return d
+}
+
+// notifyDirty schedules a mirror write for every state change worth
+// persisting. Non-blocking by construction: Touch only flips a flag and
+// spawns the writer, so the drive loop, the title pass and the RPC path
+// never wait on disk. A session with no draft (the TUI) is a no-op.
+func (s *Session) notifyDirty() {
+	if d := s.mirror.Load(); d != nil {
+		d.Touch()
+	}
+}
 
 // Workspace is the session's confinement root — the same workspace its
 // snapshot store lives under.
 func (s *Session) Workspace() string { return s.eng.cfg.Workspace }
 
-// Path is the draft file's location; teardown removes it once the final
-// archive has landed.
+// Path is the draft file's location — the seat's dump. Delete removes it
+// with the seat; an unload writes the settled state to it once more.
 func (d *Draft) Path() string { return d.path }
 
 // Touch schedules a mirror write. Never blocks; a Touch after Close is a
@@ -116,13 +135,13 @@ func (d *Draft) run() {
 		d.dirty = false
 		d.mu.Unlock()
 		// Best effort, like the exit-time archive: a disk error must not
-		// wedge the session, and the next prompt_end retries anyway.
+		// wedge the session, and the next state change retries anyway.
 		_ = WriteSnapshotFile(d.path, d.sess.Export())
 	}
 }
 
-// Close stops mirroring and waits for the in-flight write, so the caller
-// can archive the final state and remove Path without racing a straggler.
+// Close stops mirroring and waits for the in-flight write, so the caller can
+// write the settled state (or remove Path) without racing a straggler.
 func (d *Draft) Close() {
 	d.mu.Lock()
 	d.closed = true
@@ -130,59 +149,50 @@ func (d *Draft) Close() {
 	d.wg.Wait()
 }
 
-// SweepDrafts archives every draft left in workspace and removes it — lyond
-// runs it once at startup, before it serves a list. A draft only survives a
-// process that died hard, so each one is a conversation the previous run
-// never saved. Content already in the store is deduped away (the archive may
-// have landed just before the kill). A draft that fails to archive is kept
-// for the next startup; N counts recovered conversations.
-func SweepDrafts(workspace string) (int, error) {
+// DraftRef is one dump found in the drafts directory: the seat id the
+// file was written under, and the state it captured.
+type DraftRef struct {
+	ID   string
+	Path string
+	Snap Snapshot
+}
+
+// ListDrafts returns every draft file the workspace holds — the seats a
+// previous lyond process left behind, live ones included. A corrupt or empty
+// file is skipped: it is not a seat, and the next write to that path may
+// still repair it. Callers re-adopt these as live seats, which is why the id
+// comes from the snapshot, not the filename: a file renamed by hand still
+// lists under the seat it carries.
+func ListDrafts(workspace string) ([]DraftRef, error) {
 	dir, err := draftsDir(workspace)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil
+			return nil, nil
 		}
-		return 0, err
+		return nil, err
 	}
-	recovered := 0
-	var firstErr error
+	var out []DraftRef
 	for _, ent := range entries {
 		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
 			continue
 		}
 		path := filepath.Join(dir, ent.Name())
 		snap, err := LoadSnapshotFrom(path)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err // keep the file: it may be the only copy
-			}
-			continue
+		if err != nil || snap == nil {
+			continue // unreadable draft: not a seat — the sweep reports it
 		}
-		if snap != nil {
-			stored, err := storedElsewhere(*snap)
-			if err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue // keep the draft; retry on the next startup
-			}
-			if !stored {
-				if err := writeArchive(workspace, *snap); err != nil {
-					if firstErr == nil {
-						firstErr = err
-					}
-					continue
-				}
-				recovered++
-			}
+		id := snap.ID
+		if id == "" {
+			// Written by a build that predates seat ids: the filename is
+			// the id Store.Create minted, so it still names the seat.
+			id = strings.TrimSuffix(ent.Name(), ".json")
+			snap.ID = id
 		}
-		// Archived now or already stored: nothing unique is left in it.
-		_ = os.Remove(path)
+		out = append(out, DraftRef{ID: id, Path: path, Snap: *snap})
 	}
-	_ = os.Remove(dir) // best effort — succeeds only once empty
-	return recovered, firstErr
+	return out, nil
 }

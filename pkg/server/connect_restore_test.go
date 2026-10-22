@@ -16,11 +16,16 @@ import (
 )
 
 // writeTestSnapshot drops snap into $LYON_HOME/sessions/name.json and
-// returns the absolute path — the shape ListSnapshots would hand out.
+// returns the absolute path — the shape ListSnapshots would hand out. It
+// uses the home already in effect (the fixture's), because restore validates
+// the path against the running server's root: a second temp dir here would
+// make every path look like a traversal.
 func writeTestSnapshot(t *testing.T, name string, snap agent.Snapshot) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("LYON_HOME", home)
+	home := os.Getenv("LYON_HOME")
+	if home == "" {
+		t.Fatalf("writeTestSnapshot needs $LYON_HOME (build the fixture first)")
+	}
 	dir := filepath.Join(home, "sessions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir sessions: %v", err)
@@ -66,6 +71,7 @@ func restoreMessages() []anthropic.BetaMessageParam {
 // (user_message → text → tool card lifecycle) and then keeps accepting
 // prompts like any fresh session — the Phase A "点不进来" loop closed.
 func TestConnectRestoreSession(t *testing.T) {
+	client := newTranscriptFixture(t, time.Millisecond)
 	path := writeTestSnapshot(t, "hist.json", agent.Snapshot{
 		Version:   1,
 		Workspace: "/w",
@@ -74,7 +80,6 @@ func TestConnectRestoreSession(t *testing.T) {
 		SavedAt:   time.Now(),
 		Messages:  restoreMessages(),
 	})
-	client := newTranscriptFixture(t, time.Millisecond)
 	ctx := context.Background()
 
 	res, err := client.RestoreSession(ctx, connect.NewRequest(&lyonv1.RestoreSessionRequest{Path: path}))
@@ -164,8 +169,10 @@ func TestConnectRestoreSession(t *testing.T) {
 // inputs each fail with their documented code before anything outside
 // $LYON_HOME/sessions is read.
 func TestConnectRestorePathValidation(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("LYON_HOME", home)
+	client := newTranscriptFixture(t, time.Millisecond)
+	// The fixture pinned $LYON_HOME; the paths below must live under the
+	// root the running server validates against.
+	home := os.Getenv("LYON_HOME")
 	sessions := filepath.Join(home, "sessions")
 	if err := os.MkdirAll(sessions, 0o755); err != nil {
 		t.Fatal(err)
@@ -179,7 +186,6 @@ func TestConnectRestorePathValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client := newTranscriptFixture(t, time.Millisecond)
 	ctx := context.Background()
 
 	for _, tc := range []struct {
@@ -202,11 +208,12 @@ func TestConnectRestorePathValidation(t *testing.T) {
 	}
 }
 
-// TestStoreArchiveOnExit: every store teardown path — explicit delete and
-// shutdown — archives the conversation first, so nothing is lost from the
-// snapshot store when a session leaves memory (Phase A data-loss fix).
-func TestStoreArchiveOnExit(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+// TestStoreTeardownKeepsSeats: the store's two teardown paths now differ on
+// purpose. Delete destroys (no archive: an archived delete comes back as a
+// SAVED row), while shutdown parks the seat on disk under its own id so the
+// next process lists and adopts it. Neither writes into the snapshot archive.
+func TestStoreTeardownKeepsSeats(t *testing.T) {
+	scratchHome(t)
 	eng := agent.NewEngine(agent.DefaultConfig(), nil)
 	ws := eng.Config().Workspace
 	st := NewStore(0, 0)
@@ -215,9 +222,6 @@ func TestStoreArchiveOnExit(t *testing.T) {
 		sess := eng.NewSession(nil)
 		sess.Restore(agent.Snapshot{
 			Version: 1, Workspace: ws, Title: title, SavedAt: time.Now(),
-			// Distinct histories: ArchiveIfNew dedupes by message bytes
-			// (storedElsewhere), so identical messages would collapse the
-			// two cases into one archive entry.
 			Messages: []anthropic.BetaMessageParam{
 				anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(prompt)),
 			},
@@ -225,7 +229,7 @@ func TestStoreArchiveOnExit(t *testing.T) {
 		return sess
 	}
 
-	// Path 1: Delete.
+	// Path 1: Delete — the conversation is gone for good.
 	s1 := seeded("delete-exits", "delete prompt")
 	id1, err := st.Create(s1)
 	if err != nil {
@@ -234,25 +238,37 @@ func TestStoreArchiveOnExit(t *testing.T) {
 	if !st.Delete(id1) {
 		t.Fatal("Delete = false")
 	}
+	if _, parked := st.Parked(id1); parked {
+		t.Fatal("deleted seat is still parked")
+	}
+	if _, err := os.Stat(mustDraftPath(t, ws, id1)); !os.IsNotExist(err) {
+		t.Fatalf("draft survived delete: %v", err)
+	}
 
-	// Path 2: CloseAll (lyond shutdown).
+	// Path 2: CloseAll (lyond shutdown) — parked under the same id.
 	s2 := seeded("shutdown-exits", "shutdown prompt")
-	if _, err := st.Create(s2); err != nil {
+	id2, err := st.Create(s2)
+	if err != nil {
 		t.Fatalf("Create #2: %v", err)
 	}
 	st.CloseAll()
+	snap, parked := st.Parked(id2)
+	if !parked {
+		t.Fatalf("shutdown dropped seat %q instead of parking it", id2)
+	}
+	if snap.Snap.Title != "shutdown-exits" {
+		t.Fatalf("parked title = %q", snap.Snap.Title)
+	}
+	if _, err := os.Stat(snap.Path); err != nil {
+		t.Fatalf("parked dump missing: %v", err)
+	}
 
+	// The snapshot store stays empty either way: seats are not SAVED rows.
 	refs, err := agent.ListSnapshots(ws)
 	if err != nil {
 		t.Fatalf("ListSnapshots: %v", err)
 	}
-	titles := map[string]bool{}
-	for _, r := range refs {
-		titles[r.Title] = true
-	}
-	for _, want := range []string{"delete-exits", "shutdown-exits"} {
-		if !titles[want] {
-			t.Fatalf("archived titles = %v, missing %q", titles, want)
-		}
+	if len(refs) != 0 {
+		t.Fatalf("teardown wrote archive entries = %+v; every restart would add a SAVED row", refs)
 	}
 }

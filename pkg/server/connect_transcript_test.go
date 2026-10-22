@@ -30,9 +30,14 @@ func newTranscriptFixture(t *testing.T, latency time.Duration) lyonv1connect.Ses
 	t.Cleanup(mock.Close)
 	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "transcript-test-token")
+	// Own store root per fixture (see newConnectFixture): seats are disk
+	// records, so shared state would leak across tests.
+	scratchHome(t)
 
 	eng := agent.NewEngine(agent.DefaultConfig(), nil)
-	s := New(eng, NewStore(0, 0))
+	st := NewStore(0, 0)
+	t.Cleanup(st.CloseAll)
+	s := New(eng, st)
 	s.SetObserver(tools.NewMetrics())
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)

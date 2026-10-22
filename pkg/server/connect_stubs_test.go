@@ -17,7 +17,7 @@ import (
 // prompts, no disk reads; the RPCs answer before touching anything.
 func newStubFixture(t *testing.T) (lyonv1connect.ApprovalServiceClient, lyonv1connect.PlanServiceClient) {
 	t.Helper()
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	eng := agent.NewEngine(agent.DefaultConfig(), nil)
 	s := New(eng, NewStore(0, 0))
 	ts := httptest.NewServer(s.Handler())

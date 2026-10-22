@@ -30,9 +30,14 @@ func newConnectFixture(t *testing.T) lyonv1connect.SessionServiceClient {
 	t.Cleanup(mock.Close)
 	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "connect-test-token")
+	// Each fixture owns its store root: the dump is the record now, so a
+	// shared home would let one test's seats show up in another's list.
+	scratchHome(t)
 
 	eng := agent.NewEngine(agent.DefaultConfig(), nil)
-	s := New(eng, NewStore(0, 0))
+	st := NewStore(0, 0)
+	t.Cleanup(st.CloseAll)
+	s := New(eng, st)
 	s.SetObserver(tools.NewMetrics())
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)

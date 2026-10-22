@@ -31,7 +31,7 @@ func ledgerPath(t *testing.T) string {
 // append their own row, and the last writer drops the other's record —
 // silent ledger loss under exactly the load the ledger exists to record.
 func TestOpenReturnsSharedTable(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 
 	const writers = 8
 	var wg sync.WaitGroup
@@ -77,7 +77,7 @@ func TestOpenReturnsSharedTable(t *testing.T) {
 // old inode alone (handle still sees the old bytes); an in-place write
 // overwrites it underneath us.
 func TestRecordDoesNotMutateInPlace(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	tab := Open()
 	tab.Record(rec("coding", 1000, ""))
 
@@ -156,7 +156,7 @@ func TestRecordFileMode(t *testing.T) {
 	if os.PathSeparator == '\\' {
 		t.Skip("POSIX mode bits are not enforced on Windows")
 	}
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	tab := Open()
 	tab.Record(rec("coding", 1000, ""))
 
@@ -174,7 +174,7 @@ func TestRecordFileMode(t *testing.T) {
 // empty ledger by design — that contract must survive a torn file, and a
 // fresh Record must repair the file rather than append to garbage.
 func TestCorruptLedgerRecoversCleanly(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	path := ledgerPath(t)
 	if err := os.WriteFile(path, []byte(`{"records":[{"class":"coding","dur_`), 0o600); err != nil {
 		t.Fatalf("seed corrupt ledger: %v", err)

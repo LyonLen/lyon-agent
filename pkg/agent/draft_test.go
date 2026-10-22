@@ -20,58 +20,66 @@ func writeDraft(t *testing.T, ws, id string, snap Snapshot) string {
 	return path
 }
 
-// TestSweepDraftsArchivesAndDedupes: a draft left by a hard-killed lyond
-// becomes a normal archive entry; a draft whose content is already stored is
-// dropped without a duplicate; corrupt drafts are kept (they may be the only
-// copy) and reported.
-func TestSweepDraftsArchivesAndDedupes(t *testing.T) {
+// TestListDraftsIndexesSeats: a draft left by a hard-killed lyond is not
+// swept or archived — it is a seat the next process indexes and re-adopts.
+// The id comes from the snapshot, so a hand-renamed file still lists under
+// the seat it carries; a truncated file is skipped rather than reported as a
+// conversation.
+func TestListDraftsIndexesSeats(t *testing.T) {
 	t.Setenv("LYON_HOME", tempDir(t))
 	ws := tempDir(t)
 
-	writeDraft(t, ws, "aaaa", Snapshot{Version: 1, Workspace: ws, Title: "crash-lost",
+	path := writeDraft(t, ws, "aaaa", Snapshot{Version: 1, ID: "seat-a", Workspace: ws, Title: "crash-lost",
 		SavedAt: time.Now(), Messages: storeMsg("DRAFT-RECOVERED")})
+	// A file renamed by hand still names the seat it carries.
+	writeDraft(t, ws, "renamed", Snapshot{Version: 1, ID: "seat-b", Workspace: ws,
+		SavedAt: time.Now(), Messages: storeMsg("DRAFT-RENAMED")})
+	// Pre-seat build: no ID, so the filename is the seat.
+	writeDraft(t, ws, "oldschool", Snapshot{Version: 1, Workspace: ws,
+		SavedAt: time.Now(), Messages: storeMsg("DRAFT-OLD")})
 
-	n, err := SweepDrafts(ws)
-	if err != nil || n != 1 {
-		t.Fatalf("SweepDrafts = (%d, %v), want (1, nil)", n, err)
-	}
-	refs, err := ListSnapshots(ws)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(refs) != 1 || refs[0].Title != "crash-lost" {
-		t.Fatalf("archive after sweep = %+v", refs)
-	}
-
-	// Same conversation again (archive landed, kill before the draft was
-	// removed): must not duplicate.
-	writeDraft(t, ws, "bbbb", Snapshot{Version: 1, Workspace: ws, Title: "crash-lost",
-		SavedAt: time.Now(), Messages: storeMsg("DRAFT-RECOVERED")})
-	if n, err := SweepDrafts(ws); err != nil || n != 0 {
-		t.Fatalf("dedupe sweep = (%d, %v), want (0, nil)", n, err)
-	}
-	refs, _ = ListSnapshots(ws)
-	if len(refs) != 1 {
-		t.Fatalf("duplicate archive entry: %+v", refs)
-	}
-
-	// Corrupt draft: kept for the next startup, error surfaced.
 	dir, err := draftsDir(ws)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad := filepath.Join(dir, "cccc.json")
-	if err := os.MkdirAll(dir, 0o755); err != nil { // the sweep removes the empty dir
+	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
+
+	refs, err := ListDrafts(ws)
+	if err != nil {
+		t.Fatalf("ListDrafts: %v", err)
+	}
+	got := map[string]string{} // id → title
+	for _, r := range refs {
+		got[r.ID] = r.Snap.Title
+	}
+	want := map[string]string{"seat-a": "crash-lost", "seat-b": "", "oldschool": ""}
+	if len(got) != len(want) {
+		t.Fatalf("ListDrafts ids = %v, want %v", got, want)
+	}
+	for id, title := range want {
+		if title == "" {
+			if _, ok := got[id]; !ok {
+				t.Fatalf("ListDrafts missing %q: %v", id, got)
+			}
+			continue
+		}
+		if got[id] != title {
+			t.Fatalf("ListDrafts[%q] title = %q, want %q", id, got[id], title)
+		}
+	}
+
+	// Nothing was archived or deleted: the dump is the record.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("draft file removed by listing: %v", err)
+	}
+	snaps, err := ListSnapshots(ws)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SweepDrafts(ws); err == nil {
-		t.Fatal("corrupt draft: want an error, got nil")
-	}
-	if _, err := os.Stat(bad); err != nil {
-		t.Fatalf("corrupt draft was deleted: %v", err)
+	if len(snaps) != 0 {
+		t.Fatalf("ListDrafts archived conversations into the snapshot store: %+v", snaps)
 	}
 }
 

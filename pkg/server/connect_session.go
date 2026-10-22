@@ -88,7 +88,7 @@ func (c *sessionService) ListSessions(_ context.Context, _ *connect.Request[lyon
 }
 
 func (c *sessionService) GetSession(_ context.Context, req *connect.Request[lyonv1.GetSessionRequest]) (*connect.Response[lyonv1.GetSessionResponse], error) {
-	ref, err := c.s.store.Ref(req.Msg.SessionId)
+	ref, err := c.s.seatRef(req.Msg.SessionId)
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -104,11 +104,13 @@ func (c *sessionService) GetSession(_ context.Context, req *connect.Request[lyon
 // exactly where the batch ended; 0 (empty ring) tells it to fall back
 // to -1 and let the full replay cover the snapshot-to-subscribe gap.
 func (c *sessionService) GetHistory(_ context.Context, req *connect.Request[lyonv1.GetHistoryRequest]) (*connect.Response[lyonv1.GetHistoryResponse], error) {
-	h, err := c.s.store.Hub(req.Msg.SessionId)
+	// hubOf adopts a parked seat: its transcript lives in the dump, and the
+	// ring is built from it on adoption.
+	h, err := c.s.hubOf(req.Msg.SessionId)
 	if err != nil {
 		return nil, rpcErr(err)
 	}
-	ref, err := c.s.store.Ref(req.Msg.SessionId)
+	ref, err := c.s.seatRef(req.Msg.SessionId)
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -117,7 +119,9 @@ func (c *sessionService) GetHistory(_ context.Context, req *connect.Request[lyon
 	var last int64
 	for _, it := range items {
 		se := protoEvent(it)
-		decorateGauge(se, c.s, ref.Session)
+		if ref.Session != nil {
+			decorateGauge(se, c.s, ref.Session)
+		}
 		last = se.Seq
 		evs = append(evs, se)
 	}
@@ -147,13 +151,13 @@ func (c *sessionService) SubmitPrompt(_ context.Context, req *connect.Request[ly
 	if strings.TrimSpace(msg.Prompt) == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("prompt is required"))
 	}
-	sess, err := c.s.store.Get(msg.SessionId)
+	// acquire, not Get: the first prompt to a seat the reaper unloaded reads
+	// its conversation back from disk before submitting, so the prompt
+	// continues the saved conversation instead of failing NotFound.
+	sess, err := c.s.acquire(msg.SessionId)
 	if err != nil {
 		return nil, rpcErr(err)
 	}
-	// Events flow to watchers through the hub ring — a watcher that
-	// attaches late replays with from_seq, nothing is lost by this unary
-	// ack not streaming anything.
 	//
 	// The echo must stamp BEFORE SubmitOn hands the prompt to the driver,
 	// or the transcript renders the reply above its question; and it must
@@ -178,7 +182,10 @@ func (c *sessionService) EnqueuePrompt(_ context.Context, req *connect.Request[l
 	if strings.TrimSpace(msg.Prompt) == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("prompt is required"))
 	}
-	sess, err := c.s.store.Get(msg.SessionId)
+	// acquire, not Get: queueing onto a seat the reaper unloaded revives the
+	// conversation and then reports the honest thing — an idle session has no
+	// run to attach the prompt to (FailedPrecondition, caller submits instead).
+	sess, err := c.s.acquire(msg.SessionId)
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -193,17 +200,23 @@ func (c *sessionService) EnqueuePrompt(_ context.Context, req *connect.Request[l
 func (c *sessionService) Interrupt(_ context.Context, req *connect.Request[lyonv1.InterruptRequest]) (*connect.Response[lyonv1.InterruptResponse], error) {
 	sess, err := c.s.store.Get(req.Msg.SessionId)
 	if err != nil {
+		// A parked seat has no prompt to stop — it is idle by definition.
+		// Answering false beats adopting a conversation to interrupt nothing.
+		if _, parked := c.s.store.Parked(req.Msg.SessionId); parked {
+			return connect.NewResponse(&lyonv1.InterruptResponse{}), nil
+		}
 		return nil, rpcErr(err)
 	}
 	return connect.NewResponse(&lyonv1.InterruptResponse{Interrupted: sess.Interrupt()}), nil
 }
 
 func (c *sessionService) GetStats(_ context.Context, req *connect.Request[lyonv1.GetStatsRequest]) (*connect.Response[lyonv1.GetStatsResponse], error) {
-	sess, err := c.s.store.Get(req.Msg.SessionId)
+	// Read-only: a parked seat's turns come from its dump metadata. Polling
+	// stats must never drag idle conversations back into memory.
+	stats, err := c.s.seatTurns(req.Msg.SessionId)
 	if err != nil {
 		return nil, rpcErr(err)
 	}
-	stats := sess.Stats()
 	turns := make([]*lyonv1.TurnStat, 0, len(stats))
 	for _, t := range stats {
 		turns = append(turns, &lyonv1.TurnStat{
@@ -222,7 +235,9 @@ func (c *sessionService) SetMode(_ context.Context, req *connect.Request[lyonv1.
 	if msg.Mode == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mode is required (default|plan|bypass)"))
 	}
-	sess, err := c.s.store.Get(msg.SessionId)
+	// acquire: a mode switch on a parked seat must land in that seat's dump,
+	// which means the conversation has to be live long enough to mirror it.
+	sess, err := c.s.acquire(msg.SessionId)
 	if err != nil {
 		return nil, rpcErr(err)
 	}
@@ -234,7 +249,9 @@ func (c *sessionService) SetMode(_ context.Context, req *connect.Request[lyonv1.
 
 func (c *sessionService) WatchEvents(ctx context.Context, req *connect.Request[lyonv1.WatchEventsRequest], stream *connect.ServerStream[lyonv1.WatchEventsResponse]) error {
 	msg := req.Msg
-	h, err := c.s.store.Hub(msg.SessionId)
+	// hubOf adopts a parked seat: subscribing is using the conversation, and
+	// the ring it replays from exists only in memory.
+	h, err := c.s.hubOf(msg.SessionId)
 	if err != nil {
 		return rpcErr(err)
 	}
@@ -283,30 +300,50 @@ func (c *sessionService) WatchEvents(ctx context.Context, req *connect.Request[l
 
 // protoSession renders a store record as the wire Session. Workspace and
 // model are engine-level in v1 (one engine, one model per process).
+//
+// A parked seat (Snap set, Session nil) renders from its dump metadata: it is
+// idle by definition — no prompt can be running in a process that is not
+// holding it — which is exactly what unsticks the "running · 30 turns" row a
+// restart used to leave behind.
 func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
+	out := &lyonv1.Session{
+		Id:            ref.ID,
+		Workspace:     s.eng.Config().Workspace,
+		Model:         s.eng.Config().Model,
+		CreatedAt:     timestamppb.New(ref.Created),
+		LastActive:    timestamppb.New(ref.LastActive),
+		ContextWindow: windowForModel(s.eng.Config()),
+		Vision:        modelVision(s.eng.Config()),
+	}
+	if ref.Session == nil {
+		snap := ref.Snap
+		if snap == nil {
+			return out // nothing known beyond the id
+		}
+		out.Title = snap.DisplayTitle()
+		out.Mode = snap.Mode
+		if out.Mode == "" {
+			out.Mode = string(agent.ModeDefault)
+		}
+		out.Turns = int32(len(snap.Turns))
+		out.CtxUsed = contextUsed(snap.Turns)
+		if usd, ok := sessionCostUSD(s.eng.Config(), snap.Turns, nil); ok {
+			out.CostUsd = &usd
+		}
+		return out
+	}
 	sess := ref.Session
 	// Gauge snapshot rides along: the web footer renders the moment a
 	// session opens, long before any live turn_end would stream values.
 	ctxUsed, cost := sessionGauge(s, sess)
-	return &lyonv1.Session{
-		Id:         ref.ID,
-		Workspace:  s.eng.Config().Workspace,
-		Model:      s.eng.Config().Model,
-		Title:      sess.Title(),
-		Mode:       string(sess.Mode()),
-		Busy:       sess.Busy(),
-		QueueLen:   int32(sess.QueueLen()),
-		Turns:      int32(len(sess.Stats())),
-		CreatedAt:  timestamppb.New(ref.Created),
-		LastActive: timestamppb.New(ref.LastActive),
-		// windowFor (cmd/lyon/usage.go) twin: knowledge window when the
-		// model is on file, the configured fallback otherwise — the ctx
-		// gauge's denominator.
-		ContextWindow: windowForModel(s.eng.Config()),
-		CtxUsed:       ctxUsed,
-		CostUsd:       cost,
-		Vision:        modelVision(s.eng.Config()),
-	}
+	out.Title = sess.Title()
+	out.Mode = string(sess.Mode())
+	out.Busy = sess.Busy()
+	out.QueueLen = int32(sess.QueueLen())
+	out.Turns = int32(len(sess.Stats()))
+	out.CtxUsed = ctxUsed
+	out.CostUsd = cost
+	return out
 }
 
 // modelVision reports whether the session model takes image input — the

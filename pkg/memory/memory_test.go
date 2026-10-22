@@ -14,11 +14,13 @@ import (
 )
 
 // freshStore builds a Store over isolated dirs (LYON_HOME + workspace),
-// clearing the package cache so tests never share state.
+// clearing the package cache so tests never share state. Both dirs use the
+// retrying cleanup (scratchTempDir): fact writes are still settling when the
+// framework's RemoveAll walks the tree on Windows.
 func freshStore(t *testing.T) *Store {
 	t.Helper()
-	home := t.TempDir()
-	ws := t.TempDir()
+	home := scratchTempDir(t)
+	ws := scratchTempDir(t)
 	t.Setenv("LYON_HOME", home)
 	t.Setenv("LYON_SYNC_URL", "")
 	storesMu.Lock()
@@ -163,8 +165,8 @@ func TestSearchPrefersCloserScope(t *testing.T) {
 // TestMigrationFromLegacyJSON: the old memory.json becomes project facts
 // exactly once; the original is parked as memory.json.imported.
 func TestMigrationFromLegacyJSON(t *testing.T) {
-	home := t.TempDir()
-	ws := t.TempDir()
+	home := scratchTempDir(t)
+	ws := scratchTempDir(t)
 	t.Setenv("LYON_HOME", home)
 	storesMu.Lock()
 	stores = map[string]*Store{}

@@ -24,8 +24,7 @@ import (
 // and in-memory aggregates.
 func newDashboardFixture(t *testing.T) (lyonv1connect.DashboardServiceClient, string) {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("LYON_HOME", home)
+	home := scratchHome(t)
 	eng := agent.NewEngine(agent.DefaultConfig(), nil)
 	s := New(eng, NewStore(0, 0))
 	s.SetObserver(tools.NewMetrics())

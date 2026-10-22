@@ -9,11 +9,13 @@ import (
 
 // tmpWS returns an isolated workspace with its own LYON_HOME so the
 // process-wide store cache keyed by workspace cannot bleed between tests.
+// Both roots use the retrying cleanup (scratchTempDir): Save writes facts
+// right up to the end, and Windows can still hold them at teardown.
 func tmpWS(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
+	home := scratchTempDir(t)
 	t.Setenv("LYON_HOME", home)
-	ws := t.TempDir()
+	ws := scratchTempDir(t)
 	t.Cleanup(func() {
 		storesMu.Lock()
 		delete(loaders, mustAbs(ws))
@@ -304,6 +306,28 @@ func TestSaveIsCheaperThanFullRebuild(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 	upsertCost := time.Since(start)
+
+	// Both sides are wall-clock on a shared machine: a single round can be
+	// eaten by a scheduler slice or an antivirus scan of the fresh file, and
+	// Save also pays a real disk write that the rebuild does not. Take the
+	// best of a few rounds each (the same rule bench/load_test.go uses) —
+	// the ratio is what this gate is about, not one unlucky round.
+	for i := 1; i < 3; i++ {
+		start = time.Now()
+		s.mu.Lock()
+		s.ix.build(all)
+		s.mu.Unlock()
+		if d := time.Since(start); d < fullCost {
+			fullCost = d
+		}
+		start = time.Now()
+		if _, err := s.Save(one); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+		if d := time.Since(start); d < upsertCost {
+			upsertCost = d
+		}
+	}
 
 	t.Logf("full rebuild=%v single Save=%v over %d facts", fullCost, upsertCost, n)
 	if upsertCost >= fullCost {

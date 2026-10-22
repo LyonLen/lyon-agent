@@ -23,7 +23,7 @@ func rec(class string, durMS int64, errStr string) Record {
 // an unpriced class borrows the global pool, and an empty ledger has no
 // opinion at all.
 func TestRecordEstimateRoundTrip(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	tab := Open()
 
 	// Empty ledger: no history, no number.
@@ -65,7 +65,7 @@ func TestRecordEstimateRoundTrip(t *testing.T) {
 // TestEstimateWindowTracksRecentPace: the window is the LAST n successful
 // runs, so a pace change shows up without waiting for old rows to age out.
 func TestEstimateWindowTracksRecentPace(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	tab := Open()
 	class := string(routing.Classify(codingText))
 
@@ -87,8 +87,7 @@ func TestEstimateWindowTracksRecentPace(t *testing.T) {
 // TestPersistenceAndClip: the ledger survives a reload, prompts clip to
 // their preview length, and the cap trims the oldest rows.
 func TestPersistenceAndClip(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("LYON_HOME", home)
+	scratchHome(t)
 
 	tab := Open()
 	tab.Record(Record{Class: "coding", Prompt: strings.Repeat("x", 300), DurMS: 5, TS: time.Now()})
@@ -115,7 +114,7 @@ func TestPersistenceAndClip(t *testing.T) {
 // TestStatsAggregation: the /market table's per-class rollup counts only
 // successful runs, newest class first, averages correct.
 func TestStatsAggregation(t *testing.T) {
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	tab := Open()
 	tab.Record(rec("coding", 10_000, ""))
 	tab.Record(rec("coding", 20_000, ""))

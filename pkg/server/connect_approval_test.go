@@ -31,7 +31,7 @@ func newApprovalFixture(t *testing.T, script []mockapi.Turn) (lyonv1connect.Sess
 	// earlier test would auto-approve later tests' tools before they
 	// ever park. Tests that need to observe the home read it back from
 	// the env after this call.
-	t.Setenv("LYON_HOME", t.TempDir())
+	scratchHome(t)
 	mock := mockapi.New(mockapi.Config{Script: script, Latency: time.Millisecond})
 	t.Cleanup(mock.Close)
 	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())

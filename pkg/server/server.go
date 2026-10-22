@@ -98,6 +98,17 @@ func (s *Server) dropSession(id string) bool {
 	return ok
 }
 
+// parkSession takes a session out of memory without destroying it — the
+// teardown for a stream that lost its reader. The driver must stop, but the
+// conversation is the user's: it stays on disk under the same id and the
+// next prompt adopts it back. Deleting here is what turned a dropped SSE
+// connection into vanished history.
+func (s *Server) parkSession(id string) bool {
+	ok := s.store.Park(id)
+	s.term.killBySession(id)
+	return ok
+}
+
 // SetToken installs the bearer token that every route except GET /healthz
 // will require. Empty disables auth (safe only behind loopback or a proxy).
 // Call before Handler.
@@ -329,8 +340,10 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		// Client gone or write deadline tripped. The driver may be wedged
 		// mid-prompt with nobody reading its bounded buffer — close the
 		// session so it stops. Headers are already out, so the client just
-		// sees the stream end without prompt_end.
-		s.dropSession(id)
+		// sees the stream end without prompt_end. Park rather than delete:
+		// the prompt already ran, and losing the conversation because a tab
+		// closed is not a trade the user agreed to.
+		s.parkSession(id)
 		return
 	}
 }
@@ -338,7 +351,10 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 // handleMessage runs one prompt against an existing session as SSE.
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	sess, err := s.store.Get(id)
+	// Acquire, not Get: a seat that only exists on disk is adopted here, so
+	// a prompt written to it after a restart lands in the same conversation
+	// instead of 404ing on an id the list just showed.
+	sess, err := s.acquire(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
 		return
@@ -376,9 +392,10 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	// From here the response is an SSE stream. On a broken stream (disconnect
 	// or slow-client kick) the session would wedge mid-prompt with nobody
-	// watching, so a failure tears the session down.
+	// watching, so a failure takes it out of memory — parked, not deleted:
+	// the dump keeps the conversation and the next prompt adopts it back.
 	if err := streamPrompt(w, r, sub); err != nil {
-		s.dropSession(id)
+		s.parkSession(id)
 		return
 	}
 }
@@ -392,7 +409,9 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	sess, err := s.store.Get(r.PathValue("id"))
+	// Read-only: a parked seat's turn stats come from its dump metadata, so
+	// polling stats never drags every idle conversation back into memory.
+	stats, err := s.seatTurns(r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
 		return
@@ -405,7 +424,6 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		DurationMS int64       `json:"duration_ms"`
 		At         string      `json:"at"`
 	}
-	stats := sess.Stats()
 	out := make([]turnStat, len(stats))
 	for i, t := range stats {
 		out[i] = turnStat{

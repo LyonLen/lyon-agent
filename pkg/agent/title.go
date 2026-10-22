@@ -114,6 +114,9 @@ func (s *Session) RefreshTitle(ctx context.Context) (string, bool, error) {
 	s.mu.Lock()
 	s.title = title
 	s.mu.Unlock()
+	// A fresh intent label belongs on disk with the conversation, so a
+	// restarted lyond lists the titled session, not "(untitled)".
+	s.notifyDirty()
 	return title, true, nil
 }
 
@@ -200,6 +203,9 @@ func (s *Session) IntervalTitle(ctx context.Context) (string, bool, error) {
 	s.mu.Lock()
 	s.title = title
 	s.mu.Unlock()
+	// A fresh intent label belongs on disk with the conversation, so a
+	// restarted lyond lists the titled session, not "(untitled)".
+	s.notifyDirty()
 	return title, true, nil
 }
 

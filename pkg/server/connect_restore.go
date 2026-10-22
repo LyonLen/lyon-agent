@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -39,13 +40,25 @@ func (c *sessionService) RestoreSession(_ context.Context, req *connect.Request[
 			fmt.Errorf("no snapshot at %s", path))
 	}
 
-	// Idempotent restore: the same snapshot maps to ONE live session.
-	// Double-clicking a SAVED row focuses that session instead of minting
-	// a fresh copy per click (the "四个会话都是同一个" bug).
+	// Idempotent restore: a snapshot belongs to exactly ONE seat.
+	//
+	// The durable key is the snapshot's own seat id, not this process's map:
+	// the file carries the id the conversation was created under, so after a
+	// restart the same SAVED row still resolves to the same conversation
+	// instead of minting a copy per process. The path map stays as the
+	// fallback for snapshots written before seats existed (no id).
+	if snap.ID != "" {
+		if ref, err := c.s.seatRef(snap.ID); err == nil {
+			return connect.NewResponse(&lyonv1.RestoreSessionResponse{
+				Session:          protoSession(c.s, ref),
+				RestoredMessages: int32(len(snap.Messages)),
+			}), nil
+		}
+	}
 	c.s.restoreMu.Lock()
 	defer c.s.restoreMu.Unlock()
 	if id, ok := c.s.restored[path]; ok {
-		if ref, err := c.s.store.Ref(id); err == nil {
+		if ref, err := c.s.seatRef(id); err == nil {
 			return connect.NewResponse(&lyonv1.RestoreSessionResponse{
 				Session:          protoSession(c.s, ref),
 				RestoredMessages: int32(len(snap.Messages)),
@@ -58,10 +71,31 @@ func (c *sessionService) RestoreSession(_ context.Context, req *connect.Request[
 	// No in-flight prompt on a brand-new session — Restore's settle
 	// precondition is trivially met.
 	sess.Restore(*snap)
-	id, err := c.s.store.Create(sess)
-	if err != nil {
-		sess.Close()
-		return nil, rpcErr(err)
+	var id string
+	if snap.ID != "" {
+		// Re-open under the dump's own id: the conversation keeps its
+		// identity, and a concurrent second click loses the race to
+		// Register and lands on the winner instead of a duplicate.
+		id = snap.ID
+		if err := c.s.store.Register(sess, id); err != nil {
+			sess.Close()
+			if errors.Is(err, errSeatExists) {
+				if ref, rerr := c.s.seatRef(id); rerr == nil {
+					return connect.NewResponse(&lyonv1.RestoreSessionResponse{
+						Session:          protoSession(c.s, ref),
+						RestoredMessages: int32(len(snap.Messages)),
+					}), nil
+				}
+			}
+			return nil, rpcErr(err)
+		}
+	} else {
+		var err error
+		id, err = c.s.store.Create(sess)
+		if err != nil {
+			sess.Close()
+			return nil, rpcErr(err)
+		}
 	}
 	h, err := c.s.store.Hub(id)
 	if err != nil {

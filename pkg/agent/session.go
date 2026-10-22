@@ -225,6 +225,24 @@ type Session struct {
 	// uiState, separate field so the Steps format stays untouched.
 	uiTodos json.RawMessage
 
+	// seatID/createdAt/lastActive are the server-side identity this
+	// session was registered under (Store.Create). Export stamps them into
+	// every dump, so the file on disk carries its own seat: a restarted
+	// lyond re-adopts it under the same id instead of listing the same
+	// conversation twice. Empty/zero for TUI sessions, which have no seat.
+	// Guarded by mu.
+	seatID     string
+	createdAt  time.Time
+	lastActive time.Time
+
+	// mirror is the live-draft seam (draft.go): non-nil once the session
+	// owns a draft file. Every state change that belongs on disk — a
+	// submitted prompt, a mode switch, a fresh title — calls notifyDirty,
+	// which only schedules (Draft.Touch never blocks). Atomic because
+	// NewDraft installs it while the drive and title goroutines may
+	// already be reading it.
+	mirror atomic.Pointer[Draft]
+
 	// distillHash fingerprints the last rendering the extractor handled
 	// successfully (distill.go): exit right after /remember skips the
 	// duplicate LLM pass. Guarded by mu.
@@ -343,6 +361,9 @@ func (s *Session) SubmitOn(prompt, model string) error {
 		s.recentPrompts = appendPromptTail(s.recentPrompts, prompt)
 		s.prompts++
 		s.mu.Unlock()
+		// The seat must be on disk before the run even starts: a hard kill
+		// mid-prompt then leaves the session discoverable under this id.
+		s.notifyDirty()
 		s.eng.hooks.Fire(hooks.Record{Event: hooks.EvPromptStart, Prompt: prompt})
 		return nil
 	case <-s.ctx.Done():
@@ -825,6 +846,12 @@ func (s *Session) drive(prompt, runModel string) {
 		DurationMS: time.Since(promptStart).Milliseconds(),
 		TS:         time.Now(),
 	}
+	// The run's result belongs on disk before the announcement: submit only
+	// mirrored the question, so without this touch the answer stays in
+	// memory until the next state change — and a hard kill loses the whole
+	// run. Touch only schedules; the write waits on histMu, which is
+	// released when this function returns.
+	s.notifyDirty()
 	// Close this run's dump (#3) before announcing: assembly is in-memory,
 	// the disk write rides its own goroutine (Close waits it out), and a
 	// write failure is only audited (dump_error) — the run's outcome is
