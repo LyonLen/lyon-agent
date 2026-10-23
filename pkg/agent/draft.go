@@ -10,11 +10,11 @@ import (
 
 // Live drafts: the dump IS the session. A live session mirrors its
 // conversation into a per-session draft file on every state change, so a hard
-// kill — taskkill /F, OOM, power loss — costs at most the prompt that was
-// running, and a clean exit has nothing left to write. Drafts live one level
-// below the workspace archive (sessions/<hash16>/drafts/), where
-// ListSnapshots' archive scan ignores them: the seat list is the only place a
-// conversation appears.
+// kill — taskkill /F, OOM, power loss — costs at most the turn that was
+// running (the drive settles every completed turn), and a clean exit has
+// nothing left to write. Drafts live one level below the workspace archive
+// (sessions/<hash16>/drafts/), where ListSnapshots' archive scan ignores
+// them: the seat list is the only place a conversation appears.
 //
 // They are not swept or archived. Each draft carries its seat id, so the next
 // lyond startup indexes them (Store.LoadDrafts) and re-adopts one on first
@@ -58,11 +58,10 @@ func WriteSnapshotFile(path string, snap Snapshot) error {
 }
 
 // Draft mirrors a live session's conversation to a fixed path. Touch
-// schedules a write and returns immediately: the hub calls it from its
-// consumer goroutine, and Export blocks on histMu until the prompt that
-// just ended releases the history — so the write itself runs on its own
-// goroutine. At most one write is in flight per session; Touches arriving
-// meanwhile collapse into one follow-up write.
+// schedules a write and returns immediately: the writer copies the last
+// settled snapshot (Settled — mu-guarded, never histMu), so a write can
+// land while a prompt is running. At most one write is in flight per
+// session; Touches arriving meanwhile collapse into one follow-up write.
 type Draft struct {
 	sess *Session
 	path string
@@ -136,7 +135,10 @@ func (d *Draft) run() {
 		d.mu.Unlock()
 		// Best effort, like the exit-time archive: a disk error must not
 		// wedge the session, and the next state change retries anyway.
-		_ = WriteSnapshotFile(d.path, d.sess.Export())
+		// Settled, not Export: the mirror must land even while histMu is
+		// held by a running prompt (that wait is what used to erase a
+		// first-prompt session whole on a hard kill).
+		_ = WriteSnapshotFile(d.path, d.sess.Settled())
 	}
 }
 

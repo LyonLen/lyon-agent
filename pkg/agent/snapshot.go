@@ -132,6 +132,49 @@ func (s *Session) SetTodos(raw []byte) {
 	s.notifyDirty()
 }
 
+// Settled is the draft mirror's read: like Export, but it copies the last
+// prompt-boundary snapshot (settleLocked) under mu instead of waiting on
+// histMu. It can lag the live conversation by the turn in flight right
+// now — that is the contract. A mirror write never blocks and never lies
+// about settled history.
+func (s *Session) Settled() Snapshot {
+	s.mu.Lock()
+	msgs := append([]anthropic.BetaMessageParam(nil), s.settledMsgs...)
+	pending := append([]anthropic.BetaContentBlockParamUnion(nil), s.settledPending...)
+	title, first := s.title, s.firstPrompt
+	id, created, lastActive := s.seatID, s.createdAt, s.lastActive
+	uiState := append(json.RawMessage(nil), s.uiState...)
+	uiTodos := append(json.RawMessage(nil), s.uiTodos...)
+	turns := append([]TurnStat(nil), s.turns...)
+	s.mu.Unlock()
+	// Same monotonicity as Export: a slow mirror landing after a newer one
+	// must not reorder the seat list.
+	now := time.Now()
+	if now.After(lastActive) {
+		lastActive = now
+	}
+	if lastActive.IsZero() {
+		lastActive = now
+	}
+	return Snapshot{
+		Version:            snapshotVersion,
+		Workspace:          s.eng.cfg.Workspace,
+		Model:              s.eng.model(),
+		ID:                 id,
+		CreatedAt:          created,
+		LastActive:         lastActive,
+		Mode:               string(s.Mode()),
+		Title:              title,
+		FirstPrompt:        first,
+		SavedAt:            now,
+		Messages:           msgs,
+		PendingToolResults: pending,
+		Turns:              turns,
+		Steps:              uiState,
+		Todos:              uiTodos,
+	}
+}
+
 // Export captures the conversation history. histMu makes it wait for an
 // in-flight prompt to finish its bookkeeping, so at exit call Interrupt
 // first and then Export — you get one stable, fully-repaired history.
@@ -216,6 +259,10 @@ func (s *Session) Restore(snap Snapshot) {
 	s.subUsage = nil // subagent lines aren't snapshotted — reset with turns
 	s.title = snap.Title
 	s.firstPrompt = snap.FirstPrompt
+	// A restored conversation is settled history by definition: the mirror
+	// writes it without waiting on any prompt boundary.
+	s.settledMsgs = append([]anthropic.BetaMessageParam(nil), msgs...)
+	s.settledPending = append([]anthropic.BetaContentBlockParamUnion(nil), snap.PendingToolResults...)
 	// The placeholder (#44) is derived, never stored: a snapshot archived
 	// before the intent pass still shows its question on resume, and a
 	// stored title always wins. Reset (empty snapshot) clears both.

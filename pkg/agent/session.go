@@ -235,6 +235,14 @@ type Session struct {
 	createdAt  time.Time
 	lastActive time.Time
 
+	// settledMsgs/settledPending are the last prompt-boundary history the
+	// drive goroutine snapshotted (settleLocked): what the draft mirror
+	// writes without waiting on histMu. The two can lag the live history
+	// by the turn in flight right now — that is the contract. Guarded by
+	// mu, written only while holding histMu (lock order preserved).
+	settledMsgs    []anthropic.BetaMessageParam
+	settledPending []anthropic.BetaContentBlockParamUnion
+
 	// mirror is the live-draft seam (draft.go): non-nil once the session
 	// owns a draft file. Every state change that belongs on disk — a
 	// submitted prompt, a mode switch, a fresh title — calls notifyDirty,
@@ -589,6 +597,12 @@ func (s *Session) drive(prompt, runModel string) {
 	defer s.histMu.Unlock()
 	defer s.busy.Store(false)
 	s.iterOffset = 0
+	// Settle before anything consumes state: the mirror must carry the
+	// previous prompt's closed history (including any repair results
+	// queued at its prompt_end) even if this prompt dies instantly. For a
+	// brand-new session this writes the empty seed — a first-prompt kill
+	// lands its first content at the first turn boundary below.
+	s.settleLocked()
 	// Wall-clock start of the whole prompt (stream + tools); reported on
 	// prompt_end so every frontend can show the total execution time (#43).
 	promptStart := time.Now()
@@ -793,6 +807,13 @@ func (s *Session) drive(prompt, runModel string) {
 					}
 				}
 			}
+			// Per-turn durability seam: every completed turn lands in the
+			// settled snapshot and schedules a mirror write, so a hard kill
+			// mid-prompt keeps every finished turn — including turns 1..n
+			// of a session's very first prompt. Compaction ran above, so
+			// this captures the post-compaction history too.
+			s.settleLocked()
+			s.notifyDirty()
 		}
 	}
 
@@ -849,8 +870,10 @@ func (s *Session) drive(prompt, runModel string) {
 	// The run's result belongs on disk before the announcement: submit only
 	// mirrored the question, so without this touch the answer stays in
 	// memory until the next state change — and a hard kill loses the whole
-	// run. Touch only schedules; the write waits on histMu, which is
-	// released when this function returns.
+	// run. Settle first (repairs above may have queued results), then
+	// Touch: the write copies the settled snapshot under mu — it does not
+	// wait on histMu, which this goroutine still holds.
+	s.settleLocked()
 	s.notifyDirty()
 	// Close this run's dump (#3) before announcing: assembly is in-memory,
 	// the disk write rides its own goroutine (Close waits it out), and a
@@ -858,6 +881,62 @@ func (s *Session) drive(prompt, runModel string) {
 	// already settled here, success, failure or interrupt alike.
 	s.finishRunDump(pe)
 	s.emit(pe)
+}
+
+// settleLocked snapshots the current conversation into the mu-guarded
+// settled fields the draft mirror writes (draft.go). Callers hold histMu —
+// the copy itself is the point: the mirror writer must never wait on
+// histMu, so a hard kill mid-prompt costs at most the turn that was
+// running. Before this existed, every notifyDirty fired while a prompt was
+// in flight sat blocked on Export's histMu until prompt_end — the first
+// prompt of a session therefore left nothing on disk at all, which is how
+// a 120-tool-call run died with no draft, no dump and no archive.
+func (s *Session) settleLocked() {
+	var msgs []anthropic.BetaMessageParam
+	switch {
+	case s.runner != nil:
+		msgs = s.runner.Params.Messages
+	default:
+		msgs = s.seed
+	}
+	// Same guard as Export: never persist a malformed entry.
+	if fixed, ok := sanitizeMessages(msgs); ok {
+		msgs = fixed
+	}
+	pending := append([]anthropic.BetaContentBlockParamUnion(nil), s.pendingToolResults...)
+	if len(pending) == 0 {
+		// Mid-prompt a tool_use turn may not have its results appended yet;
+		// synthesize the resume-safe form so the snapshot is loadable.
+		pending = trailingToolResults(msgs)
+	}
+	s.mu.Lock()
+	s.settledMsgs = append([]anthropic.BetaMessageParam(nil), msgs...)
+	s.settledPending = pending
+	s.mu.Unlock()
+}
+
+// trailingToolResults synthesizes error tool_results for a history that
+// ends in an assistant tool_use with no results — the stateless twin of
+// repairInterruptedHistory. It mutates nothing: the caller carries the
+// blocks as PendingToolResults so the next buildHistory merges them
+// exactly like the in-process repair would.
+func trailingToolResults(msgs []anthropic.BetaMessageParam) []anthropic.BetaContentBlockParamUnion {
+	if len(msgs) == 0 {
+		return nil
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != anthropic.BetaMessageParamRoleAssistant {
+		return nil
+	}
+	var out []anthropic.BetaContentBlockParamUnion
+	for _, b := range last.Content {
+		if tu := b.OfToolUse; tu != nil {
+			res := anthropic.NewBetaToolResultTextBlockParam(
+				tu.ID, "prompt interrupted before the tool finished", true)
+			out = append(out, anthropic.BetaContentBlockParamUnion{OfToolResult: &res})
+		}
+	}
+	return out
 }
 
 // repairInterruptedHistory queues synthetic error tool_results when the
