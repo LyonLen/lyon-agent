@@ -2056,6 +2056,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// hot tier, so the NEXT session's MemoryFacts carries it —
 			// deduped and audited inside, best-effort like distill.
 			_ = rememberDiagnosis(m.workspace, m.sess.Hooks().Fire, d)
+			// Space writeback: the CURRENT agent owns the lesson about
+			// its own failure — self-evolution's disk half.
+			rememberDiagnosisSpace(m.sess.Agent(), m.sess.Hooks().Fire, d)
+			// 自己进化: the same lesson spawns the next generation of
+			// this agent (child inherits the space; gen capped at 3).
+			if child, err := evolveFromDiagnosis(m.sess, d); err == nil {
+				m.evoOutput(paint(cMagenta, "· evolve") +
+					fmt.Sprintf("  %s spawned from %s (gen %d)", child.ID, child.Parent, child.Gen))
+			}
 		}
 		m.refresh()
 
@@ -2098,6 +2107,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				card += "\n" + paint(cRed, "  demoted after two failures — the seat is open")
 			}
 			m.evoOutput(card)
+			// 自己进化: a failed exam distills into the next generation —
+			// the missed questions are the lesson (gen capped at 3).
+			if !msg.res.Passed {
+				if child, err := evolveFromExamFail(m.sess, msg.res); err == nil {
+					m.evoOutput(paint(cMagenta, "· evolve") +
+						fmt.Sprintf("  %s spawned from %s (gen %d) — missed exam → lesson",
+							child.ID, child.Parent, child.Gen))
+				}
+			}
 		}
 		m.refresh()
 
@@ -2560,12 +2578,15 @@ func (m *tuiModel) sendPrompt(line string) tea.Cmd {
 	// config model via plain Submit.
 	model, entry, swapped := routingSwap(m.cfg.Model, line)
 	m.runModel = model
+	// 进化重定义: a confident seat also switches the session's agent
+	// identity — its specialist space follows the prompt.
+	adoptAgent(m.sess, entry)
 	var err error
 	if swapped {
 		err = m.sess.SubmitOn(line, model)
 		if err == nil {
-			m.pushStyled(paint(cCyan, fmt.Sprintf("⇄ routing [%s] → %s (conf %.2f, n=%d)",
-				entry.Class, model, entry.Confidence, entry.Samples)))
+			m.pushStyled(paint(cCyan, fmt.Sprintf("⇄ routing [%s] → %s · agent %s (conf %.2f, n=%d)",
+				entry.Class, model, entry.Agent, entry.Confidence, entry.Samples)))
 		}
 	} else {
 		err = m.sess.Submit(line)

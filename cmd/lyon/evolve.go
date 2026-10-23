@@ -29,6 +29,7 @@ import (
 	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/models"
 	"lyon-agent/pkg/routing"
+	"lyon-agent/pkg/space"
 )
 
 // examMaxTokens bounds one closed-book answer: a paragraph of facts,
@@ -100,11 +101,24 @@ func coverageBook(sess *agent.Session) eval.Book {
 	}
 }
 
+// loadExam picks a class's held-out bank: the project class is the
+// dynamic, workspace-generated exam (its questions come from go.mod,
+// README, cmd/ and the project memory layer); every other class uses
+// the frozen seed bank.
+func loadExam(workspace, class string) (eval.Exam, error) {
+	if class == eval.ProjectExamClass {
+		return eval.LoadProjectExam(workspace)
+	}
+	return eval.LoadOrSeedExam(class)
+}
+
 // examAnswerer answers one question with the exam system prompt —
-// no tools, no files, weights only.
-func examAnswerer(sess *agent.Session) eval.Answerer {
+// no tools, no files, weights only. The project class also carries the
+// standing project context so its questions are answerable closed-book.
+func examAnswerer(sess *agent.Session, ex eval.Exam) eval.Answerer {
+	sys := eval.ProjectSystem(ex, sess.Workspace())
 	return func(ctx context.Context, q string) (string, error) {
-		return sess.Ask(ctx, eval.ClosedBookSystem, q, examMaxTokens)
+		return sess.Ask(ctx, sys, q, examMaxTokens)
 	}
 }
 
@@ -234,10 +248,10 @@ func (m *tuiModel) kickExam(class, why string) {
 		defer cancel()
 		var res eval.ExamResult
 		var err error
-		if ex, e := eval.LoadOrSeedExam(class); e != nil {
+		if ex, e := loadExam(sess.Workspace(), class); e != nil {
 			err = e
 		} else {
-			res = eval.RunExam(ctx, ex, examAnswerer(sess))
+			res = eval.RunExam(ctx, ex, examAnswerer(sess, ex))
 		}
 		if p := tuiProg.Load(); p != nil {
 			p.Send(examDone{class: class, why: why, res: res, err: err, step: step})
@@ -267,9 +281,11 @@ type contestDone struct {
 // examAnswererOn answers closed-book on a specific candidate's model —
 // the grading channel of the contest: each entrant must face the same
 // held-out bank on ITS OWN model, or the result grades the wrong agent.
-func examAnswererOn(sess *agent.Session, model string) eval.Answerer {
+// Like examAnswerer, the project class also carries its standing context.
+func examAnswererOn(sess *agent.Session, model string, ex eval.Exam) eval.Answerer {
+	sys := eval.ProjectSystem(ex, sess.Workspace())
 	return func(ctx context.Context, q string) (string, error) {
-		return sess.AskModel(ctx, model, eval.ClosedBookSystem, q, examMaxTokens)
+		return sess.AskModel(ctx, model, sys, q, examMaxTokens)
 	}
 }
 
@@ -347,7 +363,7 @@ func runContest(ctx context.Context, sess *agent.Session, selfModel, class strin
 	if len(cands) <= 1 {
 		return nil, "", errors.New(contestNoFieldHint())
 	}
-	ex, err := eval.LoadOrSeedExam(class)
+	ex, err := loadExam(sess.Workspace(), class)
 	if err != nil {
 		return nil, "", err
 	}
@@ -357,7 +373,7 @@ func runContest(ctx context.Context, sess *agent.Session, selfModel, class strin
 		wg.Add(1)
 		go func(i int, c eval.Candidate) {
 			defer wg.Done()
-			res := eval.RunExam(ctx, ex, examAnswererOn(sess, c.Model))
+			res := eval.RunExam(ctx, ex, examAnswererOn(sess, c.Model, ex))
 			rows[i] = contestRow{ID: c.ID, Model: c.Model, Pct: res.Pct, Passed: res.Passed}
 		}(i, c)
 	}
@@ -377,7 +393,34 @@ func runContest(ctx context.Context, sess *agent.Session, selfModel, class strin
 	for _, r := range rows {
 		if r.ID == winner {
 			routing.Open().Record(class, r.ID, r.Model, r.Pct)
+			// 共识共享: winning a held-out election is the strongest
+			// endorsement there is — the winner's whole specialist space
+			// shares to commons (items reaching 2 sources promote).
+			space.ShareAll(winner, "contest:"+class)
 			break
+		}
+	}
+	// 自己进化's other half: every evolved child in the field must beat
+	// its parent on THIS held-out sitting, or the lineage is cut —
+	// 每代必须比上代分数高，否则淘汰. Both must have sat the same exam
+	// for the comparison to mean anything; a parent absent from the
+	// field leaves the child to the election alone.
+	scoreOf := func(id string) (float64, bool) {
+		for _, r := range rows {
+			if r.ID == id {
+				return r.Pct, true
+			}
+		}
+		return 0, false
+	}
+	for _, c := range cands {
+		if c.Gen == 0 || c.Parent == "" {
+			continue
+		}
+		parentPct, parentSat := scoreOf(c.Parent)
+		childPct, _ := scoreOf(c.ID)
+		if parentSat && childPct <= parentPct {
+			_ = eval.DeleteCandidate(c.ID) // best-effort; the row still reports the score
 		}
 	}
 	return rows, winner, nil
@@ -488,8 +531,11 @@ func (m *tuiModel) marketCommand(args string) {
 
 // countRound books one production round for the class of the prompt
 // that just finished and fires the exam when the clock strikes ten.
-// LYON_EXAM=off opts out of the automatic trigger (the round still
-// counts). Called from prompt_end's success leg only.
+// The project class rides the same clock on every round: its bank is
+// generated from the workspace, so it belongs to no task class but must
+// still sit on schedule. LYON_EXAM=off opts out of the automatic
+// trigger (the round still counts). Called from prompt_end's success
+// leg only.
 func (m *tuiModel) countRound() {
 	if len(m.hist) == 0 {
 		return
@@ -497,11 +543,23 @@ func (m *tuiModel) countRound() {
 	class := string(routing.Classify(m.hist[len(m.hist)-1]))
 	lb := eval.OpenLeaderboard()
 	rounds, due := lb.CountRound(class)
-	if !due || strings.EqualFold(os.Getenv("LYON_EXAM"), "off") {
+	// The dynamic project exam books a round on every production run —
+	// its questions regenerate from go.mod/README/cmd/memory, so the
+	// exam tracks the project itself, not a task class.
+	projRounds, projDue := lb.CountRound(eval.ProjectExamClass)
+	// LYON_EXAM=off opts out of the trigger only: both rounds above
+	// still count (the clock advances, the exam simply never fires).
+	if strings.EqualFold(os.Getenv("LYON_EXAM"), "off") {
 		return
 	}
-	m.kickExam(class, fmt.Sprintf("round %d/%d — exam due",
-		rounds, eval.ExamInterval))
+	if due {
+		m.kickExam(class, fmt.Sprintf("round %d/%d — exam due",
+			rounds, eval.ExamInterval))
+	}
+	if projDue {
+		m.kickExam(eval.ProjectExamClass, fmt.Sprintf("round %d/%d — project exam due",
+			projRounds, eval.ExamInterval))
+	}
 }
 
 // ── production scoring ────────────────────────────────────────────
@@ -565,6 +623,60 @@ func routingSwap(current, prompt string) (string, routing.Entry, bool) {
 		return current, e, false
 	}
 	return e.Model, e, true
+}
+
+// ── self-evolution spawns (2026-10-23 重定义) ─────────────────────
+
+// evolveFromDiagnosis turns a post-mortem into the next generation of
+// the CURRENT agent: the child inherits its space and carries the
+// failed conditions + patch as its first lesson. Best-effort by
+// design — an exhausted lineage (gen ≥ 3) or a disk failure logs
+// nothing fatal; the lesson already lives in memory and space.
+func evolveFromDiagnosis(sess *agent.Session, d eval.Diagnosis) (eval.Candidate, error) {
+	lesson := d.Patch
+	if len(d.FailedConditions) > 0 {
+		lesson = "failed: " + strings.Join(d.FailedConditions, "; ") + " — fix: " + d.Patch
+	}
+	if strings.TrimSpace(lesson) == "" {
+		return eval.Candidate{}, errors.New("evolve: empty diagnosis")
+	}
+	return eval.EvolveChild(sess.Agent(), lesson)
+}
+
+// evolveFromExamFail turns a failed closed-book exam into the next
+// generation: the lesson is the list of missed questions — exactly what
+// the parent could not answer.
+func evolveFromExamFail(sess *agent.Session, res eval.ExamResult) (eval.Candidate, error) {
+	var missed []string
+	for _, a := range res.Answers {
+		if !a.OK {
+			missed = append(missed, a.Q)
+		}
+	}
+	if len(missed) == 0 {
+		return eval.Candidate{}, errors.New("evolve: exam passed — nothing to distill")
+	}
+	lesson := fmt.Sprintf("could not answer closed-book (%.0f%%): %s",
+		res.Pct*100, strings.Join(missed, "; "))
+	return eval.EvolveChild(sess.Agent(), lesson)
+}
+
+// adoptAgent binds the session to a routed specialist when its seat has
+// earned the evidence gate (same bar routingSwap applies): the session
+// identity switches — the space tool then writes into THIS agent's
+// store — and the model is told what its space carries via a system
+// note at the next turn boundary. Adopting the identity even when the
+// specialist's model equals the session's is deliberate: a one-model
+// gateway still wants the right persona and the right space. Shared by
+// the TUI's sendPrompt and the CLI's run path.
+func adoptAgent(sess *agent.Session, e routing.Entry) {
+	if sess == nil || e.Agent == "" || e.Agent == sess.Agent() || e.Samples < 3 || e.Confidence < 0.35 {
+		return
+	}
+	sess.SetAgent(e.Agent)
+	if brief := space.Brief(e.Agent); brief != "" {
+		sess.PushSystemNote(brief)
+	}
 }
 
 // kickScore grades the prompt that just finished: one cheap
@@ -887,13 +999,13 @@ func (m *tuiModel) kickFlowSave(slug string) tea.Cmd {
 
 		// §1.4 precondition: pass a closed-book exam before freezing.
 		class := string(routing.Classify(prompts[0]))
-		ex, err := eval.LoadOrSeedExam(class)
+		ex, err := loadExam(sess.Workspace(), class)
 		if err != nil {
 			msg.err = err
 			send()
 			return
 		}
-		msg.exam = eval.RunExam(ctx, ex, examAnswerer(sess))
+		msg.exam = eval.RunExam(ctx, ex, examAnswerer(sess, ex))
 		if !msg.exam.Passed {
 			msg.err = fmt.Errorf("exam %s failed (%.0f%%) — a procedure freezes only over a passing exam",
 				class, msg.exam.Pct*100)

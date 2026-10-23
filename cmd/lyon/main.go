@@ -495,12 +495,15 @@ func cmdRun(args []string) int {
 	// Self-evolution closes the loop here (design §5): an unpinned run
 	// works on whoever the routing network recommends for this task's
 	// class — exams and scores change who works next. An explicit
-	// -model always wins.
+	// -model always wins. The elected entry rides along so the session
+	// can adopt that agent's specialist identity once it exists.
+	var routedEntry routing.Entry
 	if *cf.model == "" {
 		if model, e, ok := routingSwap(cfg.Model, prompt); ok {
-			fmt.Printf("%s [%s] %s (%d samples, confidence %.2f)\n",
-				paint(cCyan, "⇄ routing"), e.Class, model, e.Samples, e.Confidence)
+			fmt.Printf("%s [%s] → %s · agent %s (%d samples, confidence %.2f)\n",
+				paint(cCyan, "⇄ routing"), e.Class, model, e.Agent, e.Samples, e.Confidence)
 			cfg.Model = model
+			routedEntry = e
 		}
 	}
 
@@ -520,6 +523,10 @@ func cmdRun(args []string) int {
 	sess := eng.NewSession(metrics)
 	defer sess.Close()
 	defer memory.Open(cfg.Workspace).Flush()
+	// 进化重定义: the routed specialist's identity follows the prompt —
+	// the space tool writes into its store, and its brief rides the
+	// first turn as a system note.
+	adoptAgent(sess, routedEntry)
 
 	// §1.4 exam first — the score files either way; a miss warns and the
 	// run proceeds (the exam grades the agent, not this prompt).

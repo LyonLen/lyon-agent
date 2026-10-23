@@ -50,16 +50,14 @@ func drainText(sess *agent.Session) (string, error) {
 // score (leaderboard clock + routing evidence), exactly like the TUI's
 // /exam. Returns the process code: 0 pass, 1 fail, 2 setup error.
 func runExamCLI(sess *agent.Session, model, class string) int {
-	ex, err := eval.LoadOrSeedExam(class)
+	ex, err := loadExam(sess.Workspace(), class)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "exam:", err)
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	res := eval.RunExam(ctx, ex, func(ctx context.Context, q string) (string, error) {
-		return sess.Ask(ctx, eval.ClosedBookSystem, q, examMaxTokens)
-	})
+	res := eval.RunExam(ctx, ex, examAnswerer(sess, ex))
 	fmt.Println(paint(cCyan, "✎ exam"), res.Summary())
 	for _, a := range res.Answers {
 		if !a.OK {

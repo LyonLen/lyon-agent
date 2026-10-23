@@ -432,12 +432,13 @@ func TestExamCommandUsage(t *testing.T) {
 func TestRunExamCLI(t *testing.T) {
 	t.Setenv("LYON_HOME", tempDir(t))
 
-	// Correct answers for the four shipped coding questions, in order.
+	// A correct answer for every coding question. RunExam fans the
+	// questions out concurrently, so mockapi's positional turn script
+	// cannot map answers to questions by arrival order — one answer
+	// covering every expectation (the mock repeats the last turn)
+	// passes under any interleaving.
 	passSess := mockSession(t, []mockapi.Turn{
-		{Text: []string{"use go test ./... to run every package"}},
-		{Text: []string{"deferred calls run just before the surrounding function returns"}},
-		{Text: []string{"the commit is git's atomic unit"}},
-		{Text: []string{"gofmt formats source files in place"}},
+		{Text: []string{"go test ./... runs every package; defer runs just before the surrounding function returns; the commit is git's atomic unit; gofmt formats source files in place"}},
 	})
 	if code := runExamCLI(passSess, "claude-opus-5-5", "coding"); code != 0 {
 		t.Fatalf("passing exam code = %d, want 0", code)
