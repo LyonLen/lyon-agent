@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // DefaultExamPass is the pass ratio when an exam file does not set one.
@@ -28,11 +29,14 @@ type Question struct {
 
 // Exam is a task class's test set at $LYON_HOME/exams/<class>.json —
 // written by hand (or seeded), never generated from the production tasks
-// it is used to grade.
+// it is used to grade. The project class is the exception: its bank is
+// generated from the workspace and carries the Fingerprint of its
+// sources, so a changed project regenerates the questions (project_exam.go).
 type Exam struct {
-	Class     string     `json:"class"`
-	Pass      float64    `json:"pass,omitempty"` // pass ratio; ≤0 → DefaultExamPass
-	Questions []Question `json:"questions"`
+	Class       string     `json:"class"`
+	Pass        float64    `json:"pass,omitempty"`       // pass ratio; ≤0 → DefaultExamPass
+	Questions   []Question `json:"questions"`
+	Fingerprint string     `json:"fingerprint,omitempty"` // hash of the generating sources (project class)
 }
 
 // ExamPath is where a class's exam set lives.
@@ -139,6 +143,9 @@ func countOK(as []ExamAnswer) int {
 // RunExam walks the held-out questions through the closed-book answerer
 // and grades deterministically. A failed answer call grades as a miss —
 // an agent that cannot answer has not demonstrated the knowledge.
+// Questions fan out concurrently (Ask is stateless, so it is safe
+// beside the exam goroutine); answers are index-assigned so the result
+// keeps question order regardless of reply timing.
 func RunExam(ctx context.Context, ex Exam, ans Answerer) ExamResult {
 	res := ExamResult{Class: ex.Class}
 	if len(ex.Questions) == 0 {
@@ -148,15 +155,22 @@ func RunExam(ctx context.Context, ex Exam, ans Answerer) ExamResult {
 	if pass <= 0 {
 		pass = DefaultExamPass
 	}
-	for _, q := range ex.Questions {
-		got := ""
-		if a, err := ans(ctx, q.Q); err == nil {
-			got = a
-		}
-		res.Answers = append(res.Answers, ExamAnswer{
-			Q: q.Q, Expected: q.Expected, Got: got, OK: checkAnswer(q, got),
-		})
+	res.Answers = make([]ExamAnswer, len(ex.Questions))
+	var wg sync.WaitGroup
+	for i, q := range ex.Questions {
+		wg.Add(1)
+		go func(i int, q Question) {
+			defer wg.Done()
+			got := ""
+			if a, err := ans(ctx, q.Q); err == nil {
+				got = a
+			}
+			res.Answers[i] = ExamAnswer{
+				Q: q.Q, Expected: q.Expected, Got: got, OK: checkAnswer(q, got),
+			}
+		}(i, q)
 	}
+	wg.Wait()
 	res.Pct = float64(countOK(res.Answers)) / float64(len(res.Answers))
 	res.Passed = res.Pct >= pass
 	return res
