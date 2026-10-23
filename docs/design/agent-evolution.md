@@ -259,3 +259,63 @@ plan/默认模式自由尝试  ──N 次成功+考核通过──►  序列�
 
 **验证原则**：每期先在 `internal/mockapi` 离线跑通（可控的假模型 + 假答案），
 再接真网关；所有评分/路由决策可离线重放（输入输出都是文件）。
+
+---
+
+## 7. 重定义（2026-10-23）
+
+> 口述需求："进化的 agent 可以共识共享；专长知识、专长技能各有自己的空间，
+> 自己进化；不同场景选择不同的 agent；评测集基于项目动态生成；流程固化不止
+> 形成 skill，还要形成不调 AI 的自动化 workflow，可作为组合单元给 AI 调用。"
+
+### 7.1 动态项目评测集（pkg/eval/project_exam.go）
+
+种子题库（8 类）之上新增 `project` 类：题目**从项目本身生成**——go.mod（模块
+路径、Go 版本）、README 首个标题、cmd/ 入口目录、项目记忆层（`pkg/memory`
+project 作用域的 hot facts）——全部输入哈希成 `Exam.Fingerprint`。项目一变，
+指纹变化，`exams/project.json` 自动重新生成（未变则沿用，手改保留）。答题者
+仍然闭卷无工具，但携带项目的站立上下文（结构摘要 + 事实全文），考的是"上下文
+管线是否新鲜、能否抽取"，不是查资料。考核时钟（§1.4）每个生产回合同时给
+`project` 类记一格，十回合自动开考。接线点：`loadExam()` 四处
+（kickExam / runContest / kickFlowSave / runExamCLI），`RunExam` 改为并发
+逐题（index 保序）。
+
+### 7.2 专长空间与共识共享（pkg/space）
+
+每个 agent 在 `~/.lyon/agents/<id>/` 下拥有两个专属库：
+
+- `knowledge/*.md` — 专长知识（frontmatter: name/description/owner/endorsed-by）
+- `skills/<name>/SKILL.md` — 专长技能（与 `~/.claude/skills` 同格式，扫描器直接复用）
+
+共识层在 `~/.lyon/commons/{knowledge,skills}/`。**背书计数**决定晋升：条目初始
+只有 owner 一个来源；第二个**不同**来源——另一 agent 保存了相同 body（两 agent
+收敛到同一事实，hash 比对互签），或一次竞选胜利（`contest:<class>`）——即达
+共识，复制进 commons（复制不移动，专长空间保留原件）。commons 技能随 system
+prompt 的 skills 段下发给所有会话；`space` 工具（list / save_knowledge /
+save_skill / share）让模型管理自己的空间，写不进别人的。会话用
+`Session.SetAgent/Agent` 携带身份（默认 "self"），路由换人时自动切换并注入
+`space.Brief`（该 agent 的专长清单，PushSystemNote）。诊断错因
+（rememberDiagnosisSpace）同时落进当前 agent 的空间。
+
+### 7.3 自己进化（pkg/eval/evolve.go）
+
+失败不再丢失：诊断归纳（§1.3 diagDone）或闭卷考试不及格（examDone）都会
+`EvolveChild(parent, lesson)` 生成下一代候选——`<parent>-g<gen>`，继承
+model/effort + **整份专长空间复制**（space.CopySpace）+ lesson 作为第一条
+knowledge。`Gen/Parent` 字段复活。代际上限 3（链深与同胞数同限）；竞选里
+每代必须比上代分数高，否则删档淘汰（runContest 内比对）。胜者自动
+`ShareAll` 全空间进共识层（§7.2）。
+
+### 7.4 场景路由收口（不同场景选择不同 agent）
+
+§5 的消费端补全：`routingSwap` 换模型的同时，`adoptAgent` 把会话身份切到
+胜出 agent（同一模型也切——一人格一空间），⇄ 提示行点名 agent。CLI 与 TUI
+同一条接线。
+
+### 7.5 流程固化 v2：脚本（pkg/flow/script.go）
+
+固化不止 skill（文档，要 AI 逐条解读）——**绿过的命令序列直接冻结成脚本**：
+`~/.lyon/flows/<slug>.json`（清单）+ `<slug>.sh`（人可直接跑）。`RunScript`
+机械执行，**零模型调用**，`{{name}}` 参数占位、首错即停、绿跑回计 Runs 证据。
+`flow` 工具（list/run/freeze）是给 AI 的组合单元：一次调用跑完整条序列，
+或把刚跑绿的序列固化。skill 冻结后仍要 token；脚本冻结后不要。

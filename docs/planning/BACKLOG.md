@@ -148,7 +148,10 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 
 ### 2.6 明确暂缓 / 不在本次
 
-- [ ] 候选 agent 四维代际演化（断点 5 后半；EVOLUTION-GAPS 明标「不在本次」）。
+- [x] ~~候选 agent 四维代际演化（断点 5 后半）~~ → 2026-10-23 重定义落地：
+  `eval.EvolveChild`（代际上限 3、专长空间继承、lesson 即 knowledge）+
+  竞选逐代淘汰（子必须胜父）+ Gen/Parent 复活。四维里的 prompt 维以
+  lesson 文档形式进入子代空间（非系统提示注入——见 §3 重定义条）。
 - [ ] web v1.1 面板（任务市场 / 记忆 / 考卷候选，见 §0 末行）。
 
 ### 2.7 阶段推进
@@ -160,6 +163,15 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 
 ## 3. 已完成对照（免重复盘点）
 
+- **进化重定义五件套（2026-10-23，设计见 agent-evolution.md §7）**：
+  ①动态项目评测集（`pkg/eval/project_exam.go`，指纹再生成 + 并发 RunExam +
+  考核时钟捎带 project 类）；②专长空间与共识共享（`pkg/space`：knowledge +
+  skills 各自空间、背书≥2 晋升 commons、`space` 工具、SetAgent 身份、
+  commons 技能进 system prompt）；③自己进化（`eval.EvolveChild` 代际≤3、
+  空间继承、诊断/考挂双触发、竞选子胜父否则删档、胜者 ShareAll）；
+  ④场景路由收口（routingSwap + adoptAgent 身份切换，⇄ 行点名 agent）；
+  ⑤流程固化 v2 脚本（`pkg/flow`：freeze 成 .json+.sh、RunScript 零 AI、
+  `flow` 组合单元工具、系统提示挂 frozen-workflows 段）。
 - **EVOLUTION-GAPS 任务 A–E 全闭环**（= ROADMAP 0.1）；断点 1–4 均有回路。
 - **ROADMAP 0.2** lyon.toml 落地（`pkg/config`：手写 TOML 子集解析 +
   home/workspace 双层覆盖 + mcpServers 对齐 + 测试）。
