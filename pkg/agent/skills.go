@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"lyon-agent/pkg/flow"
+	"lyon-agent/pkg/space"
 )
 
 // SkillBrief is one on-disk skill as advertised in the system prompt:
@@ -223,9 +226,24 @@ func firstSummary(body string) string {
 // skills, or "" when there are none — an empty block would waste bytes and
 // say nothing, so it simply is not injected. The whole section is capped at
 // skillsSectionBudget runes; an overflowing list stops with a "+N more"
-// line so the model knows the list is partial.
+// line so the model knows the list is partial. Consensus-shared skills
+// (pkg/space commons) are scanned alongside the personal directory: a
+// fact two agents endorsed is knowledge every session should carry.
 func skillsSection() string {
-	return renderSkillsSection(ScanSkills(""))
+	skills := ScanSkills("")
+	if commons := ScanSkills(space.CommonsSkillsDir()); len(commons) > 0 {
+		seen := make(map[string]bool, len(skills))
+		for _, s := range skills {
+			seen[s.Name] = true
+		}
+		for _, c := range commons {
+			if !seen[c.Name] {
+				skills = append(skills, c)
+			}
+		}
+		sort.Slice(skills, func(i, j int) bool { return skills[i].Name < skills[j].Name })
+	}
+	return renderSkillsSection(skills) + renderFlowsSection(flow.ListScripts())
 }
 
 func renderSkillsSection(skills []SkillBrief) string {
@@ -256,6 +274,48 @@ func renderSkillsSection(skills []SkillBrief) string {
 			}
 			if i+1 < len(skills) {
 				fmt.Fprintf(&b, "- ... and %d more skill(s)\n", len(skills)-i)
+			}
+			return b.String()
+		}
+		b.WriteString(line)
+		used += n
+	}
+	return b.String()
+}
+
+// renderFlowsSection advertises frozen workflow scripts (pkg/flow). These
+// differ from skills: a skill is a document the model reads and interprets
+// step by step, while a flow is an already-fixed sequence of shell steps the
+// model invokes with ONE flow call and never re-derives. Empty when no flows
+// are frozen — the section then is not injected at all.
+func renderFlowsSection(scripts []flow.Script) string {
+	if len(scripts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## Frozen workflows (run with the flow tool, no need to re-derive steps)\n")
+	b.WriteString("Reusable command sequences fixed after repeated success. Call `flow` with the slug and any args — it runs every step for you. One line: slug: description (args).\n")
+	used := len([]rune(b.String()))
+	for i, s := range scripts {
+		argList := strings.Join(s.Args, ", ")
+		desc := s.Description
+		if desc == "" {
+			desc = fmt.Sprintf("%d step(s)", len(s.Steps))
+		}
+		line := fmt.Sprintf("- %s: %s (%s)\n", s.Slug, desc, argList)
+		n := len([]rune(line))
+		room := skillsSectionBudget
+		if i+1 < len(scripts) {
+			room -= skillsTailMax
+		}
+		if used+n > room {
+			if i == 0 {
+				line = fmt.Sprintf("- %s: %s (%s)\n", s.Slug, clipRunes(desc, 64), argList)
+				b.WriteString(line)
+				used += len([]rune(line))
+			}
+			if i+1 < len(scripts) {
+				fmt.Fprintf(&b, "- ... and %d more workflow(s)\n", len(scripts)-i)
 			}
 			return b.String()
 		}

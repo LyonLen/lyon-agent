@@ -177,6 +177,12 @@ type Session struct {
 	// drive goroutine's preTool/approve gates read it.
 	mode atomic.Pointer[Mode]
 
+	// agentID is the specialist identity the session runs as (space.go):
+	// "self" until routing hands control to an elected candidate. Atomic
+	// — the UI goroutine sets it on a routing swap, the space tool reads
+	// it from tool goroutines.
+	agentID atomic.Pointer[string]
+
 	// subNest counts in-flight runSubagent executions; OnToolStart/End
 	// stamp Event.Sub while >0 so renderers can tell a subagent's inner
 	// executions from the main flow. Atomic: subagent tools and parallel
@@ -1188,6 +1194,26 @@ func (s *Session) takePendingNote() string {
 	note := s.pendingNote
 	s.pendingNote = ""
 	return note
+}
+
+// Agent returns the specialist identity this session runs as ("self"
+// until a routing swap or contest elects another). Read by the space
+// tool on every call.
+func (s *Session) Agent() string {
+	if id := s.agentID.Load(); id != nil && *id != "" {
+		return *id
+	}
+	return "self"
+}
+
+// SetAgent switches the specialist identity. The caller is expected to
+// also PushSystemNote the agent's space brief so the model knows what
+// it carries (space.Brief).
+func (s *Session) SetAgent(id string) {
+	if strings.TrimSpace(id) == "" {
+		id = "self"
+	}
+	s.agentID.Store(&id)
 }
 
 // onMemoryChange is the memory tools' success callback (D1), reached

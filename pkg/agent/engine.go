@@ -205,6 +205,17 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	if _, exists := reg.Get("run_subagent"); !exists {
 		_ = reg.Register(newSubagentTool())
 	}
+	// flow is the composite unit over frozen workflow scripts (pkg/flow):
+	// the model re-runs a proven command sequence with one call, and fixes a
+	// freshly-successful one so it stops costing tokens.
+	if _, exists := reg.Get("flow"); !exists {
+		_ = reg.Register(newFlowTool())
+	}
+	// space is the specialist's own store (pkg/space): knowledge and
+	// skills that persist per agent, shared to commons on consensus.
+	if _, exists := reg.Get("space"); !exists {
+		_ = reg.Register(newSpaceTool())
+	}
 	if _, exists := reg.Get("run_subagents"); !exists {
 		_ = reg.Register(newDispatchTool())
 	}
