@@ -128,3 +128,29 @@ func TestOpenAIBaseDefaults(t *testing.T) {
 		t.Fatalf("SubagentModel = %q, want default tier", cfg4.SubagentModel)
 	}
 }
+
+// TestCapToModelOutput: the configured output cap is a ceiling, not a
+// promise — a model with a known lower MaxOutput must clamp it (otherwise
+// the gateway truncates answers mid-sentence with no stop_reason), while
+// unknown models and already-safe caps keep the configured value.
+func TestCapToModelOutput(t *testing.T) {
+	if got := capToModelOutput("deepseek-chat", 64000); got != 8192 {
+		t.Fatalf("deepseek-chat@64000 → %d, want the 8192 card ceiling", got)
+	}
+	if got := capToModelOutput("deepseek-chat", 4096); got != 4096 {
+		t.Fatalf("already-safe cap must pass through, got %d", got)
+	}
+	if got := capToModelOutput("no-such-model-xyz", 64000); got != 64000 {
+		t.Fatalf("unknown model must keep the configured cap, got %d", got)
+	}
+
+	// End to end: withDefaults applies the clamp for both loops.
+	eng := NewEngine(Config{Model: "deepseek-chat", SubagentModel: "deepseek-chat"}, nil)
+	cfg := eng.Config()
+	if cfg.MaxTokens != 8192 {
+		t.Fatalf("engine MaxTokens = %d, want 8192", cfg.MaxTokens)
+	}
+	if cfg.SubagentMaxTokens != 8192 {
+		t.Fatalf("engine SubagentMaxTokens = %d, want 8192", cfg.SubagentMaxTokens)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"lyon-agent/pkg/models"
 	"lyon-agent/pkg/tools"
 )
 
@@ -274,6 +275,13 @@ func (c Config) withDefaults() Config {
 	if c.SubagentMaxTokens <= 0 {
 		c.SubagentMaxTokens = d.SubagentMaxTokens
 	}
+	// An output cap above the model's own ceiling is a truncation bug in
+	// disguise: gateways clamp (or 400) silently and the answer ends
+	// mid-sentence with no stop_reason to explain it. Cap both loops by
+	// the known per-model ceiling; models without a stated MaxOutput keep
+	// the configured value — never guess (Lookup returns nil).
+	c.MaxTokens = capToModelOutput(c.Model, c.MaxTokens)
+	c.SubagentMaxTokens = capToModelOutput(c.SubagentModel, c.SubagentMaxTokens)
 	if c.CompactThreshold == 0 {
 		c.CompactThreshold = d.CompactThreshold
 	}
@@ -281,6 +289,18 @@ func (c Config) withDefaults() Config {
 		c.ContextWindow = d.ContextWindow
 	}
 	return c
+}
+
+// capToModelOutput clamps an output-token cap to the model's known
+// MaxOutput ceiling. Unknown models (Lookup nil) and unstated ceilings
+// (MaxOutput 0) keep the configured value — the registry must not guess,
+// and a gateway may well accept more than any catalog card says.
+func capToModelOutput(model string, want int64) int64 {
+	info := models.Lookup(model)
+	if info == nil || info.MaxOutput <= 0 || want <= 0 || want <= info.MaxOutput {
+		return want
+	}
+	return info.MaxOutput
 }
 
 // autoWebToolMode sniffs the endpoint: a custom base URL host that is not
