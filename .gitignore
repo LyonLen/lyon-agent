@@ -14,3 +14,4 @@ tmp/
 .claude/rescue-*/session-*.json.bak
 # local agent-tool settings (per-checkout, not a repo convention)
 .claude/settings.json
+graphify-out/
