@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/evolve"
 	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/server"
 	"lyon-agent/pkg/tools"
@@ -109,6 +110,14 @@ func main() {
 
 	eng := agent.NewEngine(cfg, nil)
 	store := server.NewStore(*maxSess, *ttl)
+	// The evolution loop rides every daemon prompt_end (BACKLOG §2.5):
+	// rounds booked, due exams kicked, failures post-mortemed — the same
+	// computation the TUI drives, one pkg/evolve implementation. The
+	// observer must be set before the first session registers; each
+	// leg honors its own gate (LYON_SCORE / LYON_EXAM / LYON_DIAGNOSE).
+	if !strings.EqualFold(os.Getenv("LYON_EVOLVE"), "off") {
+		store.SetPromptEndObserver(evolve.Hook)
+	}
 	// The dump is the seat. A session mirrors itself to disk on every state
 	// change, and whatever a previous process left behind is indexed here —
 	// not swept into a handful of archive blobs. Each draft keeps its own id,

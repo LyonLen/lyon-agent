@@ -213,6 +213,13 @@ func (s *Session) beginRunDump(prompt, runModel string, started time.Time) {
 		model = s.eng.model()
 	}
 	s.dumpRec.Store(&runDump{started: started, prompt: prompt, model: model})
+	// The effective model also latches on the session: production
+	// scorecards (pkg/evolve) credit the model that actually ran, and the
+	// daemon has no TUI runModel to read it from. histMu is held (drive),
+	// so the documented histMu → mu order applies.
+	s.mu.Lock()
+	s.runModel = model
+	s.mu.Unlock()
 }
 
 // add appends one event to the run's timeline (clipped copy, seq assigned

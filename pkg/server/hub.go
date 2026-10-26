@@ -26,11 +26,12 @@ type hub struct {
 	events <-chan agent.Event // the session's single consumer channel
 
 	// onPromptEnd, when set, runs after a prompt_end has been stamped and
-	// fanned out (Store wires it to the interval title pass — the hub is
-	// the server's only place that sees every prompt_end with no extra
-	// consumer racing the driver). It must return immediately: it runs on
-	// this hub's consumer goroutine between events.
-	onPromptEnd func()
+	// fanned out (Store wires it to the interval title pass plus the
+	// evolution observer — the hub is the server's only place that sees
+	// every prompt_end with no extra consumer racing the driver). It must
+	// return immediately: it runs on this hub's consumer goroutine between
+	// events; the event argument carries Err/Iterations/DurationMS.
+	onPromptEnd func(ev agent.Event)
 
 	seq atomic.Int64 // last stamped seq; incremented only by push under mu
 
@@ -80,7 +81,7 @@ func (h *hub) run() {
 		// After the fan-out so a slow hook never delays subscribers; the
 		// handler itself only schedules (never blocks on an LLM call).
 		if ev.Type == agent.EventPromptEnd && h.onPromptEnd != nil {
-			h.onPromptEnd()
+			h.onPromptEnd(ev)
 		}
 	}
 	// Session closed (event chan drained and closed): close every

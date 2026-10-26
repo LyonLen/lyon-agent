@@ -8,47 +8,71 @@ package main
 // successful prompt books a production round that can trigger the exam
 // clock. The CLI twins (-flow/-coverage/-exam) live in main.go; this
 // file is the interactive half.
+//
+// The loop itself (grading, exam clock, contests, evolution spawns,
+// diagnosis writebacks) lives in pkg/evolve — shared with lyond's
+// prompt_end tap so daemon sessions run the same loop (BACKLOG §2.5).
+// What stays here is the panel half: async steps, tea messages and the
+// slash commands that kick them.
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/anthropics/anthropic-sdk-go"
-
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/eval"
+	"lyon-agent/pkg/evolve"
 	"lyon-agent/pkg/flow"
 	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/models"
 	"lyon-agent/pkg/routing"
-	"lyon-agent/pkg/space"
 )
-
-// examMaxTokens bounds one closed-book answer: a paragraph of facts,
-// with headroom for the subagent-tier model's visible reasoning (mimo
-// models think before answering — a too-tight cap truncates the reply
-// before any answer text appears).
-const examMaxTokens = 1500
 
 // flowSaveMaxTokens bounds the gate's checklist generation and blind
 // answers during a /flow save.
 const flowSaveMaxTokens = 2048
 
-// judgeMaxTokens bounds one blind grade: the grade itself, plus ample
-// room for the subagent-tier model's visible reasoning (mimo models
-// routinely think for hundreds of tokens before answering — a tight cap
-// truncates the reply into a thinking-only response with no grade;
-// 1024 was still eaten whole by thinking on longer review answers,
-// so the budget went to 4096 — the grade line itself is tiny).
-const judgeMaxTokens = 4096
+// The computation units, aliased from pkg/evolve — same functions the
+// daemon's Hook runs, zero behavior change for the TUI. contestRow is a
+// type alias so the tea messages and the report renderer keep their
+// shape.
+type contestRow = evolve.ContestRow
+
+var (
+	loadExam               = evolve.LoadExam
+	examAnswerer           = evolve.ExamAnswerer
+	examAnswererOn         = evolve.ExamAnswererOn
+	lastAssistantText      = evolve.LastAssistantText
+	bookPlainRun           = evolve.BookPlainRun
+	routingSwap            = evolve.RoutingSwap
+	adoptAgent             = evolve.AdoptAgent
+	evolveFromDiagnosis    = evolve.EvolveFromDiagnosis
+	evolveFromExamFail     = evolve.EvolveFromExamFail
+	runContest             = evolve.RunContest
+	rememberDiagnosis      = evolve.RememberDiagnosis
+	rememberDiagnosisSpace = evolve.RememberDiagnosisSpace
+)
+
+// coverageGen / coverageBook are the §2 quiz legs: generate the
+// checklist, answer it blind.
+func coverageGen(sess *agent.Session) eval.ChecklistGen {
+	return func(ctx context.Context, task string) (string, error) {
+		return sess.Ask(ctx, eval.GenSystem, task, flowSaveMaxTokens)
+	}
+}
+
+func coverageBook(sess *agent.Session) eval.Book {
+	return func(ctx context.Context, qs []string) (string, error) {
+		return sess.Ask(ctx, eval.BookSystem,
+			"- "+strings.Join(qs, "\n- "), flowSaveMaxTokens)
+	}
+}
 
 // examDone carries an async closed-book exam back into the loop.
 type examDone struct {
@@ -75,51 +99,6 @@ type scoreDone struct {
 	step int
 	line string
 	err  error
-}
-
-// ── model-call adapters ───────────────────────────────────────────
-
-// asker adapts Session.Ask (subagent tier, stateless) to eval's shape.
-func asker(sess *agent.Session) eval.Asker {
-	return func(ctx context.Context, system, user string) (string, error) {
-		return sess.Ask(ctx, system, user, flowSaveMaxTokens)
-	}
-}
-
-// coverageGen / coverageBook are the §2 quiz legs: generate the
-// checklist, answer it blind.
-func coverageGen(sess *agent.Session) eval.ChecklistGen {
-	return func(ctx context.Context, task string) (string, error) {
-		return sess.Ask(ctx, eval.GenSystem, task, flowSaveMaxTokens)
-	}
-}
-
-func coverageBook(sess *agent.Session) eval.Book {
-	return func(ctx context.Context, qs []string) (string, error) {
-		return sess.Ask(ctx, eval.BookSystem,
-			"- "+strings.Join(qs, "\n- "), flowSaveMaxTokens)
-	}
-}
-
-// loadExam picks a class's held-out bank: the project class is the
-// dynamic, workspace-generated exam (its questions come from go.mod,
-// README, cmd/ and the project memory layer); every other class uses
-// the frozen seed bank.
-func loadExam(workspace, class string) (eval.Exam, error) {
-	if class == eval.ProjectExamClass {
-		return eval.LoadProjectExam(workspace)
-	}
-	return eval.LoadOrSeedExam(class)
-}
-
-// examAnswerer answers one question with the exam system prompt —
-// no tools, no files, weights only. The project class also carries the
-// standing project context so its questions are answerable closed-book.
-func examAnswerer(sess *agent.Session, ex eval.Exam) eval.Answerer {
-	sys := eval.ProjectSystem(ex, sess.Workspace())
-	return func(ctx context.Context, q string) (string, error) {
-		return sess.Ask(ctx, sys, q, examMaxTokens)
-	}
 }
 
 // ── /route ────────────────────────────────────────────────────────
@@ -261,14 +240,6 @@ func (m *tuiModel) kickExam(class, why string) {
 
 // ── /contest — 同类竞争上岗 (#53) ─────────────────────────────
 
-// contestRow is one candidate's held-out result.
-type contestRow struct {
-	ID     string
-	Model  string
-	Pct    float64
-	Passed bool
-}
-
 // contestDone carries an async multi-candidate contest back into the loop.
 type contestDone struct {
 	class  string
@@ -276,17 +247,6 @@ type contestDone struct {
 	winner string // new on-duty id ("" = seat open after the election)
 	err    error
 	step   int
-}
-
-// examAnswererOn answers closed-book on a specific candidate's model —
-// the grading channel of the contest: each entrant must face the same
-// held-out bank on ITS OWN model, or the result grades the wrong agent.
-// Like examAnswerer, the project class also carries its standing context.
-func examAnswererOn(sess *agent.Session, model string, ex eval.Exam) eval.Answerer {
-	sys := eval.ProjectSystem(ex, sess.Workspace())
-	return func(ctx context.Context, q string) (string, error) {
-		return sess.AskModel(ctx, model, sys, q, examMaxTokens)
-	}
 }
 
 // contestNoFieldHint is the actionable answer for a contest with no one
@@ -349,81 +309,6 @@ func (m *tuiModel) kickContest(class, why string) {
 			p.Send(contestDone{class: class, rows: rows, winner: winner, err: err, step: step})
 		}
 	}()
-}
-
-// runContest is the contest's whole computation — candidates against the
-// class's held-out bank CONCURRENTLY, every card filed, one election on
-// the combined evidence, routing steered to the winner. Split from the
-// TUI wiring so tests can run it synchronously against a mock gateway.
-func runContest(ctx context.Context, sess *agent.Session, selfModel, class string) ([]contestRow, string, error) {
-	cands := eval.Contestants(selfModel)
-	// Same zero-candidate refusal as kickContest, on the error channel
-	// (the contestDone error line renders it) — and before
-	// LoadOrSeedExam, so a refused contest seeds no held-out bank.
-	if len(cands) <= 1 {
-		return nil, "", errors.New(contestNoFieldHint())
-	}
-	ex, err := loadExam(sess.Workspace(), class)
-	if err != nil {
-		return nil, "", err
-	}
-	rows := make([]contestRow, len(cands))
-	var wg sync.WaitGroup
-	for i, c := range cands {
-		wg.Add(1)
-		go func(i int, c eval.Candidate) {
-			defer wg.Done()
-			res := eval.RunExam(ctx, ex, examAnswererOn(sess, c.Model, ex))
-			rows[i] = contestRow{ID: c.ID, Model: c.Model, Pct: res.Pct, Passed: res.Passed}
-		}(i, c)
-	}
-	wg.Wait()
-	// File every card (the sitting agent's streak only moves on their
-	// own exams — leaderboard rule), then hold ONE election on the
-	// combined evidence instead of letting submission order pick.
-	lb := eval.OpenLeaderboard()
-	for _, r := range rows {
-		lb.SubmitExam(class, eval.Scorecard{
-			Agent: r.ID, Total: r.Pct, Passed: r.Passed, Source: "exam",
-		})
-	}
-	winner := lb.Elect(class)
-	// Route production traffic to the winner: agent id + its model,
-	// evidence = this exam total. No winner = leave the table alone.
-	for _, r := range rows {
-		if r.ID == winner {
-			routing.Open().Record(class, r.ID, r.Model, r.Pct)
-			// 共识共享: winning a held-out election is the strongest
-			// endorsement there is — the winner's whole specialist space
-			// shares to commons (items reaching 2 sources promote).
-			space.ShareAll(winner, "contest:"+class)
-			break
-		}
-	}
-	// 自己进化's other half: every evolved child in the field must beat
-	// its parent on THIS held-out sitting, or the lineage is cut —
-	// 每代必须比上代分数高，否则淘汰. Both must have sat the same exam
-	// for the comparison to mean anything; a parent absent from the
-	// field leaves the child to the election alone.
-	scoreOf := func(id string) (float64, bool) {
-		for _, r := range rows {
-			if r.ID == id {
-				return r.Pct, true
-			}
-		}
-		return 0, false
-	}
-	for _, c := range cands {
-		if c.Gen == 0 || c.Parent == "" {
-			continue
-		}
-		parentPct, parentSat := scoreOf(c.Parent)
-		childPct, _ := scoreOf(c.ID)
-		if parentSat && childPct <= parentPct {
-			_ = eval.DeleteCandidate(c.ID) // best-effort; the row still reports the score
-		}
-	}
-	return rows, winner, nil
 }
 
 // agentsCommand manages the candidate field: bare lists every entrant
@@ -530,154 +415,19 @@ func (m *tuiModel) marketCommand(args string) {
 }
 
 // countRound books one production round for the class of the prompt
-// that just finished and fires the exam when the clock strikes ten.
-// The project class rides the same clock on every round: its bank is
-// generated from the workspace, so it belongs to no task class but must
-// still sit on schedule. LYON_EXAM=off opts out of the automatic
-// trigger (the round still counts). Called from prompt_end's success
-// leg only.
+// that just finished and fires the exam when the clock strikes ten
+// (evolve.BookRound owns the clocks; the TUI owns the kicks). Called
+// from prompt_end's success legs only.
 func (m *tuiModel) countRound() {
 	if len(m.hist) == 0 {
 		return
 	}
-	class := string(routing.Classify(m.hist[len(m.hist)-1]))
-	lb := eval.OpenLeaderboard()
-	rounds, due := lb.CountRound(class)
-	// The dynamic project exam books a round on every production run —
-	// its questions regenerate from go.mod/README/cmd/memory, so the
-	// exam tracks the project itself, not a task class.
-	projRounds, projDue := lb.CountRound(eval.ProjectExamClass)
-	// LYON_EXAM=off opts out of the trigger only: both rounds above
-	// still count (the clock advances, the exam simply never fires).
-	if strings.EqualFold(os.Getenv("LYON_EXAM"), "off") {
-		return
-	}
-	if due {
-		m.kickExam(class, fmt.Sprintf("round %d/%d — exam due",
-			rounds, eval.ExamInterval))
-	}
-	if projDue {
-		m.kickExam(eval.ProjectExamClass, fmt.Sprintf("round %d/%d — project exam due",
-			projRounds, eval.ExamInterval))
+	for _, due := range evolve.BookRound(m.hist[len(m.hist)-1]) {
+		m.kickExam(due.Class, due.Why)
 	}
 }
 
 // ── production scoring ────────────────────────────────────────────
-
-// lastAssistantText pulls the newest assistant prose for the judge —
-// scanning back past tool-only turns. An all-tools run yields "" (the
-// judge is told the run produced no text).
-func lastAssistantText(msgs []anthropic.BetaMessageParam) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role != anthropic.BetaMessageParamRoleAssistant {
-			continue
-		}
-		var parts []string
-		for _, blk := range msgs[i].Content {
-			if blk.OfText != nil && strings.TrimSpace(blk.OfText.Text) != "" {
-				parts = append(parts, blk.OfText.Text)
-			}
-		}
-		if len(parts) > 0 {
-			return strings.Join(parts, "\n")
-		}
-	}
-	return ""
-}
-
-// bookPlainRun grades a completed free-form prompt (design §1.2: no
-// ground truth → the judge model blind-grades), files the production
-// scorecard to the leaderboard and the total to the routing table —
-// the evidence both the on-duty election and /route read. The TUI's
-// kickScore and the CLI's scorePlainCLI share it; a judge failure
-// files nothing, because a score of convenience is worse than no
-// score. Returns a display line.
-func bookPlainRun(ctx context.Context, sess *agent.Session, model, prompt string, steps int) (string, error) {
-	answer := lastAssistantText(sess.Export().Messages)
-	class := string(routing.Classify(prompt))
-	judge, err := eval.JudgeRun(ctx, func(ctx context.Context, system, user string) (string, error) {
-		return sess.Ask(ctx, system, user, judgeMaxTokens)
-	}, prompt, answer)
-	if err != nil {
-		return "", err
-	}
-	sc := eval.Score(model, class, eval.RunMetrics{
-		Correctness: judge,
-		Steps:       steps,
-	})
-	eval.OpenLeaderboard().Record(class, sc)
-	routing.Open().Record(class, model, model, sc.Total)
-	return fmt.Sprintf("score %.2f (judge %.0f%%) → leaderboard [%s]",
-		sc.Total, judge*100, class), nil
-}
-
-// routingSwap is design §5's consumption side: for an unpinned run,
-// consult the routing table for the prompt's class and recommend the
-// on-duty model once its seat has earned confidence (≥3 samples and
-// confidence ≥0.35 — one lucky try never steers traffic). Returns the
-// model to use and the entry that decided it.
-func routingSwap(current, prompt string) (string, routing.Entry, bool) {
-	class := string(routing.Classify(prompt))
-	e, ok := routing.Open().Lookup(class)
-	if !ok || e.Model == "" || e.Model == current || e.Samples < 3 || e.Confidence < 0.35 {
-		return current, e, false
-	}
-	return e.Model, e, true
-}
-
-// ── self-evolution spawns (2026-10-23 重定义) ─────────────────────
-
-// evolveFromDiagnosis turns a post-mortem into the next generation of
-// the CURRENT agent: the child inherits its space and carries the
-// failed conditions + patch as its first lesson. Best-effort by
-// design — an exhausted lineage (gen ≥ 3) or a disk failure logs
-// nothing fatal; the lesson already lives in memory and space.
-func evolveFromDiagnosis(sess *agent.Session, d eval.Diagnosis) (eval.Candidate, error) {
-	lesson := d.Patch
-	if len(d.FailedConditions) > 0 {
-		lesson = "failed: " + strings.Join(d.FailedConditions, "; ") + " — fix: " + d.Patch
-	}
-	if strings.TrimSpace(lesson) == "" {
-		return eval.Candidate{}, errors.New("evolve: empty diagnosis")
-	}
-	return eval.EvolveChild(sess.Agent(), lesson)
-}
-
-// evolveFromExamFail turns a failed closed-book exam into the next
-// generation: the lesson is the list of missed questions — exactly what
-// the parent could not answer.
-func evolveFromExamFail(sess *agent.Session, res eval.ExamResult) (eval.Candidate, error) {
-	var missed []string
-	for _, a := range res.Answers {
-		if !a.OK {
-			missed = append(missed, a.Q)
-		}
-	}
-	if len(missed) == 0 {
-		return eval.Candidate{}, errors.New("evolve: exam passed — nothing to distill")
-	}
-	lesson := fmt.Sprintf("could not answer closed-book (%.0f%%): %s",
-		res.Pct*100, strings.Join(missed, "; "))
-	return eval.EvolveChild(sess.Agent(), lesson)
-}
-
-// adoptAgent binds the session to a routed specialist when its seat has
-// earned the evidence gate (same bar routingSwap applies): the session
-// identity switches — the space tool then writes into THIS agent's
-// store — and the model is told what its space carries via a system
-// note at the next turn boundary. Adopting the identity even when the
-// specialist's model equals the session's is deliberate: a one-model
-// gateway still wants the right persona and the right space. Shared by
-// the TUI's sendPrompt and the CLI's run path.
-func adoptAgent(sess *agent.Session, e routing.Entry) {
-	if sess == nil || e.Agent == "" || e.Agent == sess.Agent() || e.Samples < 3 || e.Confidence < 0.35 {
-		return
-	}
-	sess.SetAgent(e.Agent)
-	if brief := space.Brief(e.Agent); brief != "" {
-		sess.PushSystemNote(brief)
-	}
-}
 
 // kickScore grades the prompt that just finished: one cheap
 // subagent-tier judge call off the event stream, then the card files

@@ -30,7 +30,7 @@ func TestHubOnPromptEndHook(t *testing.T) {
 	events := make(chan agent.Event)
 	h := newHub(events)
 	var fired atomic.Int64
-	h.onPromptEnd = func() { fired.Add(1) }
+	h.onPromptEnd = func(agent.Event) { fired.Add(1) }
 	done := make(chan struct{})
 	go func() {
 		h.run()

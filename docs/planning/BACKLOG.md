@@ -118,11 +118,16 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 内核单份（`pkg/agent` 的 ReAct/工具/记忆/hooks、`pkg/eval`、`pkg/routing`
 都是库，lyon/lyond/web 同一个 `agent.NewEngine`），**但装配层双份、触发点错位**：
 
-- [ ] **评分/考试触发下沉 `pkg/agent`**：`kickScore`/`kickContest` 现在是
-  `tuiModel` 的方法（`cmd/lyon/evolve.go:575`，触发点在 TUI 事件环的 prompt_end）
-  ——走 lyond/web 的会话跑完不入榜不考试，「越用越强」只对一个入口生效。
-  应挪到 session 收尾路径（TUI 只负责显示结果）。
-  - 验收：lyond 跑一条 prompt 后 leaderboard 出现该会话的卡；考试时钟照走。
+- [x] ~~评分/考试触发下沉~~ → 2026-10-26 落地为 `pkg/evolve`（共享计算包，
+  非 `pkg/agent`：grading/考试钟/竞赛/进化/诊断全在一处，import 无环）：
+  TUI 只留面板半边（`cmd/lyon/evolve.go` 类型+函数别名，事件环照旧）；
+  lyond 经 `Store.SetPromptEndObserver(evolve.Hook)` 挂在 hub 的
+  prompt_end tap（`pkg/server/store.go`，与 interval 标题共用一个 tap，
+  Hook 自身 fan-out goroutine、不堵 hub）。`LYON_EVOLVE=off` 总关，
+  各腿沿用 `LYON_SCORE`/`LYON_EXAM`/`LYON_DIAGNOSE` 分开关。
+  - 验收：`pkg/evolve` 单测（BookRound 钟/FinishExam 淘汰/诊断回写）+
+    `pkg/server` tap 单测通过；lyond 跑一条 prompt 后 leaderboard 出卡、
+    考试钟照走（重启后实测见 §2.6）。
 - [ ] **抽共享 engine builder（`pkg/boot` 或并入 `pkg/config`）**：Config 解析 +
   MCP 三层（mcp.json / lyon.toml / flags）+ `RouteFor` 注入 + memory Flush，
   两个 cmd 都调它。现状对照表（grep 实测）：

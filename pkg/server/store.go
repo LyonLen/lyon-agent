@@ -51,6 +51,12 @@ type Store struct {
 	parked map[string]parkedSeat
 	loaded bool
 	closed bool
+	// promptObs, when set, composes into every session's hub prompt_end
+	// tap alongside the interval title pass — lyond wires it to the
+	// evolution loop (pkg/evolve Hook) so daemon sessions book rounds,
+	// grade and evolve like TUI sessions (BACKLOG §2.5). Nil = off, the
+	// default for embedders and tests.
+	promptObs func(sess *agent.Session, ev agent.Event)
 }
 
 type entry struct {
@@ -66,6 +72,17 @@ type entry struct {
 type parkedSeat struct {
 	path string
 	snap agent.Snapshot
+}
+
+// SetPromptEndObserver composes an extra handler into every session's
+// hub prompt_end tap (alongside the interval title pass). Call it before
+// sessions are created; nil turns it off. The handler must return
+// immediately — it runs on the hub's consumer goroutine — and spawn its
+// own goroutines for anything slow (evolution legs are model calls).
+func (s *Store) SetPromptEndObserver(f func(sess *agent.Session, ev agent.Event)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.promptObs = f
 }
 
 // NewStore creates a store. max<=0 means unlimited; ttl<=0 disables eviction.
@@ -176,8 +193,15 @@ func (s *Store) register(sess *agent.Session, id string) (string, error) {
 	// pkg/agent — the TUI drives its own title check). The mirror itself
 	// is not driven from here: the session touches its own draft on every
 	// state change (notifyDirty), which also covers turns, mode switches
-	// and title writes that never cross a prompt_end.
-	e.hub.onPromptEnd = func() { maybeIntervalTitle(sess) }
+	// and title writes that never cross a prompt_end. The optional
+	// observer (lyond's evolution loop) composes in the same tap.
+	obs := s.promptObs
+	e.hub.onPromptEnd = func(ev agent.Event) {
+		maybeIntervalTitle(sess)
+		if obs != nil {
+			obs(sess, ev)
+		}
+	}
 	delete(s.parked, id) // adopted: the disk record is live now
 	s.sessions[id] = e
 	go e.hub.run()

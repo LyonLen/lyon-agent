@@ -206,6 +206,11 @@ type Session struct {
 	title       string
 	firstPrompt string
 	lastPrompt  string
+	// runModel is the effective model of the most recent drive — the
+	// routing-swapped model when set, else the engine default. The
+	// post-prompt evolution loop (pkg/evolve Hook) credits production
+	// scorecards with it. Guarded by mu.
+	runModel string
 	// titleProv is the placeholder title (#44): the first prompt's opening
 	// line, shown from the moment that prompt is accepted until the intent
 	// pass writes `title`. Not snapshotted — Restore re-derives it from
@@ -339,6 +344,25 @@ func (s *Session) PromptCount() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.prompts
+}
+
+// LastPrompt reports the most recently submitted prompt — the input the
+// post-prompt evolution loop classifies and grades (the daemon has no
+// TUI history to read it from).
+func (s *Session) LastPrompt() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastPrompt
+}
+
+// RunModel reports the effective model of the most recent drive: the
+// routing-swapped model when one was requested, else the engine default.
+// Production scorecards are credited to it — a card filed under the
+// wrong model steers routing the wrong way.
+func (s *Session) RunModel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runModel
 }
 
 // Submit queues a prompt for execution. It returns nil once the prompt is
