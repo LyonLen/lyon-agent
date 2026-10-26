@@ -567,6 +567,88 @@ button:focus-visible,
 .file-err { display: flex; align-items: center; gap: 8px; padding: 4px 8px; }
 .file-err .err { padding: 0; flex: 1; word-break: break-word; }
 .file-err button { font-size: 12px; padding: 1px 8px; flex-shrink: 0; }
+
+/* --- source control (files panel · VS Code sidebar mimic) --------------- */
+.files-actions .ghost.on { border-color: var(--accent); color: var(--accent); }
+.scm {
+  overflow-y: auto; flex: 1; min-height: 0;
+  padding: 6px 8px; display: flex; flex-direction: column; gap: 5px;
+}
+.scm-head { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.scm-title { font-size: 12px; font-weight: 600; color: var(--fg); }
+.scm-count {
+  font-size: 11px; color: var(--dim);
+  background: var(--bg-row); border: 1px solid var(--line);
+  border-radius: 8px; padding: 0 6px;
+}
+.scm-icon { margin-left: auto; font-size: 12px; padding: 1px 7px; }
+.scm-commit { display: flex; gap: 6px; }
+.scm-commit input {
+  flex: 1; min-width: 0; padding: 4px 8px;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: var(--radius-1);
+  font: inherit; font-size: 12px;
+}
+.scm-commit input:focus { border-color: var(--accent); outline: none; }
+.scm-commit .scm-icon { margin-left: 0; }
+.scm-sync { font-size: 12px; padding: 3px 8px; align-self: flex-start; }
+.scm-noupstream { font-size: 11px; color: var(--dim); }
+.scm-changes { display: flex; flex-direction: column; gap: 1px; }
+.scm-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: 0; color: var(--fg);
+  padding: 3px 6px; text-align: left; border-radius: var(--radius-1);
+  font-size: 12.5px; cursor: pointer;
+}
+.scm-row:hover { background: var(--bg-select); }
+.scm-kind {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-weight: 700; width: 12px; text-align: center; flex-shrink: 0;
+}
+.k-mod { color: var(--warn); }
+.k-add { color: var(--ok); }
+.k-del { color: var(--danger); }
+.k-ren { color: var(--accent); }
+.k-un { color: var(--fg-faint); }
+.k-con { color: var(--danger-soft); }
+.scm-path {
+  flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.scm-staged {
+  font-size: 10px; color: var(--ok);
+  border: 1px solid var(--ok-line); border-radius: 8px; padding: 0 5px;
+}
+.scm-group {
+  font-size: 11px; color: var(--dim);
+  display: flex; align-items: center; gap: 6px; margin-top: 4px;
+}
+.scm-commit-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; padding: 3px 6px; border-radius: var(--radius-1);
+}
+.scm-commit-row:hover { background: var(--bg-select); }
+.scm-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--fg-faint); flex-shrink: 0;
+}
+.scm-dot.out { background: var(--accent); }
+.scm-subject {
+  flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.scm-sha {
+  color: var(--dim); font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+.scm-badge {
+  font-size: 10px; padding: 0 6px; border-radius: 8px;
+  border: 1px solid var(--line); color: var(--dim); flex-shrink: 0;
+}
+.scm-badge.b-head { color: var(--accent); border-color: var(--accent-line); }
+.scm-badge.b-remote { color: #c792ea; border-color: #5b3f7a; }
+.scm-badge.b-tag { color: var(--warn); border-color: var(--warn-line); }
+.scm-flash { font-size: 12px; color: var(--ok); }
 .file-empty { padding: 8px; font-size: 12px; }
 
 /* root ErrorBoundary: page-level crash → message + remount */

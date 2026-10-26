@@ -70,6 +70,10 @@ func New(eng *agent.Engine, store *Store) *Server {
 	// routing/leaderboard rows.
 	evolvePath, evolveHandler := lyonv1connect.NewEvolveServiceHandler(&evolveService{s: s})
 	s.mux.Handle(evolvePath, evolveHandler)
+	// Git: the files panel's source-control view (changes / commit /
+	// sync / outgoing graph) — fixed-argv `git -C workspace` only.
+	gitPath, gitHandler := lyonv1connect.NewGitServiceHandler(&gitService{s: s})
+	s.mux.Handle(gitPath, gitHandler)
 	// Approval: mounted with the server so the handler can see whether
 	// -approve attached a bridge (nil → Unimplemented, the Phase 5 stub
 	// contract); Plan is still a v1 stub (plan web Phase 5).

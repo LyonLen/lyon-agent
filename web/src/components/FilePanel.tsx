@@ -4,6 +4,7 @@ import { FileKind } from "../gen/lyon/v1/file_pb";
 import { errText, fileClient } from "../api";
 import { joinPath } from "../filePreview";
 import SkeletonRows from "./Skeleton";
+import ScmView from "./ScmView";
 
 // Dotfile visibility, remembered per browser (sibling-product convention):
 // default hidden, like `ls` without -a.
@@ -37,6 +38,9 @@ export default function FilePanel({
   nav?: { path: string; seq: number } | null;
 }) {
   const [path, setPath] = useState("");
+  // browse = the file tree; scm = the source-control section (changes /
+  // commit / sync / graph) — same panel, VS Code's sidebar toggle.
+  const [mode, setMode] = useState<"browse" | "scm">("browse");
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
@@ -384,6 +388,13 @@ export default function FilePanel({
         >
           {hideDot ? "show ." : "hide ."}
         </button>
+        <button
+          className={"ghost" + (mode === "scm" ? " on" : "")}
+          title="source control — changes, commit, sync, graph"
+          onClick={() => setMode((m) => (m === "scm" ? "browse" : "scm"))}
+        >
+          git
+        </button>
         {moving ? (
           <span className="move-banner">
             moving <b>{moving.name}</b> →{" "}
@@ -406,6 +417,9 @@ export default function FilePanel({
           </button>
         </div>
       )}
+      {mode === "scm" ? (
+        <ScmView onOpenFile={onOpenFile} />
+      ) : (
       <div
         className={"files-list" + (dragOver ? " dragover" : "")}
         onDragEnter={(e) => {
@@ -537,6 +551,7 @@ export default function FilePanel({
           </>
         )}
       </div>
+      )}
       {menu && (
         <div
           className="ctx-menu"

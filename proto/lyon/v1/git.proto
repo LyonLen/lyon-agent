@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// GitService: the files panel's source-control view — the VS Code
+// source-control sidebar in miniature (changes list, commit box, sync,
+// outgoing commit graph). Every command runs as `git -C <workspace> …`
+// with a fixed argv; the RPCs accept no path, remote, or flag arguments,
+// so the panel can only ever act on the workspace repository itself.
+// Commit stages everything (`git add -A`, gitignore-respected) — the
+// panel commits the working tree, it is not a staging-area editor.
+service GitService {
+  rpc Status(StatusRequest) returns (StatusResponse);
+  rpc Log(LogRequest) returns (LogResponse);
+  rpc Commit(CommitRequest) returns (CommitResponse);
+  rpc Sync(SyncRequest) returns (SyncResponse);
+}
+
+message StatusRequest {}
+
+// One working-tree entry from `git status --porcelain=v1`.
+message GitChange {
+  string path = 1;  // repo-root-relative, "/"-separated as git prints it
+  string xy = 2;    // raw porcelain XY (e.g. "M ", " M", "??", "R ")
+  bool staged = 3;  // X half is not blank/'?' — it enters the next commit
+  string kind = 4;  // modified | added | deleted | renamed | untracked | conflicted
+}
+
+message StatusResponse {
+  bool is_repo = 1;   // false → the panel hides the whole view
+  string branch = 2;  // current branch, or "HEAD (no branch)" when detached
+  string upstream = 3; // e.g. "origin/main"; empty = no upstream set
+  int32 ahead = 4;    // commits local has over upstream
+  int32 behind = 5;   // commits upstream has over local
+  repeated GitChange changes = 6;
+}
+
+message LogRequest {
+  int32 limit = 1; // 0 → server default (30), capped at 100
+}
+
+// One commit of the graph section. `refs` carries git's decoration
+// ("HEAD -> main", "origin/main", "tag: v1") — the badge row.
+message GitCommit {
+  string sha = 1;    // full sha; the panel shortens for display
+  string subject = 2;
+  string author = 3;
+  int64 at_unix = 4;
+  repeated string refs = 5;
+  bool outgoing = 6; // not yet in upstream (false when no upstream)
+}
+
+message LogResponse {
+  repeated GitCommit commits = 1;
+}
+
+message CommitRequest {
+  string message = 1;
+}
+
+message CommitResponse {
+  string sha = 1;     // short sha of the new commit
+  string summary = 2; // "<branch> <sha> <subject>" as git printed it
+}
+
+message SyncRequest {}
+
+message SyncResponse {
+  string output = 1; // combined pull --rebase + push output
+}
