@@ -13,6 +13,7 @@ import FilePanel from "./components/FilePanel";
 import PreviewPane from "./components/PreviewPane";
 import TerminalPane from "./components/TerminalPane";
 import MemoryPanel from "./components/MemoryPanel";
+import EvolvePanel from "./components/EvolvePanel";
 import SettingsPane from "./components/SettingsPane";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
@@ -401,6 +402,18 @@ export default function App() {
         ws.openPane("settings");
         flash("settings pane — engine & models");
         break;
+      // The evolution family opens one panel (BACKLOG §2.6 — read-only
+      // web v1; running an exam/contest still needs the TUI). Each
+      // slash names the section the user came for; the pane shows all.
+      case "/evolve":
+      case "/exam":
+      case "/contest":
+      case "/route":
+      case "/agents":
+      case "/flow":
+        ws.openPane("evolve");
+        flash("evolve pane — lineage, seats, exam banks");
+        break;
       default:
         flash(`unknown command ${raw.trim()}`);
     }
@@ -701,6 +714,17 @@ export default function App() {
         </svg>
       ),
       render: () => <SettingsPane />,
+    },
+    {
+      kind: "evolve",
+      title: "evolve — lineage & exams",
+      desc: "candidate lineage, seats, exam banks",
+      icon: (
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M7 12.5V8M7 8L3.8 5.4M7 8l3.2-2.6M7 8v-4.5M4.5 1.8a1 1 0 1 0 0-.1M9.5 3.3a1 1 0 1 0 0-.1M3.3 6.6a1 1 0 1 0 0-.1" />
+        </svg>
+      ),
+      render: () => <EvolvePanel />,
     },
   ];
 

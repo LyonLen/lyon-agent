@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+import "google/protobuf/timestamp.proto";
+
+// EvolveService: the evolution panel's read-only view over $LYON_HOME —
+// the candidate lineage, each agent's specialist space, the frozen
+// procedure set and the exam-bank footprint. Routing and leaderboard rows
+// already ride DashboardService.GetOverview; the panel composes both.
+// Actions (run exam, run contest) stay TUI-only in v1 — this RPC only
+// reads what is on disk.
+service EvolveService {
+  rpc GetEvolveState(GetEvolveStateRequest) returns (GetEvolveStateResponse);
+}
+
+// Candidate is one entrant of the lineage: a saved profile or the live
+// incumbent ("self"), with the classes where it holds the on-duty seat.
+message Candidate {
+  string id = 1;
+  string model = 2;
+  string effort = 3;
+  string note = 4;
+  int32 gen = 5; // generations of failure distillation
+  string parent = 6;
+  google.protobuf.Timestamp created = 7;
+  bool self = 8;             // the running config, not a file-backed profile
+  repeated string seats = 9; // classes held on the leaderboard
+}
+
+// SpaceItem is one knowledge file or skill of a specialist space.
+message SpaceItem {
+  string name = 1;
+  string description = 2;
+  int32 endorsements = 3; // distinct endorsers (consensus tier)
+}
+
+// AgentSpace is one agent's two stores; the commons tier rides first
+// with agent_id "commons" (shared knowledge/skills, consensus-owned).
+message AgentSpace {
+  string agent_id = 1;
+  repeated SpaceItem knowledge = 2;
+  repeated SpaceItem skills = 3;
+}
+
+// FlowRef is one frozen procedure (pkg/flow) as /flow list prints it.
+message FlowRef {
+  string slug = 1;
+  string title = 2;
+  repeated string trigger = 3;
+  int32 nodes = 4;
+  string source = 5; // "builtin" | "user"
+}
+
+// ExamBank is one task class's exam-set footprint on disk.
+message ExamBank {
+  string class = 1;
+  bool seeded = 2; // $LYON_HOME/exams/<class>.json exists
+  int32 questions = 3;
+}
+
+message GetEvolveStateRequest {}
+
+message GetEvolveStateResponse {
+  string self_model = 1; // the incumbent's model (lineage root)
+  repeated Candidate candidates = 2;
+  repeated AgentSpace spaces = 3; // commons first, then per-agent
+  repeated FlowRef flows = 4;
+  repeated ExamBank banks = 5;
+}

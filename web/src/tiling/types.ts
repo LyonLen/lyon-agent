@@ -12,7 +12,8 @@ export type PaneKind =
   | "preview"
   | "terminal"
   | "memory"
-  | "settings";
+  | "settings"
+  | "evolve";
 
 export const PANE_KINDS: readonly PaneKind[] = [
   "sessions",
@@ -24,6 +25,7 @@ export const PANE_KINDS: readonly PaneKind[] = [
   "terminal",
   "memory",
   "settings",
+  "evolve",
 ];
 
 export function isPaneKind(v: unknown): v is PaneKind {

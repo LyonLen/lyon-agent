@@ -43,7 +43,8 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   run 回放依赖 `pkg/agent/dump.go` 的 `tempWriteSkip` 开关移除
 - [x] **Phase 5 — 审批与 plan 占位收口**：ApprovalService/PlanService 全部
   `Unimplemented`（消息形状已冻结），前端降级提示不崩
-- web v1.1 才做（数据源清单里标 TODO）：任务市场 / 记忆面板 / 考卷候选面板（现归 §2.6）
+- web v1.1 才做（数据源清单里标 TODO）：任务市场（记忆面板已有、考卷候选/血统
+  2026-10-26 evolve 面板落地 — 市场仍归 §2.6）
 
 ---
 
@@ -157,7 +158,10 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   `eval.EvolveChild`（代际上限 3、专长空间继承、lesson 即 knowledge）+
   竞选逐代淘汰（子必须胜父）+ Gen/Parent 复活。四维里的 prompt 维以
   lesson 文档形式进入子代空间（非系统提示注入——见 §3 重定义条）。
-- [ ] web v1.1 面板（任务市场 / 记忆 / 考卷候选，见 §0 末行）。
+- [ ] web v1.1 面板（见 §0 末行）：记忆 ✅（MemoryPanel）、考卷候选/血统 ✅
+  （2026-10-26 `EvolveService` + EvolvePanel：lineage Gen/Parent/seats、
+  spaces、flows、exam banks，斜杠族 /evolve /exam /contest /route /agents
+  /flow 开同一面板；跑考/竞赛仍 TUI）—— 仅剩任务市场。
 
 ### 2.7 阶段推进
 

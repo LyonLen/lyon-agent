@@ -65,6 +65,11 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(memPath, memHandler)
 	dashPath, dashHandler := lyonv1connect.NewDashboardServiceHandler(&dashboardService{s: s})
 	s.mux.Handle(dashPath, dashHandler)
+	// Evolve: the evolution panel's read-only state (lineage, spaces,
+	// flows, exam banks) — composed client-side with GetOverview's
+	// routing/leaderboard rows.
+	evolvePath, evolveHandler := lyonv1connect.NewEvolveServiceHandler(&evolveService{s: s})
+	s.mux.Handle(evolvePath, evolveHandler)
 	// Approval: mounted with the server so the handler can see whether
 	// -approve attached a bridge (nil → Unimplemented, the Phase 5 stub
 	// contract); Plan is still a v1 stub (plan web Phase 5).
