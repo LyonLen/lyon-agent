@@ -454,6 +454,20 @@ button:focus-visible,
 
 .blk-thinking { color: var(--dim); }
 .blk-thinking pre { white-space: pre-wrap; margin: 4px 0 0; }
+.blk-thinking summary {
+  display: flex; align-items: baseline; cursor: pointer;
+  list-style: none; user-select: none;
+}
+.blk-thinking summary::-webkit-details-marker { display: none; }
+.blk-thinking summary::marker { color: transparent; }
+/* Folded peek: the reasoning's first line, so a closed block still
+   answers "why is this step happening". Hidden while open. */
+.think-peek {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; margin-left: 8px;
+  font-size: 12px; color: var(--fg-faint); font-style: italic;
+}
+.blk-thinking[open] .think-peek { display: none; }
 /* the fold's own chord hint (the footer legend is gone): a small mono
    tag right after the label, matching the summary's dim tone */
 .think-key {
@@ -484,9 +498,20 @@ button:focus-visible,
 .blk-tool[open] { border-color: var(--line-soft); }
 .blk-tool.failed { border-color: var(--danger); }
 .blk-tool-head {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; gap: 2px;
   padding: 6px 10px; cursor: pointer; list-style: none; user-select: none;
 }
+.blk-tool-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+/* Folded second line: the output's first words ("what came back") —
+   hidden while open, where the full output already shows. */
+.tool-out-peek {
+  font-size: 11.5px; color: var(--fg-faint); font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.blk-tool[open] .tool-out-peek { display: none; }
+.blk-tool.failed .tool-out-peek { color: var(--danger-soft); font-style: normal; }
 .blk-tool-head:hover { background: var(--bg-hover); }
 .blk-tool-head::-webkit-details-marker { display: none; }
 .tool-title { display: flex; align-items: center; gap: 6px; min-width: 0; }

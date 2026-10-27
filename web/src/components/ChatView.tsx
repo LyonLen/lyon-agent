@@ -341,6 +341,21 @@ function clipLine(s: string, n = 90): string {
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
 }
 
+// First non-empty line, clipped — the folded-row peek for thinking and
+// tool output. Hand-rolled scan: these strings stream in and can be
+// tens of KB; no full split per render.
+function firstLine(s: string, n = 110): string {
+  let i = 0;
+  while (i < s.length) {
+    let j = s.indexOf("\n", i);
+    if (j < 0) j = s.length;
+    const t = s.slice(i, j).trim();
+    if (t) return clipLine(t, n);
+    i = j + 1;
+  }
+  return "";
+}
+
 // One-line digest of a tool call's input for the folded header — the
 // difference between a wall of "run_shell ✓" and a transcript you can
 // audit while the seat runs. Per-tool keys for the common cases (field
@@ -1596,32 +1611,51 @@ function BlockView({
       // (command, path, pattern…). Empty until the exec event fills
       // input; the <details> body keeps the full input/output.
       const summary = toolSummary(block.name, block.input);
+      // Result peek: the output's first line rides the folded row so a
+      // finished call reads as "what ran → what came back" without a
+      // click; failures prefer the error line. Hidden while open — the
+      // body already shows the full text.
+      const peekSrc =
+        block.status === "failed" && block.error ? block.error : block.output;
+      const outPeek =
+        block.status === "done" ||
+        block.status === "failed" ||
+        block.status === "server"
+          ? firstLine(peekSrc)
+          : "";
       return (
         <details
           className={"blk-tool" + (block.status === "failed" ? " failed" : "")}
         >
           <summary className="blk-tool-head">
-            <span className="tool-title">
-              <span className="tool-chevron" aria-hidden="true">
-                ▸
+            <div className="blk-tool-row">
+              <span className="tool-title">
+                <span className="tool-chevron" aria-hidden="true">
+                  ▸
+                </span>
+                <span className="tool-name">{block.name}</span>
+                {block.sub && <span className="tool-badge">sub</span>}
+                {block.server && (
+                  <span className="tool-badge server">server</span>
+                )}
               </span>
-              <span className="tool-name">{block.name}</span>
-              {block.sub && <span className="tool-badge">sub</span>}
-              {block.server && <span className="tool-badge server">server</span>}
-            </span>
-            {summary && <span className="tool-summary">{summary}</span>}
-            <span className={`tool-status ${block.status}`}>
-              {block.status === "running" && <span className="spin" aria-hidden="true" />}
-              {block.status === "pending" && "…"}
-              {block.status === "running" && "running"}
-              {/* Replayed history has no timing — show the marker bare
-                  instead of a misleading "0ms". */}
-              {block.status === "done" &&
-                (block.durationMs ? `✓ ${fmtDuration(block.durationMs)}` : "✓")}
-              {block.status === "failed" &&
-                (block.durationMs ? `✗ ${fmtDuration(block.durationMs)}` : "✗")}
-              {block.status === "server" && "🌐 server"}
-            </span>
+              {summary && <span className="tool-summary">{summary}</span>}
+              <span className={`tool-status ${block.status}`}>
+                {block.status === "running" && (
+                  <span className="spin" aria-hidden="true" />
+                )}
+                {block.status === "pending" && "…"}
+                {block.status === "running" && "running"}
+                {/* Replayed history has no timing — show the marker bare
+                    instead of a misleading "0ms". */}
+                {block.status === "done" &&
+                  (block.durationMs ? `✓ ${fmtDuration(block.durationMs)}` : "✓")}
+                {block.status === "failed" &&
+                  (block.durationMs ? `✗ ${fmtDuration(block.durationMs)}` : "✗")}
+                {block.status === "server" && "🌐 server"}
+              </span>
+            </div>
+            {outPeek && <div className="tool-out-peek">{outPeek}</div>}
           </summary>
           {block.input && <pre className="tool-input">{prettyInput(block.input)}</pre>}
           {block.output && <pre className="tool-output">{block.output}</pre>}
@@ -1666,6 +1700,10 @@ function ThinkingBlock({
     : open
       ? "ctrl+o to collapse"
       : "ctrl+o to expand";
+  // Folded peek: the reasoning's first line rides the header so a
+  // closed block still says *why* the next step happens — the whole
+  // complaint behind "thinking 不好阅读". Hidden while open.
+  const peek = open ? "" : firstLine(block.text);
   return (
     <details
       className="blk-thinking"
@@ -1674,6 +1712,7 @@ function ThinkingBlock({
     >
       <summary>
         thinking
+        {peek && <span className="think-peek">{peek}</span>}
         <span className={"think-key" + (live ? " live" : "")}>{hint}</span>
       </summary>
       <pre>{block.text}</pre>
