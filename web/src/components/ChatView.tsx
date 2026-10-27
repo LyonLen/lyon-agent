@@ -334,6 +334,74 @@ function prettyInput(raw: string): string {
   }
 }
 
+// Clip to one header-width line (the folded tool row is a glance, not
+// a document — the <details> body still holds the full input/output).
+function clipLine(s: string, n = 90): string {
+  const t = s.trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+}
+
+// One-line digest of a tool call's input for the folded header — the
+// difference between a wall of "run_shell ✓" and a transcript you can
+// audit while the seat runs. Per-tool keys for the common cases (field
+// names mirror pkg/tools' json tags); unknown tools fall back to their
+// first string field, then compact JSON. Recomputed per render: rows
+// are cheap and the input string is the single source.
+function toolSummary(name: string, raw: string): string {
+  if (!raw) return "";
+  let inp: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return clipLine(String(parsed));
+    inp = parsed as Record<string, unknown>;
+  } catch {
+    return clipLine(oneLine(raw));
+  }
+  const str = (k: string) =>
+    typeof inp[k] === "string" ? (inp[k] as string) : "";
+  switch (name) {
+    case "run_shell":
+      return clipLine(oneLine(str("command")));
+    case "read_file": {
+      const off =
+        typeof inp.offset === "number" && inp.offset > 0
+          ? ` :${inp.offset}`
+          : "";
+      return clipLine(`${str("path")}${off}`);
+    }
+    case "write_file":
+    case "edit_file":
+      return clipLine(str("path"));
+    case "search_files":
+      return clipLine(`${str("pattern")}${str("path") ? ` in ${str("path")}` : ""}`);
+    case "save_memory":
+      return clipLine(`${str("title")}${str("scope") ? ` · ${str("scope")}` : ""}`);
+    case "read_memory":
+    case "forget_memory":
+      return clipLine(str("query") || str("name"));
+    case "run_subagent":
+    case "run_subagents":
+      return clipLine(oneLine(str("task")));
+    case "web_search":
+      return clipLine(oneLine(str("query")));
+    case "todo_write": {
+      const todos = Array.isArray(inp.todos)
+        ? (inp.todos as Array<{ content?: string; status?: string }>)
+        : [];
+      const active = todos.find((t) => t?.status === "in_progress");
+      return clipLine(
+        `${todos.length} items${active?.content ? ` · ${oneLine(active.content)}` : ""}`,
+      );
+    }
+    default:
+      break;
+  }
+  for (const v of Object.values(inp)) {
+    if (typeof v === "string" && v.trim()) return clipLine(oneLine(v));
+  }
+  return clipLine(oneLine(JSON.stringify(inp)));
+}
+
 export default function ChatView(props: {
   sessionId: string;
   onChanged: () => void;
@@ -1523,7 +1591,11 @@ function BlockView({
         />
       );
     }
-    case "tool":
+    case "tool": {
+      // Folded-header digest: what this call is about, at a glance
+      // (command, path, pattern…). Empty until the exec event fills
+      // input; the <details> body keeps the full input/output.
+      const summary = toolSummary(block.name, block.input);
       return (
         <details
           className={"blk-tool" + (block.status === "failed" ? " failed" : "")}
@@ -1537,6 +1609,7 @@ function BlockView({
               {block.sub && <span className="tool-badge">sub</span>}
               {block.server && <span className="tool-badge server">server</span>}
             </span>
+            {summary && <span className="tool-summary">{summary}</span>}
             <span className={`tool-status ${block.status}`}>
               {block.status === "running" && <span className="spin" aria-hidden="true" />}
               {block.status === "pending" && "…"}
@@ -1555,6 +1628,7 @@ function BlockView({
           {block.error && <div className="err">{block.error}</div>}
         </details>
       );
+    }
     case "notice":
       if (block.detail) {
         return (

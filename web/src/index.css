@@ -498,6 +498,12 @@ button:focus-visible,
   border-radius: var(--radius-1); padding: 0 4px;
 }
 .tool-badge.server { color: var(--accent); border-color: var(--accent-line); }
+/* Folded-header digest of the call (command / path / pattern…) — the
+   glanceable half of "what is the AI doing right now". */
+.tool-summary {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 12px; color: var(--dim);
+}
 .tool-status { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dim); white-space: nowrap; }
 .tool-status.done { color: var(--ok); }
 .tool-status.failed { color: var(--danger); }
