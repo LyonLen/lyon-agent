@@ -411,6 +411,7 @@ export default function App() {
       case "/route":
       case "/agents":
       case "/flow":
+      case "/market":
         ws.openPane("evolve");
         flash("evolve pane — lineage, seats, exam banks");
         break;

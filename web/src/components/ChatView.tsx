@@ -43,6 +43,7 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/route", desc: "routing table & leaderboard (panel)", kind: "panel" },
   { cmd: "/agents", desc: "candidate lineage (panel view)", kind: "panel" },
   { cmd: "/flow", desc: "frozen procedures (panel view) — run in TUI", kind: "panel" },
+  { cmd: "/market", desc: "task hour market — per-class prices & recent runs", kind: "panel" },
   { cmd: "/remember", desc: "distill this session's learnings into memory now", kind: "misc" },
   { cmd: "/stats", desc: "usage totals — turns, tokens, cache", kind: "misc" },
   { cmd: "/help", desc: "list commands and keys", kind: "misc" },

@@ -17,6 +17,16 @@ function fmtTs(t?: Timestamp): string {
   return t && t.seconds > 0n ? timestampDate(t).toLocaleString() : "—";
 }
 
+// Wall time, TUI fmtDur's register: 8.6s / 2m05s.
+function fmtMS(ms: bigint | number): string {
+  const v = typeof ms === "bigint" ? Number(ms) : ms;
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  if (v < 60000) return `${(v / 1000).toFixed(1)}s`;
+  const m = Math.floor(v / 60000);
+  const s = Math.round((v % 60000) / 1000);
+  return `${m}m${String(s).padStart(2, "0")}s`;
+}
+
 // One row of the lineage table. Seats empty = off duty everywhere.
 function seatChips(c: Candidate): string {
   return c.seats.length > 0 ? c.seats.join(", ") : "—";
@@ -235,6 +245,71 @@ export default function EvolvePanel() {
               ))}
             </tbody>
           </table>
+        )}
+      </section>
+
+      <section>
+        <h3>
+          market <span className="meta">task hours — every finished prompt files its wall time · prices from each class's last 10 successes</span>
+        </h3>
+        {!st || (st.marketStats.length === 0 && st.marketRecent.length === 0) ? (
+          <div className="placeholder">
+            no finished tasks yet — every done prompt files its wall time here
+          </div>
+        ) : (
+          <>
+            {st.marketStats.length > 0 && (
+              <table>
+                <thead>
+                  <tr>
+                    <th>class</th>
+                    <th>n</th>
+                    <th>avg</th>
+                    <th>last</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {st.marketStats.map((s) => (
+                    <tr key={s.class}>
+                      <td>{s.class}</td>
+                      <td>{s.samples}</td>
+                      <td>{fmtMS(s.avgMs)}</td>
+                      <td>{fmtMS(s.lastMs)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {st.marketRecent.length > 0 && (
+              <table>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>dur</th>
+                    <th>class</th>
+                    <th>prompt</th>
+                    <th>model</th>
+                    <th>when</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {st.marketRecent.map((r, i) => (
+                    <tr key={`${r.ts?.seconds ?? 0n}-${i}`}>
+                      <td>{r.err ? "✗" : "✓"}</td>
+                      <td>{fmtMS(r.durMs)}</td>
+                      <td>{r.class}</td>
+                      <td className="run-prompt">
+                        {r.prompt}
+                        {r.err && <span className="meta"> {r.err}</span>}
+                      </td>
+                      <td>{r.model || "—"}</td>
+                      <td>{fmtTs(r.ts)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
         )}
       </section>
 

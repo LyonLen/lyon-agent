@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/evolve.proto.
  */
 export const file_lyon_v1_evolve: GenFile = /*@__PURE__*/
-  fileDesc("ChRseW9uL3YxL2V2b2x2ZS5wcm90bxIHbHlvbi52MSKrAQoJQ2FuZGlkYXRlEgoKAmlkGAEgASgJEg0KBW1vZGVsGAIgASgJEg4KBmVmZm9ydBgDIAEoCRIMCgRub3RlGAQgASgJEgsKA2dlbhgFIAEoBRIOCgZwYXJlbnQYBiABKAkSKwoHY3JlYXRlZBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDAoEc2VsZhgIIAEoCBINCgVzZWF0cxgJIAMoCSJECglTcGFjZUl0ZW0SDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIUCgxlbmRvcnNlbWVudHMYAyABKAUiaQoKQWdlbnRTcGFjZRIQCghhZ2VudF9pZBgBIAEoCRIlCglrbm93bGVkZ2UYAiADKAsyEi5seW9uLnYxLlNwYWNlSXRlbRIiCgZza2lsbHMYAyADKAsyEi5seW9uLnYxLlNwYWNlSXRlbSJWCgdGbG93UmVmEgwKBHNsdWcYASABKAkSDQoFdGl0bGUYAiABKAkSDwoHdHJpZ2dlchgDIAMoCRINCgVub2RlcxgEIAEoBRIOCgZzb3VyY2UYBSABKAkiPAoIRXhhbUJhbmsSDQoFY2xhc3MYASABKAkSDgoGc2VlZGVkGAIgASgIEhEKCXF1ZXN0aW9ucxgDIAEoBSIXChVHZXRFdm9sdmVTdGF0ZVJlcXVlc3QivAEKFkdldEV2b2x2ZVN0YXRlUmVzcG9uc2USEgoKc2VsZl9tb2RlbBgBIAEoCRImCgpjYW5kaWRhdGVzGAIgAygLMhIubHlvbi52MS5DYW5kaWRhdGUSIwoGc3BhY2VzGAMgAygLMhMubHlvbi52MS5BZ2VudFNwYWNlEh8KBWZsb3dzGAQgAygLMhAubHlvbi52MS5GbG93UmVmEiAKBWJhbmtzGAUgAygLMhEubHlvbi52MS5FeGFtQmFuazJiCg1Fdm9sdmVTZXJ2aWNlElEKDkdldEV2b2x2ZVN0YXRlEh4ubHlvbi52MS5HZXRFdm9sdmVTdGF0ZVJlcXVlc3QaHy5seW9uLnYxLkdldEV2b2x2ZVN0YXRlUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("ChRseW9uL3YxL2V2b2x2ZS5wcm90bxIHbHlvbi52MSKrAQoJQ2FuZGlkYXRlEgoKAmlkGAEgASgJEg0KBW1vZGVsGAIgASgJEg4KBmVmZm9ydBgDIAEoCRIMCgRub3RlGAQgASgJEgsKA2dlbhgFIAEoBRIOCgZwYXJlbnQYBiABKAkSKwoHY3JlYXRlZBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDAoEc2VsZhgIIAEoCBINCgVzZWF0cxgJIAMoCSJECglTcGFjZUl0ZW0SDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIUCgxlbmRvcnNlbWVudHMYAyABKAUiaQoKQWdlbnRTcGFjZRIQCghhZ2VudF9pZBgBIAEoCRIlCglrbm93bGVkZ2UYAiADKAsyEi5seW9uLnYxLlNwYWNlSXRlbRIiCgZza2lsbHMYAyADKAsyEi5seW9uLnYxLlNwYWNlSXRlbSJWCgdGbG93UmVmEgwKBHNsdWcYASABKAkSDQoFdGl0bGUYAiABKAkSDwoHdHJpZ2dlchgDIAMoCRINCgVub2RlcxgEIAEoBRIOCgZzb3VyY2UYBSABKAkiPAoIRXhhbUJhbmsSDQoFY2xhc3MYASABKAkSDgoGc2VlZGVkGAIgASgIEhEKCXF1ZXN0aW9ucxgDIAEoBSJNCgpNYXJrZXRTdGF0Eg0KBWNsYXNzGAEgASgJEg8KB3NhbXBsZXMYAiABKAUSDgoGYXZnX21zGAMgASgDEg8KB2xhc3RfbXMYBCABKAMilQEKDE1hcmtldFJlY29yZBINCgVjbGFzcxgBIAEoCRINCgVtb2RlbBgCIAEoCRIOCgZwcm9tcHQYAyABKAkSDgoGZHVyX21zGAQgASgDEhIKCml0ZXJhdGlvbnMYBSABKAUSCwoDZXJyGAYgASgJEiYKAnRzGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIXChVHZXRFdm9sdmVTdGF0ZVJlcXVlc3QilQIKFkdldEV2b2x2ZVN0YXRlUmVzcG9uc2USEgoKc2VsZl9tb2RlbBgBIAEoCRImCgpjYW5kaWRhdGVzGAIgAygLMhIubHlvbi52MS5DYW5kaWRhdGUSIwoGc3BhY2VzGAMgAygLMhMubHlvbi52MS5BZ2VudFNwYWNlEh8KBWZsb3dzGAQgAygLMhAubHlvbi52MS5GbG93UmVmEiAKBWJhbmtzGAUgAygLMhEubHlvbi52MS5FeGFtQmFuaxIpCgxtYXJrZXRfc3RhdHMYBiADKAsyEy5seW9uLnYxLk1hcmtldFN0YXQSLAoNbWFya2V0X3JlY2VudBgHIAMoCzIVLmx5b24udjEuTWFya2V0UmVjb3JkMmIKDUV2b2x2ZVNlcnZpY2USUQoOR2V0RXZvbHZlU3RhdGUSHi5seW9uLnYxLkdldEV2b2x2ZVN0YXRlUmVxdWVzdBofLmx5b24udjEuR2V0RXZvbHZlU3RhdGVSZXNwb25zZUIiWiBseW9uLWFnZW50L2dlbi9nby9seW9uL3YxO2x5b252MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Candidate is one entrant of the lineage: a saved profile or the live
@@ -214,6 +214,93 @@ export const ExamBankSchema: GenMessage<ExamBank> = /*@__PURE__*/
   messageDesc(file_lyon_v1_evolve, 4);
 
 /**
+ * MarketStat is one task class's aggregate price on the hour ledger
+ * (pkg/market): how many finished runs, their mean and latest wall time.
+ *
+ * @generated from message lyon.v1.MarketStat
+ */
+export type MarketStat = Message<"lyon.v1.MarketStat"> & {
+  /**
+   * @generated from field: string class = 1;
+   */
+  class: string;
+
+  /**
+   * @generated from field: int32 samples = 2;
+   */
+  samples: number;
+
+  /**
+   * @generated from field: int64 avg_ms = 3;
+   */
+  avgMs: bigint;
+
+  /**
+   * @generated from field: int64 last_ms = 4;
+   */
+  lastMs: bigint;
+};
+
+/**
+ * Describes the message lyon.v1.MarketStat.
+ * Use `create(MarketStatSchema)` to create a new message.
+ */
+export const MarketStatSchema: GenMessage<MarketStat> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_evolve, 5);
+
+/**
+ * MarketRecord is one finished task from the ledger — failed runs keep
+ * their row (history is history) and carry err.
+ *
+ * @generated from message lyon.v1.MarketRecord
+ */
+export type MarketRecord = Message<"lyon.v1.MarketRecord"> & {
+  /**
+   * @generated from field: string class = 1;
+   */
+  class: string;
+
+  /**
+   * @generated from field: string model = 2;
+   */
+  model: string;
+
+  /**
+   * clipped preview
+   *
+   * @generated from field: string prompt = 3;
+   */
+  prompt: string;
+
+  /**
+   * @generated from field: int64 dur_ms = 4;
+   */
+  durMs: bigint;
+
+  /**
+   * @generated from field: int32 iterations = 5;
+   */
+  iterations: number;
+
+  /**
+   * @generated from field: string err = 6;
+   */
+  err: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp ts = 7;
+   */
+  ts?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message lyon.v1.MarketRecord.
+ * Use `create(MarketRecordSchema)` to create a new message.
+ */
+export const MarketRecordSchema: GenMessage<MarketRecord> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_evolve, 6);
+
+/**
  * @generated from message lyon.v1.GetEvolveStateRequest
  */
 export type GetEvolveStateRequest = Message<"lyon.v1.GetEvolveStateRequest"> & {
@@ -224,7 +311,7 @@ export type GetEvolveStateRequest = Message<"lyon.v1.GetEvolveStateRequest"> & {
  * Use `create(GetEvolveStateRequestSchema)` to create a new message.
  */
 export const GetEvolveStateRequestSchema: GenMessage<GetEvolveStateRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_evolve, 5);
+  messageDesc(file_lyon_v1_evolve, 7);
 
 /**
  * @generated from message lyon.v1.GetEvolveStateResponse
@@ -258,6 +345,22 @@ export type GetEvolveStateResponse = Message<"lyon.v1.GetEvolveStateResponse"> &
    * @generated from field: repeated lyon.v1.ExamBank banks = 5;
    */
   banks: ExamBank[];
+
+  /**
+   * Task hour ledger (market #54): per-class prices, most-recent class
+   * first, then the newest finished tasks (stats side is the /market
+   * table; recent side is its history tail).
+   *
+   * @generated from field: repeated lyon.v1.MarketStat market_stats = 6;
+   */
+  marketStats: MarketStat[];
+
+  /**
+   * newest first, capped server-side
+   *
+   * @generated from field: repeated lyon.v1.MarketRecord market_recent = 7;
+   */
+  marketRecent: MarketRecord[];
 };
 
 /**
@@ -265,7 +368,7 @@ export type GetEvolveStateResponse = Message<"lyon.v1.GetEvolveStateResponse"> &
  * Use `create(GetEvolveStateResponseSchema)` to create a new message.
  */
 export const GetEvolveStateResponseSchema: GenMessage<GetEvolveStateResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_evolve, 6);
+  messageDesc(file_lyon_v1_evolve, 8);
 
 /**
  * EvolveService: the evolution panel's read-only view over $LYON_HOME —

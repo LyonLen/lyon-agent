@@ -393,6 +393,170 @@ func (x *ExamBank) GetQuestions() int32 {
 	return 0
 }
 
+// MarketStat is one task class's aggregate price on the hour ledger
+// (pkg/market): how many finished runs, their mean and latest wall time.
+type MarketStat struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Class         string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
+	Samples       int32                  `protobuf:"varint,2,opt,name=samples,proto3" json:"samples,omitempty"`
+	AvgMs         int64                  `protobuf:"varint,3,opt,name=avg_ms,json=avgMs,proto3" json:"avg_ms,omitempty"`
+	LastMs        int64                  `protobuf:"varint,4,opt,name=last_ms,json=lastMs,proto3" json:"last_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MarketStat) Reset() {
+	*x = MarketStat{}
+	mi := &file_lyon_v1_evolve_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarketStat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarketStat) ProtoMessage() {}
+
+func (x *MarketStat) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_evolve_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarketStat.ProtoReflect.Descriptor instead.
+func (*MarketStat) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_evolve_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *MarketStat) GetClass() string {
+	if x != nil {
+		return x.Class
+	}
+	return ""
+}
+
+func (x *MarketStat) GetSamples() int32 {
+	if x != nil {
+		return x.Samples
+	}
+	return 0
+}
+
+func (x *MarketStat) GetAvgMs() int64 {
+	if x != nil {
+		return x.AvgMs
+	}
+	return 0
+}
+
+func (x *MarketStat) GetLastMs() int64 {
+	if x != nil {
+		return x.LastMs
+	}
+	return 0
+}
+
+// MarketRecord is one finished task from the ledger — failed runs keep
+// their row (history is history) and carry err.
+type MarketRecord struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Class         string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
+	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	Prompt        string                 `protobuf:"bytes,3,opt,name=prompt,proto3" json:"prompt,omitempty"` // clipped preview
+	DurMs         int64                  `protobuf:"varint,4,opt,name=dur_ms,json=durMs,proto3" json:"dur_ms,omitempty"`
+	Iterations    int32                  `protobuf:"varint,5,opt,name=iterations,proto3" json:"iterations,omitempty"`
+	Err           string                 `protobuf:"bytes,6,opt,name=err,proto3" json:"err,omitempty"`
+	Ts            *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=ts,proto3" json:"ts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MarketRecord) Reset() {
+	*x = MarketRecord{}
+	mi := &file_lyon_v1_evolve_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarketRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarketRecord) ProtoMessage() {}
+
+func (x *MarketRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_evolve_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarketRecord.ProtoReflect.Descriptor instead.
+func (*MarketRecord) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_evolve_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MarketRecord) GetClass() string {
+	if x != nil {
+		return x.Class
+	}
+	return ""
+}
+
+func (x *MarketRecord) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *MarketRecord) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
+func (x *MarketRecord) GetDurMs() int64 {
+	if x != nil {
+		return x.DurMs
+	}
+	return 0
+}
+
+func (x *MarketRecord) GetIterations() int32 {
+	if x != nil {
+		return x.Iterations
+	}
+	return 0
+}
+
+func (x *MarketRecord) GetErr() string {
+	if x != nil {
+		return x.Err
+	}
+	return ""
+}
+
+func (x *MarketRecord) GetTs() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Ts
+	}
+	return nil
+}
+
 type GetEvolveStateRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -401,7 +565,7 @@ type GetEvolveStateRequest struct {
 
 func (x *GetEvolveStateRequest) Reset() {
 	*x = GetEvolveStateRequest{}
-	mi := &file_lyon_v1_evolve_proto_msgTypes[5]
+	mi := &file_lyon_v1_evolve_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -413,7 +577,7 @@ func (x *GetEvolveStateRequest) String() string {
 func (*GetEvolveStateRequest) ProtoMessage() {}
 
 func (x *GetEvolveStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_evolve_proto_msgTypes[5]
+	mi := &file_lyon_v1_evolve_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -426,23 +590,28 @@ func (x *GetEvolveStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEvolveStateRequest.ProtoReflect.Descriptor instead.
 func (*GetEvolveStateRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_evolve_proto_rawDescGZIP(), []int{5}
+	return file_lyon_v1_evolve_proto_rawDescGZIP(), []int{7}
 }
 
 type GetEvolveStateResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SelfModel     string                 `protobuf:"bytes,1,opt,name=self_model,json=selfModel,proto3" json:"self_model,omitempty"` // the incumbent's model (lineage root)
-	Candidates    []*Candidate           `protobuf:"bytes,2,rep,name=candidates,proto3" json:"candidates,omitempty"`
-	Spaces        []*AgentSpace          `protobuf:"bytes,3,rep,name=spaces,proto3" json:"spaces,omitempty"` // commons first, then per-agent
-	Flows         []*FlowRef             `protobuf:"bytes,4,rep,name=flows,proto3" json:"flows,omitempty"`
-	Banks         []*ExamBank            `protobuf:"bytes,5,rep,name=banks,proto3" json:"banks,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	SelfModel  string                 `protobuf:"bytes,1,opt,name=self_model,json=selfModel,proto3" json:"self_model,omitempty"` // the incumbent's model (lineage root)
+	Candidates []*Candidate           `protobuf:"bytes,2,rep,name=candidates,proto3" json:"candidates,omitempty"`
+	Spaces     []*AgentSpace          `protobuf:"bytes,3,rep,name=spaces,proto3" json:"spaces,omitempty"` // commons first, then per-agent
+	Flows      []*FlowRef             `protobuf:"bytes,4,rep,name=flows,proto3" json:"flows,omitempty"`
+	Banks      []*ExamBank            `protobuf:"bytes,5,rep,name=banks,proto3" json:"banks,omitempty"`
+	// Task hour ledger (market #54): per-class prices, most-recent class
+	// first, then the newest finished tasks (stats side is the /market
+	// table; recent side is its history tail).
+	MarketStats   []*MarketStat   `protobuf:"bytes,6,rep,name=market_stats,json=marketStats,proto3" json:"market_stats,omitempty"`
+	MarketRecent  []*MarketRecord `protobuf:"bytes,7,rep,name=market_recent,json=marketRecent,proto3" json:"market_recent,omitempty"` // newest first, capped server-side
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetEvolveStateResponse) Reset() {
 	*x = GetEvolveStateResponse{}
-	mi := &file_lyon_v1_evolve_proto_msgTypes[6]
+	mi := &file_lyon_v1_evolve_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -454,7 +623,7 @@ func (x *GetEvolveStateResponse) String() string {
 func (*GetEvolveStateResponse) ProtoMessage() {}
 
 func (x *GetEvolveStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_evolve_proto_msgTypes[6]
+	mi := &file_lyon_v1_evolve_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -467,7 +636,7 @@ func (x *GetEvolveStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEvolveStateResponse.ProtoReflect.Descriptor instead.
 func (*GetEvolveStateResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_evolve_proto_rawDescGZIP(), []int{6}
+	return file_lyon_v1_evolve_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetEvolveStateResponse) GetSelfModel() string {
@@ -505,6 +674,20 @@ func (x *GetEvolveStateResponse) GetBanks() []*ExamBank {
 	return nil
 }
 
+func (x *GetEvolveStateResponse) GetMarketStats() []*MarketStat {
+	if x != nil {
+		return x.MarketStats
+	}
+	return nil
+}
+
+func (x *GetEvolveStateResponse) GetMarketRecent() []*MarketRecord {
+	if x != nil {
+		return x.MarketRecent
+	}
+	return nil
+}
+
 var File_lyon_v1_evolve_proto protoreflect.FileDescriptor
 
 const file_lyon_v1_evolve_proto_rawDesc = "" +
@@ -538,8 +721,24 @@ const file_lyon_v1_evolve_proto_rawDesc = "" +
 	"\bExamBank\x12\x14\n" +
 	"\x05class\x18\x01 \x01(\tR\x05class\x12\x16\n" +
 	"\x06seeded\x18\x02 \x01(\bR\x06seeded\x12\x1c\n" +
-	"\tquestions\x18\x03 \x01(\x05R\tquestions\"\x17\n" +
-	"\x15GetEvolveStateRequest\"\xe9\x01\n" +
+	"\tquestions\x18\x03 \x01(\x05R\tquestions\"l\n" +
+	"\n" +
+	"MarketStat\x12\x14\n" +
+	"\x05class\x18\x01 \x01(\tR\x05class\x12\x18\n" +
+	"\asamples\x18\x02 \x01(\x05R\asamples\x12\x15\n" +
+	"\x06avg_ms\x18\x03 \x01(\x03R\x05avgMs\x12\x17\n" +
+	"\alast_ms\x18\x04 \x01(\x03R\x06lastMs\"\xc7\x01\n" +
+	"\fMarketRecord\x12\x14\n" +
+	"\x05class\x18\x01 \x01(\tR\x05class\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
+	"\x06prompt\x18\x03 \x01(\tR\x06prompt\x12\x15\n" +
+	"\x06dur_ms\x18\x04 \x01(\x03R\x05durMs\x12\x1e\n" +
+	"\n" +
+	"iterations\x18\x05 \x01(\x05R\n" +
+	"iterations\x12\x10\n" +
+	"\x03err\x18\x06 \x01(\tR\x03err\x12*\n" +
+	"\x02ts\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\x17\n" +
+	"\x15GetEvolveStateRequest\"\xdd\x02\n" +
 	"\x16GetEvolveStateResponse\x12\x1d\n" +
 	"\n" +
 	"self_model\x18\x01 \x01(\tR\tselfModel\x122\n" +
@@ -548,7 +747,9 @@ const file_lyon_v1_evolve_proto_rawDesc = "" +
 	"candidates\x12+\n" +
 	"\x06spaces\x18\x03 \x03(\v2\x13.lyon.v1.AgentSpaceR\x06spaces\x12&\n" +
 	"\x05flows\x18\x04 \x03(\v2\x10.lyon.v1.FlowRefR\x05flows\x12'\n" +
-	"\x05banks\x18\x05 \x03(\v2\x11.lyon.v1.ExamBankR\x05banks2b\n" +
+	"\x05banks\x18\x05 \x03(\v2\x11.lyon.v1.ExamBankR\x05banks\x126\n" +
+	"\fmarket_stats\x18\x06 \x03(\v2\x13.lyon.v1.MarketStatR\vmarketStats\x12:\n" +
+	"\rmarket_recent\x18\a \x03(\v2\x15.lyon.v1.MarketRecordR\fmarketRecent2b\n" +
 	"\rEvolveService\x12Q\n" +
 	"\x0eGetEvolveState\x12\x1e.lyon.v1.GetEvolveStateRequest\x1a\x1f.lyon.v1.GetEvolveStateResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
 
@@ -564,32 +765,37 @@ func file_lyon_v1_evolve_proto_rawDescGZIP() []byte {
 	return file_lyon_v1_evolve_proto_rawDescData
 }
 
-var file_lyon_v1_evolve_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_lyon_v1_evolve_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_lyon_v1_evolve_proto_goTypes = []any{
 	(*Candidate)(nil),              // 0: lyon.v1.Candidate
 	(*SpaceItem)(nil),              // 1: lyon.v1.SpaceItem
 	(*AgentSpace)(nil),             // 2: lyon.v1.AgentSpace
 	(*FlowRef)(nil),                // 3: lyon.v1.FlowRef
 	(*ExamBank)(nil),               // 4: lyon.v1.ExamBank
-	(*GetEvolveStateRequest)(nil),  // 5: lyon.v1.GetEvolveStateRequest
-	(*GetEvolveStateResponse)(nil), // 6: lyon.v1.GetEvolveStateResponse
-	(*timestamppb.Timestamp)(nil),  // 7: google.protobuf.Timestamp
+	(*MarketStat)(nil),             // 5: lyon.v1.MarketStat
+	(*MarketRecord)(nil),           // 6: lyon.v1.MarketRecord
+	(*GetEvolveStateRequest)(nil),  // 7: lyon.v1.GetEvolveStateRequest
+	(*GetEvolveStateResponse)(nil), // 8: lyon.v1.GetEvolveStateResponse
+	(*timestamppb.Timestamp)(nil),  // 9: google.protobuf.Timestamp
 }
 var file_lyon_v1_evolve_proto_depIdxs = []int32{
-	7, // 0: lyon.v1.Candidate.created:type_name -> google.protobuf.Timestamp
-	1, // 1: lyon.v1.AgentSpace.knowledge:type_name -> lyon.v1.SpaceItem
-	1, // 2: lyon.v1.AgentSpace.skills:type_name -> lyon.v1.SpaceItem
-	0, // 3: lyon.v1.GetEvolveStateResponse.candidates:type_name -> lyon.v1.Candidate
-	2, // 4: lyon.v1.GetEvolveStateResponse.spaces:type_name -> lyon.v1.AgentSpace
-	3, // 5: lyon.v1.GetEvolveStateResponse.flows:type_name -> lyon.v1.FlowRef
-	4, // 6: lyon.v1.GetEvolveStateResponse.banks:type_name -> lyon.v1.ExamBank
-	5, // 7: lyon.v1.EvolveService.GetEvolveState:input_type -> lyon.v1.GetEvolveStateRequest
-	6, // 8: lyon.v1.EvolveService.GetEvolveState:output_type -> lyon.v1.GetEvolveStateResponse
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	9,  // 0: lyon.v1.Candidate.created:type_name -> google.protobuf.Timestamp
+	1,  // 1: lyon.v1.AgentSpace.knowledge:type_name -> lyon.v1.SpaceItem
+	1,  // 2: lyon.v1.AgentSpace.skills:type_name -> lyon.v1.SpaceItem
+	9,  // 3: lyon.v1.MarketRecord.ts:type_name -> google.protobuf.Timestamp
+	0,  // 4: lyon.v1.GetEvolveStateResponse.candidates:type_name -> lyon.v1.Candidate
+	2,  // 5: lyon.v1.GetEvolveStateResponse.spaces:type_name -> lyon.v1.AgentSpace
+	3,  // 6: lyon.v1.GetEvolveStateResponse.flows:type_name -> lyon.v1.FlowRef
+	4,  // 7: lyon.v1.GetEvolveStateResponse.banks:type_name -> lyon.v1.ExamBank
+	5,  // 8: lyon.v1.GetEvolveStateResponse.market_stats:type_name -> lyon.v1.MarketStat
+	6,  // 9: lyon.v1.GetEvolveStateResponse.market_recent:type_name -> lyon.v1.MarketRecord
+	7,  // 10: lyon.v1.EvolveService.GetEvolveState:input_type -> lyon.v1.GetEvolveStateRequest
+	8,  // 11: lyon.v1.EvolveService.GetEvolveState:output_type -> lyon.v1.GetEvolveStateResponse
+	11, // [11:12] is the sub-list for method output_type
+	10, // [10:11] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_lyon_v1_evolve_proto_init() }
@@ -603,7 +809,7 @@ func file_lyon_v1_evolve_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lyon_v1_evolve_proto_rawDesc), len(file_lyon_v1_evolve_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

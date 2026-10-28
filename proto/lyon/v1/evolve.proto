@@ -61,6 +61,27 @@ message ExamBank {
   int32 questions = 3;
 }
 
+// MarketStat is one task class's aggregate price on the hour ledger
+// (pkg/market): how many finished runs, their mean and latest wall time.
+message MarketStat {
+  string class = 1;
+  int32 samples = 2;
+  int64 avg_ms = 3;
+  int64 last_ms = 4;
+}
+
+// MarketRecord is one finished task from the ledger — failed runs keep
+// their row (history is history) and carry err.
+message MarketRecord {
+  string class = 1;
+  string model = 2;
+  string prompt = 3; // clipped preview
+  int64 dur_ms = 4;
+  int32 iterations = 5;
+  string err = 6;
+  google.protobuf.Timestamp ts = 7;
+}
+
 message GetEvolveStateRequest {}
 
 message GetEvolveStateResponse {
@@ -69,4 +90,9 @@ message GetEvolveStateResponse {
   repeated AgentSpace spaces = 3; // commons first, then per-agent
   repeated FlowRef flows = 4;
   repeated ExamBank banks = 5;
+  // Task hour ledger (market #54): per-class prices, most-recent class
+  // first, then the newest finished tasks (stats side is the /market
+  // table; recent side is its history tail).
+  repeated MarketStat market_stats = 6;
+  repeated MarketRecord market_recent = 7; // newest first, capped server-side
 }

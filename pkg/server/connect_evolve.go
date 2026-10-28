@@ -12,6 +12,7 @@ import (
 	"lyon-agent/gen/go/lyon/v1/lyonv1connect"
 	"lyon-agent/pkg/eval"
 	"lyon-agent/pkg/flow"
+	"lyon-agent/pkg/market"
 	"lyon-agent/pkg/space"
 )
 
@@ -39,9 +40,11 @@ func (e *evolveService) GetEvolveState(
 		spcs  []*lyonv1.AgentSpace
 		flws  []*lyonv1.FlowRef
 		banks []*lyonv1.ExamBank
+		mstat []*lyonv1.MarketStat
+		mrec  []*lyonv1.MarketRecord
 	}
 	var p part
-	done := make(chan struct{}, 4)
+	done := make(chan struct{}, 6)
 	load := func(f func()) {
 		go func() { f(); done <- struct{}{} }()
 	}
@@ -49,15 +52,19 @@ func (e *evolveService) GetEvolveState(
 	load(func() { p.spcs = e.spaces() })
 	load(func() { p.flws = e.flows() })
 	load(func() { p.banks = e.banks() })
-	for i := 0; i < 4; i++ {
+	load(func() { p.mstat = e.marketStats() })
+	load(func() { p.mrec = e.marketRecent() })
+	for i := 0; i < 6; i++ {
 		<-done
 	}
 	return connect.NewResponse(&lyonv1.GetEvolveStateResponse{
-		SelfModel:  e.s.eng.Config().Model,
-		Candidates: p.cands,
-		Spaces:     p.spcs,
-		Flows:      p.flws,
-		Banks:      p.banks,
+		SelfModel:    e.s.eng.Config().Model,
+		Candidates:   p.cands,
+		Spaces:       p.spcs,
+		Flows:        p.flws,
+		Banks:        p.banks,
+		MarketStats:  p.mstat,
+		MarketRecent: p.mrec,
 	}), nil
 }
 
@@ -182,6 +189,36 @@ func (e *evolveService) banks() []*lyonv1.ExamBank {
 			b.Questions = int32(len(ex.Questions))
 		}
 		out = append(out, b)
+	}
+	return out
+}
+
+// marketStats is the task-hour ledger's per-class table (the TUI's
+// /market header: class, samples, mean, latest).
+func (e *evolveService) marketStats() []*lyonv1.MarketStat {
+	stats := market.Open().Stats()
+	out := make([]*lyonv1.MarketStat, 0, len(stats))
+	for _, s := range stats {
+		out = append(out, &lyonv1.MarketStat{
+			Class: s.Class, Samples: int32(s.Samples),
+			AvgMs: s.AvgMS, LastMs: s.LastMS,
+		})
+	}
+	return out
+}
+
+// marketRecent is the ledger's history tail, newest first (the TUI's
+// recent-tasks list; 20 rows is a web page, not the 500-row file).
+func (e *evolveService) marketRecent() []*lyonv1.MarketRecord {
+	recent := market.Open().Recent(20)
+	out := make([]*lyonv1.MarketRecord, 0, len(recent))
+	for i := len(recent) - 1; i >= 0; i-- { // newest first
+		r := recent[i]
+		out = append(out, &lyonv1.MarketRecord{
+			Class: r.Class, Model: r.Model, Prompt: r.Prompt,
+			DurMs: r.DurMS, Iterations: int32(r.Iters), Err: r.Err,
+			Ts: timestamppb.New(r.TS),
+		})
 	}
 	return out
 }
