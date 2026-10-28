@@ -43,8 +43,9 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   run 回放依赖 `pkg/agent/dump.go` 的 `tempWriteSkip` 开关移除
 - [x] **Phase 5 — 审批与 plan 占位收口**：ApprovalService/PlanService 全部
   `Unimplemented`（消息形状已冻结），前端降级提示不崩
-- web v1.1 才做（数据源清单里标 TODO）：任务市场（记忆面板已有、考卷候选/血统
-  2026-10-26 evolve 面板落地 — 市场仍归 §2.6）
+- web v1.1 三块面板 2026-10-28 收齐：记忆（MemoryPanel）、考卷候选/血统
+  （2026-10-26 EvolvePanel）、任务市场（2026-10-28 市场区 + `/market` 进
+  web 斜杠族）— 详见 §2.6
 
 ---
 
@@ -54,8 +55,9 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   已逐行评审后提交 `432fea2`（store.go Open loaders 锁 + index.go upsert 族 +
   upsert_perf_test.go，+490/-29）。Delete/Reload 全量重建防孤儿 posting、
   publish 前独占已核；`go test ./pkg/memory -count=3` 连绿。评审 B-#7 尾巴随之清。
-- [ ] **CI 仓名 slug**：README badge 用的是假设 `LyonLen/lyon-agent`，待确认
-  （影响 1.7 收口与 1.2 Release）
+- [x] **CI 仓名 slug** — 2026-10-28 核实：remote origin 即
+  `github.com/LyonLen/lyon-agent`，README badge 的假设成真（1.2 Release
+  的前置已解）。
 - [x] **规划类 md 是否入库** —— 2026-10-21 拍板：活账 `docs/planning/BACKLOG.md`
   入库，其余快照归 `docs/planning/archive/`；`.claude/settings.json` 属切机私有
   配置，进 .gitignore。
@@ -158,10 +160,12 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   `eval.EvolveChild`（代际上限 3、专长空间继承、lesson 即 knowledge）+
   竞选逐代淘汰（子必须胜父）+ Gen/Parent 复活。四维里的 prompt 维以
   lesson 文档形式进入子代空间（非系统提示注入——见 §3 重定义条）。
-- [ ] web v1.1 面板（见 §0 末行）：记忆 ✅（MemoryPanel）、考卷候选/血统 ✅
-  （2026-10-26 `EvolveService` + EvolvePanel：lineage Gen/Parent/seats、
-  spaces、flows、exam banks，斜杠族 /evolve /exam /contest /route /agents
-  /flow 开同一面板；跑考/竞赛仍 TUI）—— 仅剩任务市场。
+- [x] ~~web v1.1 面板~~ — 2026-10-28 全部落地：记忆 ✅（MemoryPanel）、
+  考卷候选/血统 ✅（2026-10-26 `EvolveService` + EvolvePanel：lineage
+  Gen/Parent/seats、spaces、flows、exam banks；跑考/竞赛仍 TUI）、
+  任务市场 ✅（2026-10-28 `GetEvolveState` 扩 market_stats/market_recent，
+  面板市场区 = TUI /market 的分类价目表 + 最近 20 单台账（失败单带 err
+  保留、不入价），/market 进 web 斜杠族开同一面板）。
 
 ### 2.7 阶段推进
 
