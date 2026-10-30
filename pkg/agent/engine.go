@@ -175,7 +175,10 @@ func NewEngine(cfg Config, reg *tools.Registry) *Engine {
 	httpClient := &http.Client{Transport: rt}
 
 	builtins := []tools.Tool{
-		&tools.Shell{Root: cfg.Workspace, Allow: cfg.ShellAllow},
+		// Timeout feeds the shell's own foreground clock (its adapter is
+		// exempt from the wall-clock wrap — session.go): the default a
+		// command gets when it declares no timeout_s.
+		&tools.Shell{Root: cfg.Workspace, Allow: cfg.ShellAllow, Timeout: cfg.ToolTimeout},
 		&tools.ReadFile{Root: cfg.Workspace},
 		&tools.SearchFiles{Root: cfg.Workspace},
 		&tools.WriteFile{Root: cfg.Workspace},
@@ -276,6 +279,10 @@ func (e *Engine) Hooks() *hooks.Manager { return e.hooks }
 // leaks one goroutine for the life of the process. Safe on a zero or
 // hand-built Engine, and idempotent.
 func (e *Engine) Close() {
+	// Detached background shells outlive sessions by design; with the
+	// engine going down nobody is left to notify, so sweep the registry
+	// (no-op once every waiter has already reaped its task).
+	tools.KillAllBackground()
 	if e.hooks != nil {
 		e.hooks.Close()
 	}

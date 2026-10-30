@@ -255,6 +255,22 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       return ev.text
         ? [...blocks, { kind: "user", text: ev.text }]
         : [...blocks, { kind: "notice", text: "queued prompt joined the run" }];
+    case "background_end": {
+      // A detached run_shell finished: status rides detail, the log tail
+      // and path ride attrs so the outcome is readable without opening
+      // the file (expandable in the notice's details).
+      const task = ev.attrs["task"] || "?";
+      const detail = [ev.attrs["log"], ev.attrs["tail"]]
+        .filter(Boolean)
+        .join("\n");
+      const head = ev.isError
+        ? `✗ background task #${task} — ${ev.detail}`
+        : `⏳ background task #${task} — ${ev.detail}`;
+      return [
+        ...blocks,
+        { kind: "notice", text: head, ...(detail ? { detail } : {}) },
+      ];
+    }
     case "memory_injected":
       return [
         ...blocks,

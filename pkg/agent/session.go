@@ -58,9 +58,20 @@ type Session struct {
 	streamCtx context.Context // ctx + session value: tool handlers find their Session
 	cancel    context.CancelFunc
 	events    chan Event
-	reqs      chan submitReq
-	closeOne  sync.Once
-	extObs    tools.Observer
+	// evMu serializes event sends against the stream close: emit holds it
+	// for read while loop holds it for the close, so a late emit can
+	// never race close(events) into a send-on-closed panic (background
+	// completions land during Close by design — the kill fires the waiter).
+	evMu     sync.RWMutex
+	reqs     chan submitReq
+	closeOne sync.Once
+	extObs   tools.Observer
+
+	// bgKey tags this session's background shell tasks in the tools
+	// registry (shell_bg.go): close/interrupt tears down exactly its
+	// trees. Unique per session — never recycled, so a stale key can
+	// never reach another session's processes.
+	bgKey string
 
 	// serial gates mutating tools during execution: per-resource for tools
 	// that name one (write_file/edit_file serialize only on the same file,
@@ -289,6 +300,11 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 	// #33: the shell screen escalates a suspicious command to the judge, which
 	// rides the same ctx down to the tool.
 	s.streamCtx = s.withShellJudge(s.streamCtx)
+	// Background shells attribute themselves to this session through the
+	// ctx seam (tools.WithBackgroundOwner): completion lands in onBgEnd,
+	// and close/interrupt reaches exactly this session's trees by bgKey.
+	s.bgKey = fmt.Sprintf("session-%d", bgKeySeq.Add(1))
+	s.streamCtx = tools.WithBackgroundOwner(s.streamCtx, s.bgKey, s.onBgEnd)
 	adaptCfg := tools.AdapterConfig{
 		Serial:    &s.serial,
 		Timeout:   e.cfg.ToolTimeout,
@@ -305,12 +321,21 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 	// bug — a 48.9s run lived only because it beat the 120s ceiling). Their
 	// no-progress idle watchdog in runNested owns the budget now; every
 	// other tool keeps the wall clock.
+	//
+	// run_shell is exempt for its own reason: the tool carries its clock
+	// now — a per-call timeout_s (clamped) for foreground runs, no clock
+	// at all for background=true — fed by Shell.Timeout from the same
+	// ToolTimeout as the default. The adapter's fixed budget on top would
+	// kill every long command at the ceiling anyway (the 2m01s
+	// `go test ./...` death: `timeout 900` inside the command never got
+	// to matter).
 	adaptCfg.Timeout = 0
 	for i, t := range s.betaTools {
-		if t.Name() != "run_subagent" && t.Name() != "run_subagents" {
+		name := t.Name()
+		if name != "run_subagent" && name != "run_subagents" && name != "run_shell" {
 			continue
 		}
-		if raw, ok := e.reg.Get(t.Name()); ok {
+		if raw, ok := e.reg.Get(name); ok {
 			s.betaTools[i] = tools.Adapt(raw, adaptCfg)
 		}
 	}
@@ -530,6 +555,9 @@ func detailIf(cond bool, d string) string {
 func (s *Session) Close() {
 	s.closeOne.Do(func() {
 		s.cancel()
+		// Detached background shells outlive the prompt by design; with
+		// the session gone nobody can be told, so the trees go down too.
+		tools.KillBackgroundOwner(s.bgKey)
 		for s.dumpPending.Load() > 0 {
 			time.Sleep(time.Millisecond) // dump writers are short-lived; mirrors the audit flush below
 		}
@@ -548,6 +576,10 @@ func (s *Session) Interrupt() bool {
 		return false
 	}
 	(*pc)()
+	// "Cancel" covers the detached runs too: their trees were started
+	// under this session and go down with the interrupt (Close below
+	// sweeps again — the kill is idempotent).
+	tools.KillBackgroundOwner(s.bgKey)
 	return true
 }
 
@@ -563,7 +595,14 @@ func (s *Session) Stats() []TurnStat {
 // loop is the session's single goroutine: it receives prompts and drives the
 // tool runner to completion for each one.
 func (s *Session) loop() {
-	defer close(s.events)
+	// Close the stream under the write lock so in-flight emits (holding
+	// evMu for read) finish first — see emit's ctx check for the ordering
+	// that makes send-on-closed impossible.
+	defer func() {
+		s.evMu.Lock()
+		close(s.events)
+		s.evMu.Unlock()
+	}()
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -1078,6 +1117,15 @@ func (s *Session) emit(e Event) {
 			Detail:     e.Detail,
 		})
 	}
+	// Session already over: loop closes events strictly AFTER ctx is done,
+	// so this check excludes the closed channel — a background completion
+	// notified during Close (the kill fires its waiter) drops out here
+	// instead of racing the close into a panic.
+	if s.ctx.Err() != nil {
+		return
+	}
+	s.evMu.RLock()
+	defer s.evMu.RUnlock()
 	select {
 	case s.events <- e:
 	case <-s.ctx.Done():

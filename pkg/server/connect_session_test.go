@@ -399,3 +399,36 @@ func TestConnectAuthRequired(t *testing.T) {
 		t.Fatal("valid token still rejected with 401")
 	}
 }
+
+// TestProtoEventBackgroundEndPassthrough: a future event type this
+// build's enum doesn't know (background_end) still reaches clients —
+// type stays UNSPECIFIED (protojson-safe), type_name carries the raw
+// string and the attrs map (task/code/log/tail) rides through intact.
+// This is the hub leg of the background-completion notification.
+func TestProtoEventBackgroundEndPassthrough(t *testing.T) {
+	se := protoEvent(hubItem{
+		seq: 7,
+		ev: agent.Event{
+			Type:    agent.EventBackgroundEnd,
+			Detail:  "exit 0 after 1m05s",
+			IsError: false,
+			Attrs: map[string]string{
+				"task": "3", "code": "0",
+				"log": "/ws/.lyon/shell-bg/bg-1-0003.log", "tail": "ok-done",
+			},
+		},
+	})
+	if se.Seq != 7 {
+		t.Errorf("seq = %d, want 7", se.Seq)
+	}
+	if se.Type != lyonv1.EventType_EVENT_TYPE_UNSPECIFIED {
+		t.Errorf("type = %v, want UNSPECIFIED for a novel event", se.Type)
+	}
+	if se.TypeName != "background_end" {
+		t.Errorf("type_name = %q, want background_end", se.TypeName)
+	}
+	if se.Detail != "exit 0 after 1m05s" || se.Attrs["tail"] != "ok-done" ||
+		se.Attrs["task"] != "3" {
+		t.Errorf("detail/attrs did not survive: %+v", se)
+	}
+}

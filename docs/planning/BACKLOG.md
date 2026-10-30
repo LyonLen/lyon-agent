@@ -115,6 +115,11 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   已被现行覆盖：`scratchHome` 带 40×50ms 重试 RemoveAll + 扫描器 `001` marker
   注释，`go test ./pkg/eval -count=3` 连绿，无需再修。
 - [ ] **hooks SessionStart 触发点**（EVOLUTION-GAPS 遗留的接入点问题）。
+- [ ] **background_end 的 TUI 转录尾巴**（2026-10-30 run_shell 改造的遗留）：
+  超时/后台模式已通到 web（chat 事件 + 系统注记 + 间隙注入 + 生命周期），
+  TUI 转录 case 在 tui.go（只减不增红线），等 §2.4 拆分后补或改挂 steps.go
+  （可增）。空闲自动唤醒（后台完成即开新轮）有意未做——现为系统注记等
+  用户下一轮。
 
 ### 2.5 入口对齐 —— 核心闭环不能只对一个入口生效（2026-10-16 盘点）
 

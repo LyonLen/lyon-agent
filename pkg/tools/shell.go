@@ -36,12 +36,45 @@ type Shell struct {
 	// cases deny rather than allow. Not a security sandbox; it raises the
 	// cost of accidental dangerous commands.
 	Allow []string
+	// Timeout bounds one foreground execution when the input carries no
+	// timeout_s — agent.Config.ToolTimeout feeds it, and the session's
+	// adapter deliberately does NOT wrap run_shell anymore (session.go:
+	// the tool owns its clock). Zero falls back to shellDefaultTimeout.
+	// Background tasks are not bounded by it at all.
+	Timeout time.Duration
+}
+
+const (
+	// shellDefaultTimeout mirrors agent.DefaultConfig's ToolTimeout: the
+	// budget a command gets when it declares nothing.
+	shellDefaultTimeout = 2 * time.Minute
+	// shellTimeoutMax caps a per-call timeout_s (15 minutes — the same
+	// order a full `go test ./...` needs; anything plausibly longer should
+	// go through background=true, which is unbounded by design).
+	shellTimeoutMax = 15 * time.Minute
+)
+
+// timeoutFor resolves one foreground execution's wall clock: a positive
+// per-call timeout_s (clamped to shellTimeoutMax) wins, else the
+// configured Timeout, else shellDefaultTimeout.
+func (s *Shell) timeoutFor(timeoutS int) time.Duration {
+	if timeoutS <= 0 {
+		if s.Timeout > 0 {
+			return s.Timeout
+		}
+		return shellDefaultTimeout
+	}
+	d := time.Duration(timeoutS) * time.Second
+	if d > shellTimeoutMax {
+		d = shellTimeoutMax
+	}
+	return d
 }
 
 func (s *Shell) Name() string { return "run_shell" }
 
 func (s *Shell) Description() string {
-	d := "Run a shell command in the workspace directory. Returns the exit code and combined stdout+stderr (truncated to 32KB). Use for file operations, builds, and anything better expressed as a command."
+	d := "Run a shell command in the workspace directory. Returns the exit code and combined stdout+stderr (truncated to 32KB). Each run has a 120s wall clock by default: pass timeout_s (max 900) for a known-long command, or background=true to detach — completion is announced with the output tail and log path. Use for file operations, builds, and anything better expressed as a command."
 	if n := ShellName(); n != "" {
 		d += " Commands run in " + n + " syntax."
 	}
@@ -88,6 +121,13 @@ func (s *Shell) NeedsApproval() bool { return true }
 
 type shellInput struct {
 	Command string `json:"command" jsonschema:"required,description=The shell command to execute"`
+	// TimeoutS is the per-call wall clock (Claude Code's `timeout`
+	// parameter): known-long commands declare their own budget instead of
+	// dying at the default. Clamp: shellTimeoutMax.
+	TimeoutS int `json:"timeout_s,omitempty" jsonschema:"description=Wall-clock seconds for this command (default 120, max 900). Use for known-long foreground work (full test suites); otherwise prefer background=true."`
+	// Background detaches the command entirely: no wall clock, output to a
+	// log file, completion announced out of band (shell_bg.go).
+	Background bool `json:"background,omitempty" jsonschema:"description=Start the command detached and return immediately — no wall clock. Completion arrives as a background_end chat event and a system note carrying the output tail and log path."`
 }
 
 func (s *Shell) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -195,7 +235,15 @@ func (s *Shell) Execute(ctx context.Context, input json.RawMessage) ([]anthropic
 	if strings.TrimSpace(in.Command) == "" {
 		return nil, fmt.Errorf("empty command")
 	}
-	out, code, truncated, err := s.run(ctx, in.Command)
+	if in.Background {
+		return s.startBackground(ctx, in.Command)
+	}
+	// The per-call clock, inside (and independent of) the caller's ctx:
+	// the adapter no longer wraps run_shell in ToolTimeout, so this is
+	// the wall clock that must kill a runaway foreground command.
+	runCtx, cancel := context.WithTimeout(ctx, s.timeoutFor(in.TimeoutS))
+	defer cancel()
+	out, code, truncated, err := s.run(runCtx, in.Command)
 	if err != nil {
 		return nil, err
 	}
