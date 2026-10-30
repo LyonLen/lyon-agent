@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestWebFetchStripsHTMLToText(t *testing.T) {
@@ -69,6 +71,120 @@ func TestWebFetchPlainTextAndErrorStatus(t *testing.T) {
 	in, _ = json.Marshal(webFetchInput{URL: ts.URL + "/missing"})
 	if _, err := w.Execute(context.Background(), in); err == nil {
 		t.Fatal("404 should error")
+	}
+}
+
+// A 429 with a short Retry-After is waited out once inside the call and
+// the retry succeeds — the tool never surfaces the blip to the model.
+func TestWebFetch429RetriesOnce(t *testing.T) {
+	var calls int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("recovered"))
+	}))
+	defer ts.Close()
+
+	w := &WebFetch{Client: ts.Client()}
+	in, _ := json.Marshal(webFetchInput{URL: ts.URL})
+	out, err := w.Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if out[0].OfText.Text != "recovered" {
+		t.Fatalf("text = %q", out[0].OfText.Text)
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Fatalf("server hits = %d, want 2 (one retry)", n)
+	}
+}
+
+// A retry that 429s again fences the host: later fetches fail in-process
+// with a route-around hint and never reach the server.
+func TestWebFetch429FencesHost(t *testing.T) {
+	var calls int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer ts.Close()
+
+	w := &WebFetch{Client: ts.Client()}
+	in, _ := json.Marshal(webFetchInput{URL: ts.URL})
+	if _, err := w.Execute(context.Background(), in); err == nil {
+		t.Fatal("want error after retry also 429s")
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Fatalf("server hits = %d, want 2", n)
+	}
+
+	_, err := w.Execute(context.Background(), in)
+	if err == nil || !strings.Contains(err.Error(), "cooldown") {
+		t.Fatalf("fenced call err = %v, want cooldown hint", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Fatalf("fenced call reached the server (hits = %d)", n)
+	}
+}
+
+// A Retry-After beyond the wait cap fences immediately — the tool must
+// not block the turn for the server's chosen pause.
+func TestWebFetchLongRetryAfterFencesFast(t *testing.T) {
+	var calls int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer ts.Close()
+
+	w := &WebFetch{Client: ts.Client()}
+	in, _ := json.Marshal(webFetchInput{URL: ts.URL})
+	start := time.Now()
+	_, err := w.Execute(context.Background(), in)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("waited %s for a 120s Retry-After", elapsed)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("server hits = %d, want 1 (no in-call retry)", n)
+	}
+	if !strings.Contains(err.Error(), "different source") {
+		t.Fatalf("err lacks route-around hint: %v", err)
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	cases := []struct {
+		in    string
+		want  time.Duration
+		valid bool
+	}{
+		{"120", 120 * time.Second, true},
+		{" 7 ", 7 * time.Second, true},
+		{"0", 0, true},
+		{"-3", 0, true}, // clamp: a negative value means "now", not "never"
+		{"", 0, false},
+		{"soonish", 0, false},
+		// A past HTTP-date means "retry now".
+		{"Wed, 21 Oct 2020 07:28:00 GMT", 0, true},
+	}
+	for _, c := range cases {
+		got, ok := parseRetryAfter(c.in)
+		if ok != c.valid || (c.valid && got != c.want) {
+			t.Errorf("parseRetryAfter(%q) = (%v, %v), want (%v, %v)", c.in, got, ok, c.want, c.valid)
+		}
+	}
+	// A future HTTP-date is accepted and positive.
+	if got, ok := parseRetryAfter(time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)); !ok || got <= 0 {
+		t.Errorf("future HTTP-date: (%v, %v)", got, ok)
 	}
 }
 

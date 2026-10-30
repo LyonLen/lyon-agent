@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -19,6 +22,26 @@ const webBodyLimit = 512 * 1024
 
 // webUserAgent avoids default-curl rejection on search endpoints.
 const webUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+
+// 429 politeness for web_fetch. A rate-limited host must not be hammered:
+// one bounded retry inside the tool call when the server offers a short
+// Retry-After, then a per-host fence that turns later fetches into an
+// immediate "use a different source" error instead of another hit.
+const (
+	// web429RetryWait is the backoff when a 429 carries no usable
+	// Retry-After — long enough to escape a token-bucket refill, short
+	// enough to stay invisible in a tool turn.
+	web429RetryWait = 2 * time.Second
+	// web429MaxWait caps the in-call sleep: a tool call blocking minutes
+	// helps nobody — past this, fence the host and let the model route
+	// around it this turn.
+	web429MaxWait = 10 * time.Second
+	// web429Cooldown is the fence floor (a 429 without Retry-After) and
+	// the ceiling's lower bound; web429MaxCooldown caps a huge
+	// Retry-After from fencing a host for the rest of the session.
+	web429Cooldown    = 30 * time.Second
+	web429MaxCooldown = 2 * time.Minute
+)
 
 // WebSearch performs a keyless web search by scraping Bing's HTML endpoint.
 // It is the client-side twin of Anthropic's server-side web_search, used when
@@ -131,6 +154,13 @@ func parseBingResults(page string) []SearchResult {
 // to readable text; other text types pass through. Parallel-safe.
 type WebFetch struct {
 	Client *http.Client
+
+	// mu guards cooldowns: ParallelSafe means concurrent Executes, and
+	// the engine shares one WebFetch across every session and subagent
+	// (nestedTools pulls from the registry), so a fence raised by one
+	// fan-out task spares the others.
+	mu        sync.Mutex
+	cooldowns map[string]time.Time // host → fenced until
 }
 
 func (w *WebFetch) Name() string { return "web_fetch" }
@@ -159,20 +189,50 @@ func (w *WebFetch) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 		return nil, fmt.Errorf("url must be http or https: %q", in.URL)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, err
+	if until, ok := w.cooldownFor(parsed.Host); ok {
+		return nil, fmt.Errorf("fetch %s: on cooldown ~%ds after HTTP 429 — use a different source (search, another domain, or a reader proxy) instead of retrying this host",
+			parsed.Host, int(time.Until(until).Seconds())+1)
 	}
-	req.Header.Set("User-Agent", webUserAgent)
-	req.Header.Set("Accept", "text/html,text/plain;q=0.9,*/*;q=0.5")
 
 	client := w.Client
 	if client == nil {
 		client = http.DefaultClient
 	}
-	resp, err := client.Do(req)
+	resp, err := w.get(ctx, client, parsed.String())
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
+	}
+
+	// 429: one bounded in-call retry, then fence the host. A short
+	// Retry-After is worth waiting out inside the turn; anything longer
+	// than the cap (or a second 429) means the model should source
+	// elsewhere now and the host stays fenced for later tasks too.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		ra, have := parseRetryAfter(resp.Header.Get("Retry-After"))
+		wait := ra
+		if !have {
+			wait = web429RetryWait
+		}
+		if wait > web429MaxWait {
+			fenced := w.fenceHost(parsed.Host, ra)
+			resp.Body.Close()
+			return nil, fmt.Errorf("fetch %s: HTTP 429, Retry-After %ds exceeds the %ds wait cap — host fenced ~%ds; use a different source",
+				parsed.Host, int(ra.Seconds()), int(web429MaxWait.Seconds()), int(fenced.Seconds()))
+		}
+		drainClose(resp)
+		if err := sleepCtx(ctx, wait); err != nil {
+			return nil, fmt.Errorf("fetch %s: 429 backoff interrupted: %w", parsed.Host, err)
+		}
+		if resp, err = w.get(ctx, client, parsed.String()); err != nil {
+			return nil, fmt.Errorf("fetch: %w", err)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			ra, _ = parseRetryAfter(resp.Header.Get("Retry-After"))
+			fenced := w.fenceHost(parsed.Host, ra)
+			resp.Body.Close()
+			return nil, fmt.Errorf("fetch %s: HTTP 429 twice in a row — host fenced ~%ds; use a different source",
+				parsed.Host, int(fenced.Seconds()))
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
@@ -201,6 +261,95 @@ func (w *WebFetch) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 		return nil, fmt.Errorf("%s produced no extractable text", parsed.Host)
 	}
 	return TextResult(text), nil
+}
+
+// get issues one GET with the shared browser-ish headers.
+func (w *WebFetch) get(ctx context.Context, client *http.Client, rawurl string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", webUserAgent)
+	req.Header.Set("Accept", "text/html,text/plain;q=0.9,*/*;q=0.5")
+	return client.Do(req)
+}
+
+// cooldownFor reports a live fence for host, if any.
+func (w *WebFetch) cooldownFor(host string) (time.Time, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	until, ok := w.cooldowns[host]
+	return until, ok && time.Now().Before(until)
+}
+
+// fenceHost blocks fetches to host for ra (clamped to the floor/ceiling),
+// extending rather than shortening an existing fence, and returns the
+// duration applied — for the model-facing error message.
+func (w *WebFetch) fenceHost(host string, ra time.Duration) time.Duration {
+	d := ra
+	if d < web429Cooldown {
+		d = web429Cooldown
+	}
+	if d > web429MaxCooldown {
+		d = web429MaxCooldown
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.cooldowns == nil {
+		w.cooldowns = make(map[string]time.Time)
+	}
+	until := time.Now().Add(d)
+	if cur, ok := w.cooldowns[host]; !ok || until.After(cur) {
+		w.cooldowns[host] = until
+	}
+	return d
+}
+
+// sleepCtx waits out a 429 backoff, giving up when the tool call's
+// context is cancelled (timeout or interrupt) instead of sleeping on.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// drainClose consumes a little of the body (for connection reuse) and
+// closes it — used when a 429 response is discarded before the retry.
+func drainClose(resp *http.Response) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+}
+
+// parseRetryAfter reads a Retry-After header: delta-seconds per RFC 9110,
+// or an HTTP-date. The bool reports whether the header was present and
+// recognizable; callers supply their own default when it is not.
+func parseRetryAfter(v string) (time.Duration, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, false
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs < 0 {
+			secs = 0
+		}
+		return time.Duration(secs) * time.Second, true
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			d = 0
+		}
+		return d, true
+	}
+	return 0, false
 }
 
 func looksLikeHTML(b []byte) bool {
