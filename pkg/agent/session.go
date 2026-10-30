@@ -741,6 +741,11 @@ func (s *Session) drive(prompt, runModel string) {
 	// shows a clean "done" over a truncated answer (the 回复被截断 report).
 	lastStop := ""
 
+	// Narration hygiene (narration.go): strip line-leading punctuation and
+	// close pre-tool narration with a full stop — one delta of lookbehind,
+	// owned by this loop's goroutine.
+	var narr narrationHygiene
+
 	// stopReason distinguishes a closed session from an Interrupt: both
 	// cancel pctx, which derives from the session context.
 	stopReason := func() string {
@@ -779,11 +784,18 @@ func (s *Session) drive(prompt, runModel string) {
 			}
 			got = true
 			if e := normalize(ev); e != nil {
-				if e.Type == EventToolUseStart && !e.Server {
-					s.trackToolUse(e.ToolID, e.ToolName)
+				for _, out := range narr.filter(*e) {
+					if out.Type == EventToolUseStart && !out.Server {
+						s.trackToolUse(out.ToolID, out.ToolName)
+					}
+					s.emit(out)
 				}
-				s.emit(*e)
 			}
+		}
+		// Stream over: a held final-answer delta lands now (untrimmed —
+		// answers close themselves).
+		if pending := narr.flush(); pending != nil {
+			s.emit(*pending)
 		}
 		s.eng.releaseTurn()
 
