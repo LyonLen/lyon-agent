@@ -1,9 +1,11 @@
-# CI: build + vet + test on the three release platforms.
+# CI: build + vet + test on the three release platforms, plus a race job.
 #
 # Known repo caveats — run honestly, no relaxation:
-#   - Windows: bench thresholds (engine p95 overhead <= 25ms, cache-hit gate)
-#     can flake under heavily parallel runners; the bench itself takes best of
-#     up to N rounds. A red bench on Windows should be re-run, not silenced.
+#   - Bench gate (engine p95 overhead <= 40ms, cache-hit gate) is calibrated
+#     from measured noise on a Windows dev machine (2026-10-30; see the
+#     threshold comment in bench/load_test.go) and the bench takes best of
+#     up to 3 rounds. A red bench on a noisy runner should be re-run once,
+#     not silenced; a red that repeats is real.
 #   - Windows: external scanners touching %TEMP% used to race TempDir cleanup
 #     ("directory not empty"); mitigated by scratchHome retry-cleanup. If a
 #     fresh temp-dir flake appears, fix the leak — don't add retries here.
@@ -47,3 +49,21 @@ jobs:
       # -count=1 disables the test cache so every run exercises the real code.
       - name: Test
         run: go test ./... -count=1
+
+  # -race needs cgo; ubuntu-latest ships a working gcc, so race runs there
+  # only. Scope = the concurrency-bearing packages (bgshell registry, session
+  # emit/close, engine wiring) — where the detector actually earns its keep.
+  race:
+    name: race (agent+tools)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x' # keep in sync with go.mod (go 1.25.0)
+
+      - name: Race
+        run: CGO_ENABLED=1 go test -race ./pkg/agent ./pkg/tools -count=1

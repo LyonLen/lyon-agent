@@ -150,11 +150,14 @@ func TestShellForegroundTimeoutParam(t *testing.T) {
 		t.Fatalf("default clock took %v, want ~400ms", el)
 	}
 
-	in, _ = json.Marshal(shellInput{Command: "sleep 1", TimeoutS: 2})
+	// 10s not 2s: full-suite CPU starvation (Windows spawn latency) must
+	// not false-fail this; the 25× gap over the 400ms default keeps the
+	// regression signal sharp either way.
+	in, _ = json.Marshal(shellInput{Command: "sleep 1", TimeoutS: 10})
 	start = time.Now()
 	out, err := sh.Execute(context.Background(), in)
 	if err != nil {
-		t.Fatalf("timeout_s=2 must outrank the 400ms default: %v", err)
+		t.Fatalf("timeout_s=10 must outrank the 400ms default: %v", err)
 	}
 	if el := time.Since(start); el < 800*time.Millisecond {
 		t.Fatalf("returned after %v — the 1s sleep did not run to completion", el)

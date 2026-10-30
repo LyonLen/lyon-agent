@@ -46,13 +46,16 @@ func TestRunShellOwnClockBeatsToolTimeout(t *testing.T) {
 		t.Fatalf("default clock took %v, want ~400ms", el)
 	}
 
-	// timeout_s=2: if the adapter still wrapped the tool at 400ms, this
-	// would die at 400ms regardless of the inner clock.
-	in, _ = json.Marshal(map[string]any{"command": "sleep 1", "timeout_s": 2})
+	// timeout_s=10: if the adapter still wrapped the tool at 400ms, this
+	// would die at 400ms regardless of the inner clock. The budget is 10s,
+	// not 2s, so a full `go test ./...` (Windows process spawn under CPU
+	// starvation occasionally eats seconds) can't false-fail it — the 25×
+	// gap over the 400ms adapter clock keeps the regression signal sharp.
+	in, _ = json.Marshal(map[string]any{"command": "sleep 1", "timeout_s": 10})
 	start = time.Now()
 	out, err := sh.Execute(sess.streamCtx, in)
 	if err != nil {
-		t.Fatalf("timeout_s=2 must survive ToolTimeout=400ms: %v", err)
+		t.Fatalf("timeout_s=10 must survive ToolTimeout=400ms: %v", err)
 	}
 	if el := time.Since(start); el < 800*time.Millisecond {
 		t.Fatalf("returned after %v — the 1s sleep did not run to completion", el)

@@ -108,8 +108,12 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 
 - [ ] **评审 B-#5：tui.go 拆分**（现约 3202 行，按 popup/render/slash dispatch 分域）。
   「tui.go 只减不增」红线使它必须单独排；拆完全量 3 连绿才算验收。
-- [ ] **C-1 bench TestLoad/overhead 全量并行 flaky 根治**：3 轮取最小的缓解不够，
-  方案待选（`go test -p 1` / 绝对阈值+环境倍率）；CI 现以 known-Flaky 注记妥协。
+- [x] **C-1 bench TestLoad/overhead 全量并行 flaky 根治** —— 2026-10-30 按实测
+  分布重定门限：旧 25ms 压在本机噪声中位（静机 best-of-3 ≈ 25.5ms）上，全量
+  并行 ~50% 误报；抬至 40ms（~1.5× 噪声头寸，真回归 +20ms/turn 仍触线），
+  数据来源写进 `bench/load_test.go` 门限注释，CI 头注记同步更新。同轮补
+  ubuntu-only race job（`CGO_ENABLED=1 go test -race ./pkg/agent ./pkg/tools`），
+  盯 bgshell 注册表 / session emit-close 这批新并发面。
 - [ ] **全量测试 3 连绿验收**（HANDOFF D-④，历次从未达成：三次跑三种结果）。
 - [x] **C-4 pkg/eval TempDir `001` 空目录 RemoveAll 竞态** —— 2026-10-19 核实
   已被现行覆盖：`scratchHome` 带 40×50ms 重试 RemoveAll + 扫描器 `001` marker
