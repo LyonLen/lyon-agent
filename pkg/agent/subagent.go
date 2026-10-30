@@ -288,9 +288,14 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 			Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 			Fallbacks:    anthropic.BetaFallbacksParamOfDefault(),
 		},
-		// No MaxIterations cap: 0 (the SDK default) runs until the model
-		// stops calling tools — same unlimited-rounds stance as the main
-		// loop's default MaxIterations=0.
+		// Round budget (SubagentMaxIterations): the SDK stops the loop at
+		// the cap, repairs the tail (the last round's unexecuted tool
+		// calls are skipped) and completes cleanly — the answer below then
+		// carries a marker so the parent knows the cut happened. Negative
+		// is the explicit no-cap escape; the default is 12, because a
+		// subtask nobody watches must not grind unbounded (the 14-minute
+		// fan-out incident).
+		MaxIterations: max(0, s.eng.cfg.SubagentMaxIterations),
 	})
 
 	start := time.Now()
@@ -349,6 +354,7 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 
 	var answer strings.Builder
 	usage := Usage{}
+	maxed := false
 	if msg := runner.LastMessage(); msg != nil {
 		usage = Usage{
 			Input:         msg.Usage.InputTokens,
@@ -361,9 +367,18 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 				answer.WriteString(block.Text)
 			}
 		}
+		// A tool_use stop at the cap means the budget — not the model —
+		// ended the run: flag it so the parent reads the findings as
+		// partial instead of complete.
+		if cap := s.eng.cfg.SubagentMaxIterations; cap > 0 && iters >= cap && msg.StopReason == anthropic.BetaStopReasonToolUse {
+			maxed = true
+		}
 	}
 	if answer.Len() == 0 {
 		answer.WriteString("(subagent finished without a final answer)")
+	}
+	if maxed {
+		answer.WriteString(" (subtask stopped at its round budget — findings above are partial)")
 	}
 
 	s.recordSub(model, usage) // cost gauge: billed separately
@@ -378,8 +393,8 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 		// The full answer still rides the parent tool's result; a clipped
 		// head rides here so a transcript can show WHAT came back on the
 		// task's own card without opening the parent (web subtask view).
-		Text:   answerHead(answer.String()),
-		TS:     time.Now(),
+		Text: answerHead(answer.String()),
+		TS:   time.Now(),
 	})
 	return answer.String(), usage, iters, nil
 }

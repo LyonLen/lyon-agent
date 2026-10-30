@@ -129,6 +129,83 @@ func TestSubagentProgressOutlivesWallBudget(t *testing.T) {
 	}
 }
 
+// TestSubagentRoundCap: a subtask whose model never stops calling tools
+// is cut at SubagentMaxIterations and returns its findings with a budget
+// marker — the fix for the unbounded fan-out that ground for 14 minutes
+// with no ceiling anywhere. The script's single tool-call turn repeats
+// forever, so only the cap can end the run.
+func TestSubagentRoundCap(t *testing.T) {
+	mock := mockapi.New(mockapi.Config{
+		Script:  []mockapi.Turn{{Tool: &mockapi.ToolCall{Name: "noop", Input: "{}"}}}, // repeats: never answers
+		Latency: 10 * time.Millisecond,
+	})
+	t.Cleanup(mock.Close)
+	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sub-round-test-token")
+
+	reg := tools.NewRegistry()
+	if err := tools.RegisterFunc(reg, "noop", "does nothing", true,
+		func(ctx context.Context, _ struct{}) (string, error) { return "ok", nil }); err != nil {
+		t.Fatal(err)
+	}
+	cfg := subTimeoutConfig(t, time.Second)
+	cfg.SubagentMaxIterations = 3
+	sess := subTimeoutSession(t, cfg, reg)
+
+	answer, _, iters, err := sess.runNested(context.Background(), "sub-x",
+		"never-ending tool loop task", "", "")
+	if err != nil {
+		t.Fatalf("a capped run must end cleanly, not error: %v", err)
+	}
+	if iters != 3 {
+		t.Fatalf("API rounds = %d, want 3 (the cap)", iters)
+	}
+	if !strings.Contains(answer, "round budget") {
+		t.Fatalf("answer must name the budget cut, got %q", answer)
+	}
+}
+
+// TestSubagentNoCapEscape: a negative SubagentMaxIterations is the
+// explicit "run until the model stops" escape — the same script that the
+// cap test cuts at 3 runs to its natural text answer here.
+func TestSubagentNoCapEscape(t *testing.T) {
+	script := []mockapi.Turn{
+		{Tool: &mockapi.ToolCall{Name: "noop", Input: "{}"}},
+		{Tool: &mockapi.ToolCall{Name: "noop", Input: "{}"}},
+		{Tool: &mockapi.ToolCall{Name: "noop", Input: "{}"}},
+		{Tool: &mockapi.ToolCall{Name: "noop", Input: "{}"}},
+		{Text: []string{"answered past the default cap"}},
+	}
+	mock := mockapi.New(mockapi.Config{Script: script, Latency: 5 * time.Millisecond})
+	t.Cleanup(mock.Close)
+	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sub-round-test-token")
+
+	reg := tools.NewRegistry()
+	if err := tools.RegisterFunc(reg, "noop", "does nothing", true,
+		func(ctx context.Context, _ struct{}) (string, error) { return "ok", nil }); err != nil {
+		t.Fatal(err)
+	}
+	cfg := subTimeoutConfig(t, time.Second)
+	cfg.SubagentMaxIterations = -1 // no cap — must survive withDefaults
+	sess := subTimeoutSession(t, cfg, reg)
+
+	answer, _, iters, err := sess.runNested(context.Background(), "sub-x",
+		"five round task with a real ending", "", "")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if iters != 5 {
+		t.Fatalf("API rounds = %d, want 5 (uncapped)", iters)
+	}
+	if !strings.Contains(answer, "answered past the default cap") {
+		t.Fatalf("answer = %q", answer)
+	}
+	if strings.Contains(answer, "round budget") {
+		t.Fatalf("uncapped run must not carry the budget marker: %q", answer)
+	}
+}
+
 // TestSubagentWallBudgetDiagnosis: when the CALLER's wall clock fires
 // mid-run (the adapter's ToolTimeout, until it stops wrapping the
 // subagent tools — see the session.go note in the fix report), the error

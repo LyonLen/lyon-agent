@@ -79,6 +79,37 @@ func TestDefaultIterationsUnlimited(t *testing.T) {
 	}
 }
 
+// TestSubagentMaxIterationsEnv: subtasks default to a round cap (12 — a
+// cap nobody watches must be ON), LYON_SUBAGENT_MAX_ITER overrides it
+// (0 = the explicit no-cap escape), garbage falls back, and an explicit
+// Config value still wins over the env.
+func TestSubagentMaxIterationsEnv(t *testing.T) {
+	t.Setenv("LYON_SUBAGENT_MAX_ITER", "")
+	if got := NewEngine(Config{}, nil).Config().SubagentMaxIterations; got != defaultSubagentMaxIterations {
+		t.Fatalf("default = %d, want %d", got, defaultSubagentMaxIterations)
+	}
+	t.Setenv("LYON_SUBAGENT_MAX_ITER", "30")
+	if got := NewEngine(Config{}, nil).Config().SubagentMaxIterations; got != 30 {
+		t.Fatalf("LYON_SUBAGENT_MAX_ITER=30 → %d", got)
+	}
+	t.Setenv("LYON_SUBAGENT_MAX_ITER", "0")
+	if got := NewEngine(Config{}, nil).Config().SubagentMaxIterations; got != 0 {
+		t.Fatalf("LYON_SUBAGENT_MAX_ITER=0 → %d, want 0 (no cap)", got)
+	}
+	t.Setenv("LYON_SUBAGENT_MAX_ITER", "lots")
+	if got := NewEngine(Config{}, nil).Config().SubagentMaxIterations; got != defaultSubagentMaxIterations {
+		t.Fatalf("garbage env → %d, want %d", got, defaultSubagentMaxIterations)
+	}
+	t.Setenv("LYON_SUBAGENT_MAX_ITER", "30")
+	if got := NewEngine(Config{SubagentMaxIterations: 5}, nil).Config().SubagentMaxIterations; got != 5 {
+		t.Fatalf("explicit value lost to env: %d", got)
+	}
+	t.Setenv("LYON_SUBAGENT_MAX_ITER", "30")
+	if got := NewEngine(Config{SubagentMaxIterations: -1}, nil).Config().SubagentMaxIterations; got != -1 {
+		t.Fatalf("negative (no-cap escape) lost to env: %d", got)
+	}
+}
+
 // TestOpenAIBaseDefaults: LYON_OPENAI_BASE enables the translation layer
 // with gateway-friendly defaults (client web tools, single subagent model),
 // explicit values win, and leaving it unset keeps the Anthropic path.

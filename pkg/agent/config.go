@@ -33,6 +33,15 @@ type Config struct {
 	// the prompt ends with stop_reason "max_iterations" so renderers can
 	// say why. Override with -max-iter or LYON_MAX_ITER.
 	MaxIterations int
+	// SubagentMaxIterations caps API calls per dispatched subtask. A task
+	// the model never considers "done" would otherwise grind unbounded —
+	// the 14-minute fan-out where three of four subtasks died mid-research
+	// had no round ceiling at all. 0 resolves in withDefaults
+	// (LYON_SUBAGENT_MAX_ITER, else defaultSubagentMaxIterations); a
+	// negative value is the explicit "no cap" escape hatch. On exhaustion
+	// the SDK repairs the tail and the subtask returns its findings with a
+	// budget marker — it never dies mid-tool.
+	SubagentMaxIterations int
 	// SystemPrompt is the frozen system prompt. Never interpolate dynamic
 	// values into it — any byte change invalidates the prompt cache prefix.
 	SystemPrompt string
@@ -149,23 +158,53 @@ func maxIterations() int {
 // stop_reason "max_iterations".
 const defaultMaxIterations = 0
 
+// defaultSubagentMaxIterations is the per-subtask API-call budget: 12.
+// Unlike the main loop, the default is ON — subtasks are delegated
+// chores on cheap workers, a main-loop user drives the session and can
+// see it stall, while a stuck subtask burns tokens invisibly inside a
+// fan-out (the 14-minute unbounded run). 12 rounds covers a normal
+// lookup (search → a few fetches → answer) with room to spare; a task
+// that needs more says so and gets a wider LYON_SUBAGENT_MAX_ITER.
+const defaultSubagentMaxIterations = 12
+
+// subagentMaxIterations resolves the subtask round budget:
+// LYON_SUBAGENT_MAX_ITER when set to a non-negative integer (0 = no cap),
+// else defaultSubagentMaxIterations. Garbage is reported instead of
+// silently dropped — whoever set the env meant a ceiling.
+func subagentMaxIterations() int {
+	v := strings.TrimSpace(os.Getenv("LYON_SUBAGENT_MAX_ITER"))
+	if v == "" {
+		return defaultSubagentMaxIterations
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		fmt.Fprintf(os.Stderr,
+			"lyon: LYON_SUBAGENT_MAX_ITER=%q is not a whole number — ignoring it (subtask rounds default to %d)\n",
+			v, defaultSubagentMaxIterations)
+		return defaultSubagentMaxIterations
+	}
+	return n
+}
+
 // DefaultConfig returns the engine defaults: Claude Opus 5.5 (or the
 // ANTHROPIC_MODEL override), medium effort, streaming-sized output budget.
 func DefaultConfig() Config {
 	return Config{
-		Model:             defaultModel(),
-		Effort:            "medium",
-		MaxTokens:         64000,
-		MaxIterations:     maxIterations(),
-		SystemPrompt:      DefaultSystemPrompt,
-		ToolTimeout:       2 * time.Minute,
-		ToolResultCap:     64 * 1024,
-		EventBuffer:       256,
-		SubagentModel:     defaultSubagentModel(),
-		SubagentEffort:    "low",
-		SubagentMaxTokens: 8192,
-		CompactThreshold:  0.7,
-		ContextWindow:     200000,
+		Model:         defaultModel(),
+		Effort:        "medium",
+		MaxTokens:     64000,
+		MaxIterations: maxIterations(),
+
+		SubagentMaxIterations: subagentMaxIterations(),
+		SystemPrompt:          DefaultSystemPrompt,
+		ToolTimeout:           2 * time.Minute,
+		ToolResultCap:         64 * 1024,
+		EventBuffer:           256,
+		SubagentModel:         defaultSubagentModel(),
+		SubagentEffort:        "low",
+		SubagentMaxTokens:     8192,
+		CompactThreshold:      0.7,
+		ContextWindow:         200000,
 	}
 }
 
@@ -196,15 +235,18 @@ const DefaultSystemPrompt = `You are lyon, a fast, capable general-purpose agent
 - Every narration line is a complete sentence: it starts with a word (never punctuation such as a comma) and ends with a full stop (。 in Chinese, . in English). Never trail off mid-phrase right before the tool_use block.
 - Start from the task, not from questions. If the goal is clear enough to act, act; ask only when a wrong assumption would invalidate the result.
 - Gather context before changing anything: list the directory, read the relevant files, inspect the current state. Read only the sections you need — whole large files, directory dumps, and noisy logs waste context.
+- Never assert outside-world facts you have not looked up in this conversation: products, prices, versions, deals, market moves — each needs a search or fetch behind it here, or must be labeled a guess in the same sentence. A confident wrong fact costs the reader more than a slow verified one.
+- Before mass-producing a deliverable (a deck, a report, a design), confirm direction on a small sample — two or three pages, or an outline — then produce the rest.
 - Prefer the smallest effective action. An edit beats a rewrite; a one-liner command beats a script; the existing helper beats a new abstraction.
 - Work in observe-act loops: take an action, read the real output, adjust, continue until the goal state is reached. Never claim an action you did not take, and never quote output you did not see.
 - Batch independent reads or searches when tools can run in parallel; keep anything that writes or mutates strictly ordered.
-- When delegating to run_subagent, pass a self-contained task with all needed context — a subagent cannot see this conversation. Use it for background lookups so the main context stays small.
+- When delegating to run_subagent, pass a self-contained task with all needed context — a subagent cannot see this conversation. Keep each task narrow and checkable — two or three concrete questions, not "investigate everything about X" — and use subagents for background lookups so the main context stays small.
 - For any task that will take more than a couple of steps, write the subtask breakdown with todo_write before starting, and rewrite the plan as each subtask finishes (it completed, the next becomes in_progress). The user follows your progress through that plan.
 
 # When things fail
 - A non-zero exit code, an error message, or an unexpected result is data. Read it carefully, form one hypothesis, change one thing, then retry.
 - If the same approach fails twice, stop repeating it: change strategy, or report the blocker together with what you already tried.
+- When a source blocks you (429, 403, captcha), try at most two variants, then switch sources — a search hit, an aggregator, secondary reporting — and tell the user the primary was unreachable. An evasion toolkit around one host is the failure mode, not the fix.
 - Never attempt to bypass tool guards — path confinement, command allowlists, approval prompts — with encoding tricks or alternative binaries. Work within the guard, or tell the user which restriction blocked you and why it exists.
 
 # Workspace and safety
@@ -218,7 +260,8 @@ const DefaultSystemPrompt = `You are lyon, a fast, capable general-purpose agent
 - Lead with the outcome. Keep prose short: bullets over paragraphs when listing, code blocks only when they prove the result.
 - Match the user's language — write Chinese when they write Chinese, otherwise English.
 - If the request is ambiguous in a way that materially changes the deliverable, ask one focused question; otherwise pick the sensible default and proceed.
-- When a task finishes, state what changed, where it changed, and anything the user should verify themselves.`
+- When a task finishes, state what changed, where it changed, and anything the user should verify themselves.
+- Answer what was asked and nothing adjacent: a request for a retrospective gets the retrospective; new ideas go on a separate line. When the user says stop, stop.`
 
 func (c Config) withDefaults() Config {
 	d := DefaultConfig()
@@ -237,6 +280,11 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxIterations <= 0 {
 		c.MaxIterations = d.MaxIterations
+	}
+	// 0 means "unresolved" here; a negative value is the explicit no-cap
+	// escape hatch and must survive untouched.
+	if c.SubagentMaxIterations == 0 {
+		c.SubagentMaxIterations = d.SubagentMaxIterations
 	}
 	if c.SystemPrompt == "" {
 		c.SystemPrompt = d.SystemPrompt
