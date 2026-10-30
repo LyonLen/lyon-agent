@@ -361,6 +361,7 @@ button:focus-visible,
 .chat-feed .blk-text,
 .chat-feed .blk-thinking,
 .chat-feed .blk-tool,
+.chat-feed .blk-subtask,
 .chat-feed .blk-notice,
 .chat-feed .err {
   animation: rise-in var(--dur-2) var(--ease) both;
@@ -547,6 +548,46 @@ button:focus-visible,
   margin: 0 10px 8px; padding-top: 6px; border-top: 1px dashed var(--line);
 }
 .blk-tool .err { padding-bottom: 2px; }
+
+/* subtask cards (#53 fan-out): the visible half of the main↔sub
+   exchange — task preview at open, live step count while running, the
+   answer head it brought back at close. Fan-out inner steps sit indented
+   with the owning task's accent (inline border color, subHue). */
+.blk-subtask {
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: var(--radius-2); background: var(--bg-card);
+  transition: border-color var(--dur-1);
+}
+.blk-subtask.done { border-left-color: var(--ok); }
+.blk-subtask.failed { border-left-color: var(--danger); }
+.blk-subtask summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; cursor: pointer; list-style: none; user-select: none;
+}
+.blk-subtask summary::-webkit-details-marker { display: none; }
+.blk-subtask summary:hover { background: var(--bg-hover); }
+.sub-chip {
+  flex: none; width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600;
+  color: var(--accent); border: 1px solid var(--line); border-radius: 50%;
+}
+.sub-task {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px;
+}
+.sub-meta { font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+.sub-answer {
+  margin: 0 10px 8px; padding: 6px 8px; font-size: 12px;
+  border-top: 1px dashed var(--line);
+}
+.sub-answer-label {
+  font-size: 10px; color: var(--dim);
+  border: 1px solid var(--line); border-radius: var(--radius-1);
+  padding: 0 4px; margin-right: 6px;
+}
+.blk-tool.sub { border-left: 3px solid var(--line); }
 
 .err { color: var(--danger); font-size: 13px; padding: 2px 12px; }
 

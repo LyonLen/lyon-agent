@@ -98,6 +98,25 @@ type Block =
       error: string;
       server: boolean;
       sub: boolean;
+      // Fan-out attribution (#53): which dispatched task this inner step
+      // belongs to — chips the row and lets the subtask card count it.
+      subId: string;
+    }
+  // One dispatched subtask's lifecycle (subagent_start…subagent_end):
+  // task preview at open, live step count while running, and the answer
+  // head the run brought back — the visible half of the main↔sub
+  // contract (the full answer still rides the parent tool's result).
+  | {
+      kind: "subtask";
+      subId: string;
+      task: string;
+      model: string;
+      status: "running" | "done" | "failed";
+      durationMs: number;
+      error: string;
+      answer: string;
+      calls: string; // end detail, e.g. "12 API calls"
+      steps: number; // inner tool executions seen so far
     }
   | { kind: "notice"; text: string; detail?: string }
   | { kind: "error"; text: string };
@@ -121,8 +140,10 @@ function replaceAt(blocks: Block[], i: number, next: Block): Block[] {
 // The live thinking block auto-opens so the reader can watch the run (#47),
 // but a long chain-of-thought would bury the feed: once it passes this many
 // lines it folds itself and only the "live · ctrl+o to expand" hint remains.
-// A global ctrl+o fold still opens it for the ordinary reason.
-const LIVE_THINK_MAX_LINES = 10;
+// A global ctrl+o fold still opens it for the ordinary reason. 40 (was 10):
+// at 10 a research-heavy turn folded its 思路 after two sentences and the
+// reader couldn't follow the plan at all.
+const LIVE_THINK_MAX_LINES = 40;
 
 // Line count for the live-thinking fold gate — hand-rolled so the per-delta
 // render path doesn't allocate a split array for the whole (growing) text.
@@ -169,6 +190,7 @@ function newToolBlock(ev: SessionEvent): Extract<Block, { kind: "tool" }> {
     error: "",
     server: ev.server,
     sub: ev.sub,
+    subId: ev.subId || "",
   };
 }
 
@@ -214,8 +236,20 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
         status: ev.sub && base.status === "pending" ? "pending" : "running",
         sub: base.sub || ev.sub,
       });
-      if (i >= 0) return replaceAt(blocks, i, filled(blocks[i] as Extract<Block, { kind: "tool" }>));
-      return [...blocks, filled({ ...newToolBlock(ev), status: "pending" })];
+      let next: Block[];
+      if (i >= 0) next = replaceAt(blocks, i, filled(blocks[i] as Extract<Block, { kind: "tool" }>));
+      else next = [...blocks, filled({ ...newToolBlock(ev), status: "pending" })];
+      // A fan-out inner step also ticks its task's live counter.
+      if (ev.sub && ev.subId) {
+        for (let j = next.length - 1; j >= 0; j--) {
+          const b = next[j];
+          if (b.kind === "subtask" && b.subId === ev.subId) {
+            next = replaceAt(next, j, { ...b, steps: b.steps + 1 });
+            break;
+          }
+        }
+      }
+      return next;
     }
     case "tool_exec_output": {
       if (ev.execId === 0n) return blocks;
@@ -280,7 +314,44 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       return ev.detail
         ? [...blocks, { kind: "notice", text: `compaction — ${ev.detail}` }]
         : blocks;
+    case "subagent_start": {
+      // Fan-out task opening (#53): its own card — the header of the
+      // main↔sub exchange. A legacy single call has no SubID and draws
+      // nothing here (its result rides the parent tool card).
+      if (!ev.subId) return blocks;
+      return [
+        ...blocks,
+        {
+          kind: "subtask",
+          subId: ev.subId,
+          task: ev.detail,
+          model: ev.toolName,
+          status: "running",
+          durationMs: 0,
+          error: "",
+          answer: "",
+          calls: "",
+          steps: 0,
+        },
+      ];
+    }
     case "subagent_end": {
+      if (ev.subId) {
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i];
+          if (b.kind === "subtask" && b.subId === ev.subId) {
+            return replaceAt(blocks, i, {
+              ...b,
+              status: ev.isError ? ("failed" as const) : ("done" as const),
+              durationMs: Number(ev.durationMs),
+              error: ev.isError ? ev.error : "",
+              answer: ev.isError ? "" : ev.text || "",
+              calls: ev.isError ? "" : ev.detail || "",
+            });
+          }
+        }
+      }
+      // No matching card (legacy single run_subagent): the old one-liner.
       const u = ev.usage;
       const usage = u
         ? `in=${u.input} out=${u.output} cache_read=${u.cacheRead}`
@@ -1224,6 +1295,15 @@ export default function ChatView(props: {
     }
   };
 
+  // Fan-out ordinals: first-appearance order of each SubID across task
+  // cards and inner steps — the chip number that ties a sub row to its
+  // task ("sub 2" belongs to the card chipped 2).
+  const subOrd = new Map<string, number>();
+  for (const b of blocks) {
+    const sid = b.kind === "subtask" ? b.subId : b.kind === "tool" ? b.subId : "";
+    if (sid && !subOrd.has(sid)) subOrd.set(sid, subOrd.size + 1);
+  }
+
   return (
     <div className={"chat" + (busy ? " streaming" : "")}>
       <div className="chat-feed" ref={feedRef} onScroll={onFeedScroll}>
@@ -1232,6 +1312,11 @@ export default function ChatView(props: {
             key={`${i}:${b.kind}`}
             block={b}
             thinkOpen={thinkOpen}
+            ord={
+              (b.kind === "subtask" || (b.kind === "tool" && b.subId))
+                ? subOrd.get(b.kind === "subtask" ? b.subId : b.subId)
+                : undefined
+            }
             // The newest thinking block while the seat streams is the run
             // the reader came to watch: BlockView shows its body even under
             // a closed fold (#47, "展开，让用户看着运行") — but only while
@@ -1575,6 +1660,13 @@ export default function ChatView(props: {
   );
 }
 
+// subHue picks a readable accent per fan-out task number — distinct
+// enough to re-gather one task's interleaved steps, muted enough to sit
+// in the existing palette.
+function subHue(ord: number): string {
+  return `hsl(${(ord * 67) % 360} 62% 62%)`;
+}
+
 // Turn durations use the same shape as tool cards — a whole prompt that
 // answered in 3.4s and one that took 12m04s are both readable at a glance.
 
@@ -1582,10 +1674,13 @@ function BlockView({
   block,
   thinkOpen,
   live,
+  ord,
 }: {
   block: Block;
   thinkOpen: boolean;
   live?: boolean;
+  /** Fan-out task number (1-based) for subtask cards and sub rows. */
+  ord?: number;
 }) {
   switch (block.kind) {
     case "user":
@@ -1642,7 +1737,14 @@ function BlockView({
           : "";
       return (
         <details
-          className={"blk-tool" + (block.status === "failed" ? " failed" : "")}
+          className={
+            "blk-tool" +
+            (block.status === "failed" ? " failed" : "") +
+            (block.sub ? " sub" : "")
+          }
+          // Fan-out tint: same accent as the owning task's chip, so the
+          // eye can gather one task's interleaved steps back together.
+          style={ord ? { borderLeftColor: subHue(ord) } : undefined}
         >
           <summary className="blk-tool-head">
             <div className="blk-tool-row">
@@ -1651,7 +1753,14 @@ function BlockView({
                   ▸
                 </span>
                 <span className="tool-name">{block.name}</span>
-                {block.sub && <span className="tool-badge">sub</span>}
+                {block.sub && (
+                  <span
+                    className="tool-badge sub"
+                    style={ord ? { color: subHue(ord), borderColor: subHue(ord) } : undefined}
+                  >
+                    {ord ? `sub ${ord}` : "sub"}
+                  </span>
+                )}
                 {block.server && (
                   <span className="tool-badge server">server</span>
                 )}
@@ -1676,6 +1785,50 @@ function BlockView({
           </summary>
           {block.input && <pre className="tool-input">{prettyInput(block.input)}</pre>}
           {block.output && <pre className="tool-output">{block.output}</pre>}
+          {block.error && <div className="err">{block.error}</div>}
+        </details>
+      );
+    }
+    case "subtask": {
+      const meta =
+        block.status === "running"
+          ? `running · ${block.steps} step${block.steps === 1 ? "" : "s"} · ${block.model}`
+          : block.status === "done"
+            ? `✓ ${fmtDuration(block.durationMs)}${block.calls ? ` · ${block.calls}` : ""} · ${block.steps} steps · ${block.model}`
+            : `✗ ${fmtDuration(block.durationMs)} · ${block.steps} steps · ${block.model}`;
+      return (
+        // Key on status: remount flips open (auto-shows while running,
+        // folds to its header when done — same trick as ThinkingBlock).
+        <details
+          key={block.status}
+          className={`blk-subtask ${block.status}`}
+          open={block.status === "running"}
+        >
+          <summary>
+            <span
+              className="sub-chip"
+              style={ord ? { color: subHue(ord), borderColor: subHue(ord) } : undefined}
+            >
+              {ord ?? "•"}
+            </span>
+            <span className="sub-task">{block.task || "(subtask)"}</span>
+            {block.status === "running" && (
+              <span className="tool-status running">
+                <span className="spin" aria-hidden="true" />
+              </span>
+            )}
+            <span className={`tool-status ${block.status}`}>
+              {block.status === "done" && "done"}
+              {block.status === "failed" && "failed"}
+            </span>
+            <span className="sub-meta">{meta}</span>
+          </summary>
+          {block.answer && (
+            <div className="sub-answer">
+              <span className="sub-answer-label">answer</span>
+              {block.answer}
+            </div>
+          )}
           {block.error && <div className="err">{block.error}</div>}
         </details>
       );

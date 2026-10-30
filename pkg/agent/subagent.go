@@ -205,6 +205,20 @@ func (o subObs) OnToolOutput(e tools.ExecEvent) {
 	}
 }
 
+// answerHead clips a subagent's final answer to its first line (≤160
+// runes) for the end event's Text — the transcript preview of what the
+// task brought back. The full text still rides the parent tool result.
+func answerHead(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if r := []rune(s); len(r) > 160 {
+		s = string(r[:160]) + "…"
+	}
+	return s
+}
+
 // runNested runs one nested tool-loop to completion on model. subID == ""
 // is the legacy single-call attribution (subNest counter + session
 // observer); a non-empty subID opens an EventSubagentStart, stamps every
@@ -361,7 +375,11 @@ func (s *Session) runNested(ctx context.Context, model, task, subID, preview str
 		Usage:      &usage,
 		DurationMS: time.Since(start).Milliseconds(),
 		Detail:     fmt.Sprintf("%d API calls", iters),
-		TS:         time.Now(),
+		// The full answer still rides the parent tool's result; a clipped
+		// head rides here so a transcript can show WHAT came back on the
+		// task's own card without opening the parent (web subtask view).
+		Text:   answerHead(answer.String()),
+		TS:     time.Now(),
 	})
 	return answer.String(), usage, iters, nil
 }
