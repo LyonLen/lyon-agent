@@ -251,8 +251,8 @@ func renderSkillsSection(skills []SkillBrief) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n## Skills available (use read_file for full text)\n")
-	b.WriteString("Optional playbooks on disk, one per line (name — description, path). To follow one, read its file with read_file first.\n")
+	b.WriteString("\n## Skills available (read a matched SKILL.md before doing its work)\n")
+	b.WriteString("Installed playbooks, one per line (name — description, path). When a task matches a listed skill, read its SKILL.md with read_file FIRST and follow it end to end — its templates, layouts and checklists beat hand-rolled equivalents, and delivering that class of work while ignoring a matched skill is a defect.\n")
 	used := len([]rune(b.String()))
 	for i, sk := range skills {
 		line := fmt.Sprintf("- %s: %s (%s)\n", sk.Name, sk.Description, sk.Path)

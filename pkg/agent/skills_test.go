@@ -134,7 +134,7 @@ func TestSkillsSectionBudget(t *testing.T) {
 	if !strings.Contains(sec, "more skill(s)") {
 		t.Fatalf("overflowing list must say it is partial, got tail %q", sec[len(sec)-80:])
 	}
-	if !strings.Contains(sec, "## Skills available (use read_file for full text)") {
+	if !strings.Contains(sec, "## Skills available") {
 		t.Fatalf("missing header: %q", sec[:120])
 	}
 }
@@ -162,7 +162,7 @@ func TestSessionSystemPromptCarriesSkills(t *testing.T) {
 	if got != cfg.SystemPrompt+sess.skillsText+sess.shellText {
 		t.Fatalf("system prompt must be frozen base + skills block + shell marker (cache-stable suffix)")
 	}
-	if !strings.Contains(got, "## Skills available (use read_file for full text)") {
+	if !strings.Contains(got, "## Skills available") {
 		t.Fatalf("skills header missing from system prompt")
 	}
 }
