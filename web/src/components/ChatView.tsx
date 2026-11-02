@@ -83,7 +83,9 @@ const fmtTs = (t?: Timestamp): string => {
 // cross-attach).
 type Block =
   | { kind: "user"; text: string }
-  // turnMs pins the turn's wall time (from the turn_end event) to the reply.
+  // turnMs pins the run's wall time (from prompt_end — submit to final
+  // resolution) to the reply. turn_end is one API call: pinning that
+  // showed a last-leg "51.38s" on a run that took ten minutes.
   | { kind: "text"; text: string; turnMs?: number }
   | { kind: "thinking"; text: string }
   | {
@@ -369,28 +371,33 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
     }
     case "error":
       return [...blocks, { kind: "error", text: ev.error || ev.detail }];
-    case "turn_end": {
-      // The turn's wall time rides the end event — pin it to the reply
-      // text so a finished answer shows how long it took.
+    case "prompt_end": {
+      // The badge is the WHOLE run's wall time (time.Since(submit) on the
+      // server), pinned when the run reaches its final state — submit to
+      // final resolution, tool loop included. turn_end used to pin here,
+      // but that carries one API call: a ten-minute run showed the last
+      // leg (the "51.38s" report).
+      // One stamp per reply: a text block already carrying a badge
+      // belongs to an earlier run — a tool-only run must not re-time it.
       const ms = Number(ev.durationMs || 0);
-      if (!ms) return blocks;
-      for (let i = blocks.length - 1; i >= 0; i--) {
-        const b = blocks[i];
-        if (b.kind === "text") {
-          return replaceAt(blocks, i, { ...b, turnMs: ms });
+      let out = blocks;
+      if (ms > 0) {
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i];
+          if (b.kind === "text") {
+            if (!b.turnMs) out = replaceAt(blocks, i, { ...b, turnMs: ms });
+            break;
+          }
         }
       }
-      return blocks; // thinking/tool-only turn: nothing to annotate
-    }
-    case "prompt_end":
       if (ev.error) {
-        return [...blocks, { kind: "error", text: ev.error }];
+        return [...out, { kind: "error", text: ev.error }];
       }
       // The output cap ended the reply mid-sentence: nothing failed, but
       // "done" over a truncated answer is a lie — say why it stops there.
       if (ev.stopReason === "max_tokens") {
         return [
-          ...blocks,
+          ...out,
           {
             kind: "notice",
             text:
@@ -399,7 +406,8 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
           },
         ];
       }
-      return blocks;
+      return out;
+    }
     default:
       // message_start / turn_end / subagent_start / unknown — nothing to
       // draw (TUI draws nothing for turn boundaries either).
