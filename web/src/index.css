@@ -600,7 +600,30 @@ button:focus-visible,
 }
 .file-entry:hover { background: var(--bg-select); }
 .file-entry.dir { color: var(--accent); }
-.file-meta { color: var(--dim); font-size: 12px; }
+.file-meta { color: var(--dim); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+
+/* --- explorer icons + git decorations (VS Code-style) ------------------- */
+.file-label { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.file-label .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-icon { flex-shrink: 0; display: block; }
+.file-icon text { font-weight: 700; }
+/* 新增绿 · 变更蓝 · 删除灰（冲突橙） */
+.file-badge {
+  font-size: 10px; font-weight: 700; line-height: 15px;
+  padding: 0 4px; border-radius: 3px; letter-spacing: 0.5px;
+}
+.file-badge.added { color: #73c991; background: rgba(115, 201, 145, 0.12); }
+.file-badge.changed { color: #75beff; background: rgba(117, 190, 255, 0.12); }
+.file-badge.deleted { color: #9a9a9a; background: rgba(154, 154, 154, 0.12); }
+.file-badge.conflict { color: #e5a50a; background: rgba(229, 165, 10, 0.14); }
+.file-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.file-dot.added { background: #73c991; }
+.file-dot.changed { background: #75beff; }
+.file-dot.deleted { background: #9a9a9a; }
+.file-dot.conflict { background: #e5a50a; }
+.file-row.ghost .file-entry { color: var(--dim); cursor: default; opacity: 0.75; }
+.file-row.ghost .file-name { text-decoration: line-through; }
+.file-row.ghost .file-entry:hover { background: transparent; }
 
 .files-preview { border-top: 1px solid var(--line); max-height: 45%; overflow: auto; padding: 8px; }
 .files-preview-head { color: var(--dim); font-size: 12px; margin-bottom: 4px; }

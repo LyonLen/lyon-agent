@@ -1,14 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirEntry } from "../gen/lyon/v1/file_pb";
 import { FileKind } from "../gen/lyon/v1/file_pb";
-import { errText, fileClient } from "../api";
+import type { GitChange } from "../gen/lyon/v1/git_pb";
+import { errText, fileClient, gitClient } from "../api";
 import { joinPath } from "../filePreview";
+import { FileIcon, gitBadge } from "../fileIcons";
 import SkeletonRows from "./Skeleton";
 import ScmView from "./ScmView";
 
 // Dotfile visibility, remembered per browser (sibling-product convention):
 // default hidden, like `ls` without -a.
 const HIDE_DOTFILES_KEY = "lyon_files_hide_dot_v1";
+
+// Folder change-dot ranking: the strongest state anywhere under a dir
+// decides its one dot — conflicted beats modified/untracked beats deleted.
+const DOT_RANK: Record<string, number> = {
+  conflicted: 4,
+  modified: 3,
+  renamed: 3,
+  untracked: 2,
+  added: 2,
+  deleted: 1,
+};
 
 // FilePanel is the workspace browser shell (plan Phase B): navigate,
 // CRUD, upload, move. The embedded 45% preview moved out to standalone
@@ -144,19 +157,83 @@ export default function FilePanel({
     );
   }, [entries, hideDot]);
 
-  const load = useCallback(async (p: string) => {
-    setLoading(true);
+  // Git decorations for the listing: repo-root-relative path → change.
+  // null = not a repo (or status not fetched yet) — badges/dots simply
+  // don't render. Paths are workspace-relative, matching porcelain's
+  // repo-root-relative spelling whenever workspace root == repo root.
+  const [git, setGit] = useState<Map<string, GitChange> | null>(null);
+  const loadGit = useCallback(async () => {
     try {
-      const res = await fileClient.listDirectory({ path: p });
-      setEntries(res.entries);
-      setPath(p);
-      setErr("");
-    } catch (e) {
-      setErr(errText(e));
-    } finally {
-      setLoading(false);
+      const res = await gitClient.status({});
+      setGit(
+        res.isRepo
+          ? new Map(res.changes.map((c): [string, GitChange] => [c.path, c]))
+          : null,
+      );
+    } catch {
+      setGit(null);
     }
   }, []);
+
+  // One dot on a folder: the color class of the strongest change anywhere
+  // under it (dir prefixes over repo-root-relative porcelain paths).
+  const dirDotClass = (
+    dir: string,
+  ): "added" | "changed" | "deleted" | "conflict" | null => {
+    if (!git) return null;
+    const prefix = dir + "/";
+    let best = "";
+    let bestRank = 0;
+    for (const [p, c] of git) {
+      if (!p.startsWith(prefix)) continue;
+      const rank = DOT_RANK[c.kind] ?? 0;
+      if (rank > bestRank) {
+        bestRank = rank;
+        best = c.kind;
+      }
+    }
+    return bestRank > 0 ? gitBadge({ kind: best, xy: "" }).cls : null;
+  };
+
+  // Deleted-on-disk files still carry their porcelain row — show them as
+  // gray ghost rows (VS Code's strikethrough) instead of silently
+  // vanishing until the stage catches up. Only same-level files qualify:
+  // a deleted directory's rows live under a path the panel can no longer
+  // walk into.
+  const ghosts = useMemo(() => {
+    if (!git) return [];
+    const prefix = path ? path + "/" : "";
+    const onDisk = new Set(entries.map((e) => e.name));
+    const out: string[] = [];
+    for (const [p, c] of git) {
+      if (c.kind !== "deleted" || !p.startsWith(prefix)) continue;
+      const rest = p.slice(prefix.length);
+      if (!rest || rest.includes("/")) continue;
+      if (hideDot && rest.startsWith(".")) continue;
+      if (!onDisk.has(rest)) out.push(rest);
+    }
+    return out.sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+    );
+  }, [git, path, entries, hideDot]);
+
+  const load = useCallback(
+    async (p: string) => {
+      void loadGit(); // status rides along every directory refresh
+      setLoading(true);
+      try {
+        const res = await fileClient.listDirectory({ path: p });
+        setEntries(res.entries);
+        setPath(p);
+        setErr("");
+      } catch (e) {
+        setErr(errText(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadGit],
+  );
 
   useEffect(() => {
     void load("");
@@ -176,6 +253,7 @@ export default function FilePanel({
   // (file-events rule: root + open dir, diff name/size/mtime).
   useEffect(() => {
     const iv = setInterval(() => {
+      void loadGit(); // the agent commits/stages without our load() running
       void (async () => {
         try {
           const res = await fileClient.listDirectory({ path });
@@ -200,7 +278,7 @@ export default function FilePanel({
       })();
     }, 5000);
     return () => clearInterval(iv);
-  }, [path]);
+  }, [path, loadGit]);
 
   const openFile = (e: DirEntry) =>
     onOpenFile(joinPath(path, e.name), e.kind ?? FileKind.TEXT);
@@ -465,7 +543,7 @@ export default function FilePanel({
         )}
         {loading ? (
           <SkeletonRows n={8} />
-        ) : visible.length === 0 && path === "" ? null : (
+        ) : visible.length === 0 && ghosts.length === 0 && path === "" ? null : (
           <>
             {path !== "" && (
               <button
@@ -475,10 +553,14 @@ export default function FilePanel({
                 ..
               </button>
             )}
-            {visible.length === 0 && (
+            {visible.length === 0 && ghosts.length === 0 && (
               <div className="placeholder file-empty">目录为空</div>
             )}
-            {visible.map((e) => (
+            {visible.map((e) => {
+              const change = git?.get(joinPath(path, e.name));
+              const badge = !e.isDir && change ? gitBadge(change) : undefined;
+              const dot = e.isDir ? dirDotClass(joinPath(path, e.name)) : null;
+              return (
               <div
                 key={e.name}
                 className={"file-row" + (moving?.name === e.name && moving.from === path ? " moving" : "")}
@@ -510,8 +592,17 @@ export default function FilePanel({
                       className={"file-entry" + (e.isDir ? " dir" : "")}
                       onClick={() => (e.isDir ? gotoDir(joinPath(path, e.name)) : openFile(e))}
                     >
-                      <span>{e.name}</span>
+                      <span className="file-label">
+                        <FileIcon name={e.name} isDir={e.isDir} />
+                        <span className="file-name">{e.name}</span>
+                      </span>
                       <span className="file-meta">
+                        {badge && (
+                          <span className={"file-badge " + badge.cls}>
+                            {badge.letter}
+                          </span>
+                        )}
+                        {dot && <span className={"file-dot " + dot} />}
                         {e.isDir ? "" : formatSize(e.sizeBytes)}
                       </span>
                     </button>
@@ -546,6 +637,27 @@ export default function FilePanel({
                     )}
                   </>
                 )}
+              </div>
+              );
+            })}
+            {ghosts.map((name) => (
+              <div
+                key={"ghost:" + name}
+                className="file-row ghost"
+                onContextMenu={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                }}
+              >
+                <button className="file-entry" disabled>
+                  <span className="file-label">
+                    <FileIcon name={name} isDir={false} />
+                    <span className="file-name">{name}</span>
+                  </span>
+                  <span className="file-meta">
+                    <span className="file-badge deleted">D</span>
+                  </span>
+                </button>
               </div>
             ))}
           </>
