@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/draw"
 	_ "image/gif"  // register GIF decoder for dimension checks
 	_ "image/jpeg" // register JPEG decoder for dimension checks
-	_ "image/png"  // register PNG decoder for dimension checks
+	"image/png"    // named: encoder for magnified output; registers the decoder too
 	"os"
 	"strings"
 
@@ -110,13 +111,17 @@ func (v *ViewImage) Name() string { return "view_image" }
 
 func (v *ViewImage) Description() string {
 	return "Load an image (png, jpeg, gif, webp) from the workspace and return it as a viewable image block — use this to actually see screenshots, diagrams, photos or charts. " +
+		"To read small text or dense detail, pass crop [x,y,w,h] and/or scale 2-4 to get just that region magnified in one call — that is the way to inspect fine detail. " +
+		"Do not slice images open with shell scripts (PIL) to 'see' them: pixel probes are a fallback for measuring coordinates, not for reading. " +
 		"read_file only reads UTF-8 text and refuses binary files. Paths are relative to the workspace root; absolute paths and .. traversal are rejected."
 }
 
 func (v *ViewImage) ParallelSafe() bool { return true }
 
 type viewImageInput struct {
-	Path string `json:"path" jsonschema:"required,description=Image file path relative to the workspace root"`
+	Path  string `json:"path" jsonschema:"required,description=Image file path relative to the workspace root"`
+	Crop  []int  `json:"crop,omitempty" jsonschema:"description=Optional region instead of the whole image: [x, y, width, height] in pixels, origin top-left; edges clamp to the image"`
+	Scale int    `json:"scale,omitempty" jsonschema:"description=Optional magnifier 2-4 (integer); the returned image — whole or cropped — is enlarged that factor so small text stays readable. Omit or 1 for none"`
 }
 
 func (v *ViewImage) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -132,8 +137,125 @@ func (v *ViewImage) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	if err != nil {
 		return nil, err
 	}
+	caption := imageNote(in.Path, mt, w, h)
+	if len(in.Crop) > 0 || in.Scale > 1 {
+		var m magnify
+		if data, m, err = magnifyImage(data, in.Crop, in.Scale); err != nil {
+			return nil, fmt.Errorf("%s: %w", in.Path, err)
+		}
+		mt = "image/png"
+		caption = magnifyNote(in.Path, m)
+	}
 	res := ImageResult(mt, base64.StdEncoding.EncodeToString(data))
-	return append(TextResult(imageNote(in.Path, mt, w, h)), res...), nil
+	return append(TextResult(caption), res...), nil
+}
+
+// magnify is what magnifyImage did, for the caption: the region returned
+// (x, y, w, h in ORIGINAL pixels; the full image when no crop was asked),
+// the output size after scaling (ow, oh), and the integer scale factor.
+type magnify struct {
+	x, y, w, h int
+	ow, oh     int
+	scale      int
+	cropped    bool
+}
+
+// magnifyImage decodes an image, applies the crop rectangle (clamped to
+// the image; out-of-origin is an error, over-long edges just clip) and an
+// integer upscale (nearest-neighbor, so screenshot text stays crisp), and
+// re-encodes as PNG. This exists so "read the small text" is ONE view_image
+// call instead of a PIL-slice-save-view loop through the shell.
+//
+// Only formats the stdlib decodes (png, jpeg, gif — the blank imports in
+// this file) can be magnified; webp reaches view_image for whole-image
+// viewing only, and the error says so. The result is re-checked against
+// the API's size and per-side dimension limits.
+func magnifyImage(data []byte, crop []int, scale int) ([]byte, magnify, error) {
+	var m magnify
+	if len(crop) > 0 && len(crop) != 4 {
+		return nil, m, fmt.Errorf("crop must be [x, y, width, height] (%d values), not %d", 4, len(crop))
+	}
+	if scale < 0 || scale > 4 {
+		return nil, m, fmt.Errorf("scale %d out of range: use 1-4 (or omit)", scale)
+	}
+	if scale == 0 {
+		scale = 1
+	}
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, m, fmt.Errorf("cannot crop/scale this format (png, jpeg and gif only; view webp whole or convert it first): %w", err)
+	}
+	b := src.Bounds()
+	x, y, w, h := b.Min.X, b.Min.Y, b.Dx(), b.Dy()
+	if len(crop) == 4 {
+		cx, cy, cw, ch := crop[0], crop[1], crop[2], crop[3]
+		if cw <= 0 || ch <= 0 {
+			return nil, m, fmt.Errorf("crop size %dx%d must be positive", cw, ch)
+		}
+		if cx < 0 || cy < 0 {
+			return nil, m, fmt.Errorf("crop origin %d,%d must not be negative", cx, cy)
+		}
+		if cx >= b.Dx() || cy >= b.Dy() {
+			return nil, m, fmt.Errorf("crop origin %d,%d outside the %dx%d image", cx, cy, b.Dx(), b.Dy())
+		}
+		x, y = b.Min.X+cx, b.Min.Y+cy
+		if cx+cw > b.Dx() {
+			cw = b.Dx() - cx
+		}
+		if cy+ch > b.Dy() {
+			ch = b.Dy() - cy
+		}
+		w, h = cw, ch
+		m.cropped = true
+	}
+	m.x, m.y, m.w, m.h = x-b.Min.X, y-b.Min.Y, w, h
+	m.scale, m.ow, m.oh = scale, w*scale, h*scale
+	if m.ow > maxImageDim || m.oh > maxImageDim {
+		return nil, m, fmt.Errorf("scaled result %dx%d exceeds the %d px API limit — crop a smaller region or lower the scale", m.ow, m.oh, maxImageDim)
+	}
+
+	var out image.Image
+	if scale == 1 {
+		// Plain crop: one draw, no per-pixel loop.
+		dst := image.NewRGBA(image.Rect(0, 0, w, h))
+		draw.Draw(dst, dst.Bounds(), src, image.Pt(x, y), draw.Src)
+		out = dst
+	} else {
+		// Nearest-neighbor upscale: integer replication keeps text edges
+		// sharp where a bilinear filter would smear them.
+		dst := image.NewRGBA(image.Rect(0, 0, m.ow, m.oh))
+		for oy := 0; oy < m.oh; oy++ {
+			sy := y + oy/scale
+			for ox := 0; ox < m.ow; ox++ {
+				dst.Set(ox, oy, src.At(x+ox/scale, sy))
+			}
+		}
+		out = dst
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, out); err != nil {
+		return nil, m, fmt.Errorf("re-encode: %w", err)
+	}
+	if buf.Len() > maxImageBytes {
+		return nil, m, fmt.Errorf("scaled result is %d bytes; at most %d fit in one request — crop a smaller region", buf.Len(), maxImageBytes)
+	}
+	return buf.Bytes(), m, nil
+}
+
+// magnifyNote is the caption block paired with the returned pixels: which
+// region of WHICH file came back and at what size, so the model never has
+// to guess whether it is looking at a crop or another picture.
+func magnifyNote(path string, m magnify) string {
+	switch {
+	case m.cropped && m.scale > 1:
+		return fmt.Sprintf("[image: %s (crop %d,%d %dx%d → %dx%d, scaled %dx)]", path, m.x, m.y, m.w, m.h, m.ow, m.oh, m.scale)
+	case m.cropped:
+		return fmt.Sprintf("[image: %s (crop %d,%d %dx%d)]", path, m.x, m.y, m.w, m.h)
+	case m.scale > 1:
+		return fmt.Sprintf("[image: %s (scaled %dx → %dx%d)]", path, m.scale, m.ow, m.oh)
+	default:
+		return imageNote(path, "image/png", m.ow, m.oh)
+	}
 }
 
 // PromptBlocks splits a user prompt into content blocks, turning every
