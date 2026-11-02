@@ -113,7 +113,7 @@ export default function App() {
       dashboardClient.listSnapshots({}),
     ]);
     if (live.status === "fulfilled") {
-      const list = [...live.value.sessions].reverse(); // oldest first; newest active sits at the bottom near the chat
+      const list = [...live.value.sessions]; // server already sorts LastActive desc — newest active on top
       setSessions(list);
       setListErr("");
       // A selected seat that fell out of the live list was reaped or
