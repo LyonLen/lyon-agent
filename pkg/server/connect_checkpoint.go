@@ -61,7 +61,7 @@ func (c *sessionService) RollbackSession(_ context.Context, req *connect.Request
 	// The history was rewritten under the ring — replay must narrate the
 	// rewound conversation, not the discarded one (resetAndInject).
 	snap := sess.Export()
-	h.resetAndInject(synthSnapshotEvents(snap.Messages))
+	h.resetAndInject(synthSnapshotEvents(snap.Messages, snap.RunEnds))
 	return connect.NewResponse(&lyonv1.RollbackSessionResponse{Checkpoint: protoCheckpoint(cp)}), nil
 }
 

@@ -59,6 +59,25 @@ type Snapshot struct {
 	// list the model last wrote with todo_write, so /resume rebuilds the
 	// progress block. Additive: empty on old files.
 	Todos json.RawMessage
+
+	// RunEnds records each finished run's wall time and the message count
+	// it settled at — the replay key that lets a restarted server re-emit
+	// prompt_end (the reply's duration badge, the max_tokens notice, the
+	// error line) at the right transcript position when it synthesizes the
+	// hub ring from a snapshot. Additive: empty on old files.
+	RunEnds []RunEnd
+}
+
+// RunEnd is one finished run as the snapshot remembers it: prompt_end's
+// duration plus len(Messages) at settle time, so replay can anchor the
+// event to the exact message index it belongs after. StopReason/Err ride
+// along for the same reason prompt_end carries them live — a restored
+// transcript must show why a reply stopped, not just how long it took.
+type RunEnd struct {
+	DurationMS int64
+	Messages   int
+	StopReason string
+	Err        string
 }
 
 // SetSeat names the session with its server-side seat id and registration
@@ -146,6 +165,7 @@ func (s *Session) Settled() Snapshot {
 	uiState := append(json.RawMessage(nil), s.uiState...)
 	uiTodos := append(json.RawMessage(nil), s.uiTodos...)
 	turns := append([]TurnStat(nil), s.turns...)
+	runs := append([]RunEnd(nil), s.runEnds...)
 	s.mu.Unlock()
 	// Same monotonicity as Export: a slow mirror landing after a newer one
 	// must not reorder the seat list.
@@ -172,6 +192,7 @@ func (s *Session) Settled() Snapshot {
 		Turns:              turns,
 		Steps:              uiState,
 		Todos:              uiTodos,
+		RunEnds:            runs,
 	}
 }
 
@@ -200,6 +221,7 @@ func (s *Session) Export() Snapshot {
 	id, created, lastActive := s.seatID, s.createdAt, s.lastActive
 	uiState := append(json.RawMessage(nil), s.uiState...)
 	uiTodos := append(json.RawMessage(nil), s.uiTodos...)
+	runs := append([]RunEnd(nil), s.runEnds...)
 	s.mu.Unlock()
 	// LastActive never moves backwards (a slow mirror landing after a
 	// newer one must not reorder the list) and never lies: the mirror
@@ -227,6 +249,7 @@ func (s *Session) Export() Snapshot {
 		Turns:              s.Stats(),
 		Steps:              uiState,
 		Todos:              uiTodos,
+		RunEnds:            runs,
 	}
 }
 
@@ -259,6 +282,7 @@ func (s *Session) Restore(snap Snapshot) {
 	s.subUsage = nil // subagent lines aren't snapshotted — reset with turns
 	s.title = snap.Title
 	s.firstPrompt = snap.FirstPrompt
+	s.runEnds = append([]RunEnd(nil), snap.RunEnds...) // replay anchors for adopted seats
 	// A restored conversation is settled history by definition: the mirror
 	// writes it without waiting on any prompt boundary.
 	s.settledMsgs = append([]anthropic.BetaMessageParam(nil), msgs...)

@@ -265,6 +265,14 @@ type Session struct {
 	settledMsgs    []anthropic.BetaMessageParam
 	settledPending []anthropic.BetaContentBlockParamUnion
 
+	// runEnds records each finished run's duration and the settled message
+	// count it ended at (prompt_end) — the replay anchors an adopted seat
+	// re-emits duration badges from. Appended only while holding histMu,
+	// immediately after settleLocked, so the count always matches the
+	// settledMsgs written beside it. Cleared on compaction: the summary
+	// replaces the message space these counts index into. Guarded by mu.
+	runEnds []RunEnd
+
 	// mirror is the live-draft seam (draft.go): non-nil once the session
 	// owns a draft file. Every state change that belongs on disk — a
 	// submitted prompt, a mode switch, a fresh title — calls notifyDirty,
@@ -955,6 +963,7 @@ func (s *Session) drive(prompt, runModel string) {
 	// Touch: the write copies the settled snapshot under mu — it does not
 	// wait on histMu, which this goroutine still holds.
 	s.settleLocked()
+	s.recordRunEnd(pe)
 	s.notifyDirty()
 	// Close this run's dump (#3) before announcing: assembly is in-memory,
 	// the disk write rides its own goroutine (Close waits it out), and a
@@ -993,6 +1002,23 @@ func (s *Session) settleLocked() {
 	s.mu.Lock()
 	s.settledMsgs = append([]anthropic.BetaMessageParam(nil), msgs...)
 	s.settledPending = pending
+	s.mu.Unlock()
+}
+
+// recordRunEnd appends the finished run's wall time and the message count
+// it settled at, so a later adoption can re-emit prompt_end — the reply's
+// duration badge — at the right transcript position. Callers hold histMu
+// and have just called settleLocked: the count is len(settledMsgs), exactly
+// what the mirror persists, so run and messages land on disk together (both
+// fields are set before notifyDirty reads them).
+func (s *Session) recordRunEnd(pe Event) {
+	s.mu.Lock()
+	s.runEnds = append(s.runEnds, RunEnd{
+		DurationMS: pe.DurationMS,
+		Messages:   len(s.settledMsgs),
+		StopReason: pe.StopReason,
+		Err:        pe.Err,
+	})
 	s.mu.Unlock()
 }
 

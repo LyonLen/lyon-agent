@@ -102,7 +102,7 @@ func (c *sessionService) RestoreSession(_ context.Context, req *connect.Request[
 		// Just created; only a reap could have raced this far.
 		return nil, rpcErr(err)
 	}
-	h.injectAll(synthSnapshotEvents(snap.Messages))
+	h.injectAll(synthSnapshotEvents(snap.Messages, snap.RunEnds))
 	c.s.restored[path] = id
 
 	ref, err := c.s.store.Ref(id)
@@ -163,11 +163,19 @@ type synthUse struct {
 // (user_message) the emission rides the type_name forward-compat channel.
 // Un-renderable blocks (images, documents, system rows) are skipped — the
 // live stream shows no row for them either.
-func synthSnapshotEvents(msgs []anthropic.BetaMessageParam) []agent.Event {
+//
+// runs (Snapshot.RunEnds) re-emit prompt_end at each run's message count —
+// the duration badge a restart would otherwise lose. Anchors are trusted
+// only when they walk forward and stay inside this message space
+// (alignedRunEnds); anything else replays without badges rather than
+// with badges on the wrong replies.
+func synthSnapshotEvents(msgs []anthropic.BetaMessageParam, runs []agent.RunEnd) []agent.Event {
 	var out []agent.Event
 	uses := map[string]synthUse{}      // tool_use id → pending execution
 	serverNames := map[string]string{} // server tool_use id → name
 	nextExec := uint64(1)
+	runs = alignedRunEnds(runs, len(msgs))
+	nextRun := 0
 
 	marshal := func(v any) json.RawMessage {
 		b, err := json.Marshal(v)
@@ -177,7 +185,7 @@ func synthSnapshotEvents(msgs []anthropic.BetaMessageParam) []agent.Event {
 		return b
 	}
 
-	for _, m := range msgs {
+	for i, m := range msgs {
 		switch m.Role {
 		case anthropic.BetaMessageParamRoleUser:
 			for _, b := range m.Content {
@@ -253,8 +261,40 @@ func synthSnapshotEvents(msgs []anthropic.BetaMessageParam) []agent.Event {
 				}
 			}
 		}
+		// A run that ended at this message count announces itself here —
+		// between this reply and the next prompt, exactly where the live
+		// drive emits it, so the reducer pins the duration badge on the
+		// text block it just closed.
+		for nextRun < len(runs) && runs[nextRun].Messages == i+1 {
+			r := runs[nextRun]
+			nextRun++
+			out = append(out, agent.Event{
+				Type:       agent.EventPromptEnd,
+				DurationMS: r.DurationMS,
+				StopReason: r.StopReason,
+				Err:        r.Err,
+			})
+		}
 	}
 	return out
+}
+
+// alignedRunEnds keeps the longest trustworthy prefix of run anchors: each
+// count must step strictly forward and stay within n messages. A violated
+// anchor (compaction shrank history, a crash left messages past the last
+// run, a corrupt dump) ends the list there — earlier badges still index
+// the intact prefix; later ones would land on the wrong replies. Empty in,
+// empty out: snapshots from before RunEnds existed replay without badges,
+// same as they always did.
+func alignedRunEnds(runs []agent.RunEnd, n int) []agent.RunEnd {
+	prev := 0
+	for i, r := range runs {
+		if r.Messages <= prev || r.Messages > n {
+			return runs[:i]
+		}
+		prev = r.Messages
+	}
+	return runs
 }
 
 // synthToolResultExec turns one stored tool_result into the exec lifecycle

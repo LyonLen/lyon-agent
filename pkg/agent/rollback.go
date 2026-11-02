@@ -52,6 +52,7 @@ type checkpoint struct {
 	CheckpointInfo
 	raw     []byte // marshaled []BetaMessageParam
 	pending []byte // marshaled pendingToolResults (nil when empty)
+	runs    []byte // marshaled []RunEnd — replay anchors matching raw's message space (nil when empty)
 	note    string // queued system note at capture
 }
 
@@ -83,6 +84,18 @@ func (s *Session) captureCheckpoint(kind, label string, msgs []anthropic.BetaMes
 			pend = p
 		}
 	}
+	// Run anchors captured with these messages index the same message
+	// space — storing them together is what keeps a later rollback's
+	// replayed duration badges on the right replies (a run list from
+	// after a compaction would not match the restored history).
+	var runs []byte
+	s.mu.Lock()
+	if len(s.runEnds) > 0 {
+		if b, err := json.Marshal(s.runEnds); err == nil {
+			runs = b
+		}
+	}
+	s.mu.Unlock()
 	s.cpMu.Lock()
 	s.checkpointSeq++
 	cp := checkpoint{
@@ -95,6 +108,7 @@ func (s *Session) captureCheckpoint(kind, label string, msgs []anthropic.BetaMes
 		},
 		raw:     raw,
 		pending: pend,
+		runs:    runs,
 		note:    s.pendingNote,
 	}
 	s.checkpoints = append(s.checkpoints, cp)
@@ -189,6 +203,16 @@ func (s *Session) Rollback(id int) (CheckpointInfo, error) {
 	s.lastCompactInput = 0 // progress guard tracks the restored history
 	s.memoryText = tools.MemoryFacts(s.eng.cfg.Workspace)
 	s.memoryInjected = false // buildHistory's containment check avoids re-injecting
+	// Restore the run anchors captured with this checkpoint: they belong
+	// to the same message space as raw. An empty payload (checkpoints from
+	// before run anchors existed, or runs captured none) clears the list —
+	// replay then shows no badges rather than badges on wrong replies.
+	s.mu.Lock()
+	s.runEnds = nil
+	if len(cp.runs) > 0 {
+		_ = json.Unmarshal(cp.runs, &s.runEnds) // corrupt → nil, same safe degradation
+	}
+	s.mu.Unlock()
 
 	s.cpMu.Lock()
 	s.checkpoints = s.checkpoints[:idx+1] // drop states after the target

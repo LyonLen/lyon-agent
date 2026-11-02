@@ -220,6 +220,13 @@ func (s *Session) compactNow(pctx context.Context, prompt string, trigger Usage,
 			s.runner.Params.Tools = append(s.runner.Params.Tools, serverToolDefs()...)
 		}
 	}
+	// The summary replaced the message space runEnds index into: old
+	// counts would re-emit prompt_end badges on the wrong replies after a
+	// restart. Pre-compaction badges die with their messages; runs after
+	// the swap start a fresh list. (histMu held — lock order histMu → mu.)
+	s.mu.Lock()
+	s.runEnds = nil
+	s.mu.Unlock()
 
 	u := Usage{
 		Input:         resp.Usage.InputTokens,

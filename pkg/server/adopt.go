@@ -53,7 +53,7 @@ func (s *Server) acquire(id string) (*agent.Session, error) {
 	// the seat's whole history with one wire shape for live and adopted
 	// seats alike.
 	if h, herr := s.store.Hub(id); herr == nil {
-		h.injectAll(synthSnapshotEvents(snap.Messages))
+		h.injectAll(synthSnapshotEvents(snap.Messages, snap.RunEnds))
 	}
 	return sess, nil
 }

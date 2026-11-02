@@ -106,3 +106,53 @@ func TestSettlePairsDanglingToolUse(t *testing.T) {
 		t.Fatalf("restore lost the synthesized results: %d", len(sess2.pendingToolResults))
 	}
 }
+
+// TestRunEndsRoundTrip: prompt_end records a run anchor (duration + the
+// settled message count it ended at), and Settled/Export/Restore all carry
+// it — the exact data an adopted seat re-emits the reply's duration badge
+// from after a restart. The count must match the settled messages beside
+// it: replay anchors prompt_end to that index.
+func TestRunEndsRoundTrip(t *testing.T) {
+	eng := NewEngine(Config{Workspace: t.TempDir()}, nil)
+	sess := eng.NewSession(nil)
+	defer sess.Close()
+	sess.Restore(Snapshot{Messages: settleTestMsgs()})
+
+	// Same call order as drive's prompt_end: settle first, then record —
+	// the anchor's count is len(settledMsgs), what the mirror persists.
+	sess.histMu.Lock()
+	sess.settleLocked()
+	sess.recordRunEnd(Event{Type: EventPromptEnd, DurationMS: 1234, StopReason: "end_turn"})
+	sess.histMu.Unlock()
+
+	snap := sess.Settled()
+	if len(snap.RunEnds) != 1 {
+		t.Fatalf("settled RunEnds = %d, want 1", len(snap.RunEnds))
+	}
+	re := snap.RunEnds[0]
+	if re.DurationMS != 1234 || re.Messages != 2 || re.StopReason != "end_turn" || re.Err != "" {
+		t.Fatalf("RunEnd = %+v, want {1234 2 end_turn \"\"}", re)
+	}
+	if re.Messages != len(snap.Messages) {
+		t.Fatalf("anchor Messages=%d does not match settled len=%d — replay would land on the wrong reply",
+			re.Messages, len(snap.Messages))
+	}
+
+	// Export (exit path) and Restore (adoption) carry the same anchors.
+	if got := sess.Export().RunEnds; len(got) != 1 || got[0].DurationMS != 1234 {
+		t.Fatalf("export RunEnds = %+v, want the recorded run", got)
+	}
+	sess2 := eng.NewSession(nil)
+	defer sess2.Close()
+	sess2.Restore(snap)
+	if got := sess2.Export().RunEnds; len(got) != 1 || got[0].Messages != 2 {
+		t.Fatalf("restored RunEnds = %+v, want the round-tripped run", got)
+	}
+
+	// Reset clears the anchors with the history: a fresh conversation must
+	// not replay badges from the old one.
+	sess2.Reset()
+	if got := sess2.Settled().RunEnds; len(got) != 0 {
+		t.Fatalf("after Reset RunEnds = %+v, want none", got)
+	}
+}
