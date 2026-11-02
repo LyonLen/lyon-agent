@@ -46,7 +46,7 @@ func main() {
 		webTools   = flag.String("web-tools", "", "web tool mode: server|client|off (default: auto)")
 		maxTurns   = flag.Int("max-turns", 0, "global cap on in-flight API turns across sessions (0 = unlimited)")
 		prewarm    = flag.Bool("prewarm", false, "warm the prompt cache (one tiny request) before serving")
-		approve    = flag.Bool("approve", false, "require human approval for WriteFile/EditFile/Shell over the web ApprovalService (default: auto-approve, matching a non-TTY lyon run)")
+		approve    = flag.Bool("approve", false, "strict approval: every WriteFile/EditFile/Shell asks over the web ApprovalService (default: path-aware — only shell commands that reach outside the workspace ask)")
 		openai     = flag.Bool("openai", false, "speak OpenAI protocol to the gateway at "+openaix.DefaultBase+" (same API key as Bearer auth)")
 		openaiBase = flag.String("openai-base", "", "OpenAI-compatible base URL, e.g. https://host/v1 (implies -openai; env LYON_OPENAI_BASE)")
 	)
@@ -98,14 +98,20 @@ func main() {
 		cfg.OpenAIBase = openaix.DefaultBase
 	}
 
-	// -approve parks NeedsApproval tools until a web client decides. The
+	// Approval parks on a web client through the ApprovalBridge; the
 	// bridge must exist before the engine (cfg.Approve rides every
 	// session's adapter), and SetApproval below attaches the store for
 	// seat back-resolution — approvals before that would fail closed.
-	var appr *server.ApprovalBridge
+	//
+	// Two tiers: the default is path-aware — only a shell command whose
+	// text reaches outside the workspace parks a card (cross-root access
+	// was unrestricted here before), everything else runs as it always
+	// did. -approve is strict: every shell/write/edit asks.
+	appr := server.NewApprovalBridge()
 	if *approve {
-		appr = server.NewApprovalBridge()
 		cfg.Approve = appr.ApproveFunc()
+	} else {
+		cfg.Approve = tools.PathAwareApprove(cfg.Workspace, appr.ApproveFunc())
 	}
 
 	eng := agent.NewEngine(cfg, nil)
@@ -130,9 +136,7 @@ func main() {
 		log.Printf("sessions: %d saved conversation(s) indexed from disk", n)
 	}
 	srv := server.New(eng, store)
-	if appr != nil {
-		srv.SetApproval(appr)
-	}
+	srv.SetApproval(appr)
 	srv.SetToken(*token)
 	// One shared Metrics collector feeds /metrics with per-tool latency for
 	// every session of this process.
