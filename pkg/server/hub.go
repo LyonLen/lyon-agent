@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"lyon-agent/pkg/agent"
 )
@@ -47,8 +48,17 @@ type hub struct {
 	// must never become the next run's baseline.
 	baselineMu sync.Mutex
 	baseline   map[string]fileSnap
-	baselineOK bool   // a trustworthy snapshot is stored
-	fileGen    uint64 // begin/schedule bump it; a capture stores only on match
+	baselineOK bool      // a trustworthy snapshot is stored
+	baselineAt time.Time // submit moment — the write-attribution window opens here
+	fileGen    uint64    // begin/schedule bump it; a capture stores only on match
+
+	// Attribution seam for the file-card filter (#41-2): this hub's seat,
+	// its workspace, and the store-wide write ledger that EVERY seat's hub
+	// records into. Set by Store.register before run starts and never
+	// mutated after — the consumer goroutine reads them without a lock.
+	sid    string
+	ws     string
+	writes *writeLog
 }
 
 // hubItem is one stamped event on the wire.
@@ -88,6 +98,13 @@ func (h *hub) run() {
 		h.mu.Lock()
 		h.push(ev)
 		h.mu.Unlock()
+		// Cross-seat write ledger for the file-card filter (#41-2): this
+		// hub is the one consumer that sees every path-taking tool of its
+		// seat, so it records here — after the fan-out, never blocking
+		// subscribers.
+		if ev.Type == agent.EventToolExecStart {
+			h.noteWrite(ev)
+		}
 		// After the fan-out so a slow hook never delays subscribers; the
 		// handler itself only schedules (never blocks on an LLM call).
 		if ev.Type == agent.EventPromptEnd && h.onPromptEnd != nil {
@@ -102,6 +119,32 @@ func (h *hub) run() {
 		close(sub.ch)
 	}
 	h.mu.Unlock()
+}
+
+// noteWrite records a path-taking tool's input into the store-wide write
+// ledger (#41-2). Fires on tool_exec_start — the only exec event that
+// carries Input. A failed attempt also records: under-reporting one row is
+// rarer than missing a successful parallel write (the contamination being
+// fixed). Subagent execs ride this same stream (Sub=true) and attribute to
+// the parent seat — correct, they are this seat's work.
+func (h *hub) noteWrite(ev agent.Event) {
+	if h.writes == nil || h.sid == "" {
+		return
+	}
+	switch ev.ToolName {
+	case "write_file", "edit_file":
+	default:
+		return
+	}
+	var in struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(ev.Input, &in); err != nil {
+		return
+	}
+	if p := normCardPath(h.ws, in.Path); p != "" {
+		h.writes.record(h.sid, p, time.Now())
+	}
 }
 
 // inject stamps a server-synthesized event (prompt echo, restored

@@ -479,7 +479,9 @@ button:focus-visible,
 /* per-row thinking stats: stream duration + the call's output tokens
    (estimate until turn_end's actual lands) — where the wall time went */
 .think-stats {
-  margin-left: 8px; color: var(--fg-faint); font-size: 10px;
+  /* the run's wall-time + token spend — data the reader scans for, so
+     it sits at full fg weight, not the faint register of the peek line */
+  margin-left: 8px; color: var(--fg); font-size: 11.5px; font-weight: 600;
   font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
 }
 /* the live auto-expanded block (#47): a soft pulse marks it as still
@@ -1679,6 +1681,42 @@ button.ce-save { font-size: 11px; padding: 1px 8px; }
    ce-bar (path row) and takes the whole body (media/pre keep the old
    flow; truncated text keeps its static head OUTSIDE this mode) */
 .pv-body.pv-edit { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+
+/* html 渲染模式 (#38b): bar + sandboxed iframe; pv-edit's column gives
+   the frame the remaining height. Source view hops back to CodeEditor. */
+.pv-html { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pv-html-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  font-size: 12px; color: var(--dim); flex: none;
+}
+.pv-html-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-html-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+
+/* 变更模式 (#42): the files_changed card's unified diff — monospace
+   lines painted by prefix; pv-body does the scrolling. Reachable only
+   from that card (PVFile.diff), never from the files panel. */
+.pv-diff {
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  font-size: 12.5px; line-height: 1.55;
+}
+.pv-diff-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pv-diff-badge {
+  font-size: 11px; font-weight: 600; color: var(--accent);
+  border: 1px solid var(--accent-line); border-radius: 4px; padding: 0 6px;
+  flex: none;
+}
+.pv-diff-path {
+  color: var(--dim); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pv-diff-body { overflow-x: auto; }
+.pv-diff-line { display: block; padding: 0 6px; width: max-content; min-width: 100%; }
+.pv-diff-line.meta { color: var(--dim); font-weight: 600; }
+.pv-diff-line.hunk { color: var(--accent); background: var(--accent-a5); }
+.pv-diff-line.add { color: var(--ok); background: var(--ok-line); }
+.pv-diff-line.del { color: var(--danger-soft); background: var(--danger-line); }
+.pv-diff-empty { padding: 16px; color: var(--dim); font-size: 13px; }
 
 .cm-host { background: var(--bg-sunken); height: 100%; }
 .cm-host .cm-editor { height: 100%; background: var(--bg-sunken); }

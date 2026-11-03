@@ -41,6 +41,8 @@ const (
 	GitServiceCommitProcedure = "/lyon.v1.GitService/Commit"
 	// GitServiceSyncProcedure is the fully-qualified name of the GitService's Sync RPC.
 	GitServiceSyncProcedure = "/lyon.v1.GitService/Sync"
+	// GitServiceDiffProcedure is the fully-qualified name of the GitService's Diff RPC.
+	GitServiceDiffProcedure = "/lyon.v1.GitService/Diff"
 )
 
 // GitServiceClient is a client for the lyon.v1.GitService service.
@@ -49,6 +51,7 @@ type GitServiceClient interface {
 	Log(context.Context, *connect.Request[v1.LogRequest]) (*connect.Response[v1.LogResponse], error)
 	Commit(context.Context, *connect.Request[v1.CommitRequest]) (*connect.Response[v1.CommitResponse], error)
 	Sync(context.Context, *connect.Request[v1.SyncRequest]) (*connect.Response[v1.SyncResponse], error)
+	Diff(context.Context, *connect.Request[v1.DiffRequest]) (*connect.Response[v1.DiffResponse], error)
 }
 
 // NewGitServiceClient constructs a client for the lyon.v1.GitService service. By default, it uses
@@ -86,6 +89,12 @@ func NewGitServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(gitServiceMethods.ByName("Sync")),
 			connect.WithClientOptions(opts...),
 		),
+		diff: connect.NewClient[v1.DiffRequest, v1.DiffResponse](
+			httpClient,
+			baseURL+GitServiceDiffProcedure,
+			connect.WithSchema(gitServiceMethods.ByName("Diff")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -95,6 +104,7 @@ type gitServiceClient struct {
 	log    *connect.Client[v1.LogRequest, v1.LogResponse]
 	commit *connect.Client[v1.CommitRequest, v1.CommitResponse]
 	sync   *connect.Client[v1.SyncRequest, v1.SyncResponse]
+	diff   *connect.Client[v1.DiffRequest, v1.DiffResponse]
 }
 
 // Status calls lyon.v1.GitService.Status.
@@ -117,12 +127,18 @@ func (c *gitServiceClient) Sync(ctx context.Context, req *connect.Request[v1.Syn
 	return c.sync.CallUnary(ctx, req)
 }
 
+// Diff calls lyon.v1.GitService.Diff.
+func (c *gitServiceClient) Diff(ctx context.Context, req *connect.Request[v1.DiffRequest]) (*connect.Response[v1.DiffResponse], error) {
+	return c.diff.CallUnary(ctx, req)
+}
+
 // GitServiceHandler is an implementation of the lyon.v1.GitService service.
 type GitServiceHandler interface {
 	Status(context.Context, *connect.Request[v1.StatusRequest]) (*connect.Response[v1.StatusResponse], error)
 	Log(context.Context, *connect.Request[v1.LogRequest]) (*connect.Response[v1.LogResponse], error)
 	Commit(context.Context, *connect.Request[v1.CommitRequest]) (*connect.Response[v1.CommitResponse], error)
 	Sync(context.Context, *connect.Request[v1.SyncRequest]) (*connect.Response[v1.SyncResponse], error)
+	Diff(context.Context, *connect.Request[v1.DiffRequest]) (*connect.Response[v1.DiffResponse], error)
 }
 
 // NewGitServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -156,6 +172,12 @@ func NewGitServiceHandler(svc GitServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(gitServiceMethods.ByName("Sync")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gitServiceDiffHandler := connect.NewUnaryHandler(
+		GitServiceDiffProcedure,
+		svc.Diff,
+		connect.WithSchema(gitServiceMethods.ByName("Diff")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/lyon.v1.GitService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case GitServiceStatusProcedure:
@@ -166,6 +188,8 @@ func NewGitServiceHandler(svc GitServiceHandler, opts ...connect.HandlerOption) 
 			gitServiceCommitHandler.ServeHTTP(w, r)
 		case GitServiceSyncProcedure:
 			gitServiceSyncHandler.ServeHTTP(w, r)
+		case GitServiceDiffProcedure:
+			gitServiceDiffHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -189,4 +213,8 @@ func (UnimplementedGitServiceHandler) Commit(context.Context, *connect.Request[v
 
 func (UnimplementedGitServiceHandler) Sync(context.Context, *connect.Request[v1.SyncRequest]) (*connect.Response[v1.SyncResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.GitService.Sync is not implemented"))
+}
+
+func (UnimplementedGitServiceHandler) Diff(context.Context, *connect.Request[v1.DiffRequest]) (*connect.Response[v1.DiffResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.GitService.Diff is not implemented"))
 }

@@ -177,6 +177,75 @@ func TestGitCommitEmptyMessage(t *testing.T) {
 	}
 }
 
+// TestGitDiff: the 变更模式 leg (#42) — staged and unstaged edits both
+// land in one unified diff against HEAD; a binary file degrades to git's
+// own "Binary files" line; an untouched path diffs empty (not an error);
+// an empty path is InvalidArgument.
+func TestGitDiff(t *testing.T) {
+	cli, repo, run := newGitFixture(t)
+	ctx := context.Background()
+
+	for name, content := range map[string]string{
+		"doc.md":    "line1\nline2\n",
+		"clean.txt": "untouched\n",
+		"bin.pptx":  "", // binary written below
+	} {
+		if name == "bin.pptx" {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "bin.pptx"),
+		[]byte{0x50, 0x4b, 0x03, 0x04, 0x00}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-m", "seed")
+
+	// Unstaged text edit; staged binary edit — both must show in Diff.
+	if err := os.WriteFile(filepath.Join(repo, "doc.md"),
+		[]byte("line1\nline2-changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "bin.pptx"),
+		[]byte{0x50, 0x4b, 0x03, 0x04, 0x01}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "bin.pptx")
+
+	d, err := cli.Diff(ctx, connect.NewRequest(&lyonv1.DiffRequest{Path: "doc.md"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Msg.IsRepo || !strings.Contains(d.Msg.Diff, "-line2") ||
+		!strings.Contains(d.Msg.Diff, "+line2-changed") {
+		t.Fatalf("diff = %+v, want the unstaged edit's -/+ pair", d.Msg)
+	}
+
+	b, err := cli.Diff(ctx, connect.NewRequest(&lyonv1.DiffRequest{Path: "bin.pptx"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.Msg.Diff, "Binary files") {
+		t.Errorf("binary diff = %q, want git's Binary files line", b.Msg.Diff)
+	}
+
+	clean, err := cli.Diff(ctx, connect.NewRequest(&lyonv1.DiffRequest{Path: "clean.txt"}))
+	if err != nil {
+		t.Fatalf("unchanged path errored: %v", err)
+	}
+	if clean.Msg.Diff != "" || !clean.Msg.IsRepo {
+		t.Errorf("unchanged path = %+v, want empty diff in a repo", clean.Msg)
+	}
+
+	_, err = cli.Diff(ctx, connect.NewRequest(&lyonv1.DiffRequest{Path: "  "}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("empty path code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+}
+
 // TestParseBranchHeader: the `## main...origin/main [ahead N, behind M]`
 // header grammar, including the no-upstream and no-counts shapes.
 func TestParseBranchHeader(t *testing.T) {

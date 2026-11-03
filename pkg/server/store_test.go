@@ -61,7 +61,8 @@ func TestStoreReapAndCloseAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	// Not yet idle: Get refreshes lastActive, so no reap.
+	// Not yet idle: the seat's idle clock (lastUsed, set at register) is
+	// still inside the TTL, so no reap.
 	if n := st.Reap(); n != 0 {
 		t.Fatalf("reaped %d before idle", n)
 	}
@@ -83,6 +84,66 @@ func TestStoreReapAndCloseAll(t *testing.T) {
 		t.Fatal("Create after CloseAll should fail")
 	}
 	_ = id2
+}
+
+// TestStoreLastActiveAsksOnly pins #44: opening a session (Get/Hub/Ref)
+// refreshes only the idle clock — the list row's displayed time moves
+// exclusively on MarkAsked (a prompt submit), while a peek still reports
+// the ask time back through Ref.
+func TestStoreLastActiveAsksOnly(t *testing.T) {
+	st := NewStore(0, time.Hour) // TTL far out: reap plays no part here
+	id, err := st.Create(newTestSession(t))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Freeze a known display time — "the question was asked 10 min ago".
+	st.mu.Lock()
+	e := st.sessions[id]
+	base := time.Now().Add(-10 * time.Minute)
+	e.lastActive, e.lastUsed = base, base
+	st.mu.Unlock()
+
+	// Open/peek on every read path: display clock must not move; idle must.
+	if _, err := st.Get(id); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if _, err := st.Hub(id); err != nil {
+		t.Fatalf("hub: %v", err)
+	}
+	if _, err := st.Ref(id); err != nil {
+		t.Fatalf("ref: %v", err)
+	}
+	st.mu.Lock()
+	e = st.sessions[id]
+	disp, used := e.lastActive, e.lastUsed
+	st.mu.Unlock()
+	if !disp.Equal(base) {
+		t.Fatalf("display clock moved on open: %v, want %v", disp, base)
+	}
+	if !used.After(base) {
+		t.Fatalf("idle clock did not refresh on open: %v", used)
+	}
+
+	// The ask moves both — and a later peek reports the ask, not itself.
+	st.MarkAsked(id)
+	st.mu.Lock()
+	e = st.sessions[id]
+	disp, used = e.lastActive, e.lastUsed
+	st.mu.Unlock()
+	if !disp.After(base) {
+		t.Fatalf("MarkAsked did not move display clock: %v", disp)
+	}
+	if !disp.Equal(used) {
+		t.Fatalf("ask should set display and idle together: %v vs %v", disp, used)
+	}
+	ref, err := st.Ref(id)
+	if err != nil {
+		t.Fatalf("ref after ask: %v", err)
+	}
+	if !ref.LastActive.Equal(disp) {
+		t.Fatalf("Ref.LastActive = %v, want the ask time %v", ref.LastActive, disp)
+	}
 }
 
 func TestRoutesNoAPI(t *testing.T) {

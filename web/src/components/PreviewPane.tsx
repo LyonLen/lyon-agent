@@ -4,7 +4,7 @@
 // body survives layout moves and two preview panes stay independent.
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { errText } from "../api";
+import { errText, gitClient } from "../api";
 import { dirnameOf, fetchPreview, revokePreview, type Preview } from "../filePreview";
 import type { PVFile } from "../useFileTabs";
 import { makeMdComponents, resolveRel } from "./mdkit";
@@ -121,6 +121,89 @@ function baseName(p: string): string {
   return p.split("/").pop() ?? p;
 }
 
+/** True for the render-mode file types (#38b): .html / .htm. */
+function isHtmlPath(p: string): boolean {
+  return /\.html?$/i.test(p);
+}
+
+// HtmlRender — #38b: .html/.htm opens RENDERED by default — a sandboxed
+// iframe (allow-scripts WITHOUT allow-same-origin: page JS runs in an
+// opaque origin and cannot touch the app or its storage). One click shows
+// the source in the usual CodeEditor, so edit/save stay available.
+function HtmlRender({ path, content }: { path: string; content: string }) {
+  const [source, setSource] = useState(false);
+  if (source) {
+    return (
+      <Suspense fallback={<pre className="pv-pre">{content}</pre>}>
+        <CodeEditor key={path} path={path} content={content} />
+      </Suspense>
+    );
+  }
+  return (
+    <div className="pv-html">
+      <div className="pv-html-bar">
+        <span className="pv-html-path">{path} · rendered</span>
+        <button className="ghost" onClick={() => setSource(true)}>
+          源码
+        </button>
+      </div>
+      <iframe
+        className="pv-html-frame"
+        sandbox="allow-scripts"
+        srcDoc={content}
+        title={path}
+      />
+    </div>
+  );
+}
+
+// DiffView — the 变更模式 body (#42): one unified diff, line by line.
+// Reached only from the 产出文件 card's change rows (PVFile.diff); the
+// files panel and normal preview never render this.
+function DiffView({ path, text, isRepo }: { path: string; text: string; isRepo: boolean }) {
+  if (!isRepo) {
+    return <div className="pv-diff-empty">not a git repository — no changes to show</div>;
+  }
+  if (!text.trim()) {
+    return <div className="pv-diff-empty">no text change against HEAD · {path}</div>;
+  }
+  const lines = text.replace(/\n$/, "").split("\n");
+  return (
+    <div className="pv-diff">
+      <div className="pv-diff-head">
+        <span className="pv-diff-badge">变更</span>
+        <span className="pv-diff-path">{path} · vs HEAD（staged + unstaged）</span>
+      </div>
+      <div className="pv-diff-body">
+        {lines.map((l, i) => {
+          let cls = "pv-diff-line";
+          if (
+            l.startsWith("diff --git") ||
+            l.startsWith("index ") ||
+            l.startsWith("new file") ||
+            l.startsWith("deleted file") ||
+            l.startsWith("+++ ") ||
+            l.startsWith("--- ")
+          ) {
+            cls += " meta";
+          } else if (l.startsWith("@@")) {
+            cls += " hunk";
+          } else if (l.startsWith("+")) {
+            cls += " add";
+          } else if (l.startsWith("-")) {
+            cls += " del";
+          }
+          return (
+            <div key={i} className={cls}>
+              {l || " "}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function PreviewPane(props: {
   files: PVFile[];
   active: number;
@@ -140,10 +223,14 @@ export default function PreviewPane(props: {
   // Retry bumps this — path/kind are unchanged on a failed fetch, so the
   // effect needs a second dep to re-run.
   const [retryTick, setRetryTick] = useState(0);
+  // 变更模式 payload (#42): non-null only while the active tab is a diff
+  // tab; cleared the moment the effect leaves diff mode (or reties).
+  const [diffState, setDiffState] = useState<{ text: string; isRepo: boolean } | null>(null);
 
   useEffect(() => {
     if (!cur) {
       setPreview(null);
+      setDiffState(null);
       setErr("");
       setLoading(false);
       return;
@@ -157,6 +244,24 @@ export default function PreviewPane(props: {
       revokePreview(p);
       return null;
     });
+    setDiffState(null);
+    if (cur.diff) {
+      // 变更模式 (#42): GitService.Diff instead of a file read — the
+      // unified diff against HEAD, staged + unstaged together.
+      gitClient
+        .diff({ path: cur.path })
+        .then((r) => {
+          if (seq.current !== my) return;
+          setDiffState({ text: r.diff, isRepo: r.isRepo });
+          setLoading(false);
+        })
+        .catch((e) => {
+          if (seq.current !== my) return;
+          setErr(errText(e));
+          setLoading(false);
+        });
+      return;
+    }
     fetchPreview(cur.path, cur.kind)
       .then((p) => {
         if (seq.current !== my) {
@@ -176,7 +281,7 @@ export default function PreviewPane(props: {
       // unmount or tab switch: nothing more to revoke here — the next
       // effect run (or the final cleanup below) handles the live URL
     };
-  }, [cur?.path, cur?.kind, retryTick]);
+  }, [cur?.path, cur?.kind, cur?.diff, retryTick]);
 
   // Final cleanup on unmount: revoke whatever media URL is live.
   useEffect(() => {
@@ -244,6 +349,11 @@ export default function PreviewPane(props: {
           <SkeletonRows n={4} />
         </div>
       )}
+      {!loading && cur.diff && diffState !== null && (
+        <div className="pv-body pv-diff-wrap">
+          <DiffView path={cur.path} text={diffState.text} isRepo={diffState.isRepo} />
+        </div>
+      )}
       {!loading && preview?.kind === "office" && (
         <div className="pv-office">
           {preview.truncated ? (
@@ -304,6 +414,9 @@ export default function PreviewPane(props: {
               ) : (
                 <pre className="pv-pre">{preview.content}</pre>
               )
+            ) : isHtmlPath(preview.path) ? (
+              // #38b: html renders by default; source is one click away.
+              <HtmlRender key={preview.path} path={preview.path} content={preview.content} />
             ) : (
               <Suspense fallback={<pre className="pv-pre">{preview.content}</pre>}>
                 <CodeEditor

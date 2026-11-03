@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/git.proto.
  */
 export const file_lyon_v1_git: GenFile = /*@__PURE__*/
-  fileDesc("ChFseW9uL3YxL2dpdC5wcm90bxIHbHlvbi52MSIPCg1TdGF0dXNSZXF1ZXN0IkMKCUdpdENoYW5nZRIMCgRwYXRoGAEgASgJEgoKAnh5GAIgASgJEg4KBnN0YWdlZBgDIAEoCBIMCgRraW5kGAQgASgJIocBCg5TdGF0dXNSZXNwb25zZRIPCgdpc19yZXBvGAEgASgIEg4KBmJyYW5jaBgCIAEoCRIQCgh1cHN0cmVhbRgDIAEoCRINCgVhaGVhZBgEIAEoBRIOCgZiZWhpbmQYBSABKAUSIwoHY2hhbmdlcxgGIAMoCzISLmx5b24udjEuR2l0Q2hhbmdlIhsKCkxvZ1JlcXVlc3QSDQoFbGltaXQYASABKAUiagoJR2l0Q29tbWl0EgsKA3NoYRgBIAEoCRIPCgdzdWJqZWN0GAIgASgJEg4KBmF1dGhvchgDIAEoCRIPCgdhdF91bml4GAQgASgDEgwKBHJlZnMYBSADKAkSEAoIb3V0Z29pbmcYBiABKAgiMgoLTG9nUmVzcG9uc2USIwoHY29tbWl0cxgBIAMoCzISLmx5b24udjEuR2l0Q29tbWl0IiAKDUNvbW1pdFJlcXVlc3QSDwoHbWVzc2FnZRgBIAEoCSIuCg5Db21taXRSZXNwb25zZRILCgNzaGEYASABKAkSDwoHc3VtbWFyeRgCIAEoCSINCgtTeW5jUmVxdWVzdCIeCgxTeW5jUmVzcG9uc2USDgoGb3V0cHV0GAEgASgJMukBCgpHaXRTZXJ2aWNlEjkKBlN0YXR1cxIWLmx5b24udjEuU3RhdHVzUmVxdWVzdBoXLmx5b24udjEuU3RhdHVzUmVzcG9uc2USMAoDTG9nEhMubHlvbi52MS5Mb2dSZXF1ZXN0GhQubHlvbi52MS5Mb2dSZXNwb25zZRI5CgZDb21taXQSFi5seW9uLnYxLkNvbW1pdFJlcXVlc3QaFy5seW9uLnYxLkNvbW1pdFJlc3BvbnNlEjMKBFN5bmMSFC5seW9uLnYxLlN5bmNSZXF1ZXN0GhUubHlvbi52MS5TeW5jUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
+  fileDesc("ChFseW9uL3YxL2dpdC5wcm90bxIHbHlvbi52MSIPCg1TdGF0dXNSZXF1ZXN0IkMKCUdpdENoYW5nZRIMCgRwYXRoGAEgASgJEgoKAnh5GAIgASgJEg4KBnN0YWdlZBgDIAEoCBIMCgRraW5kGAQgASgJIocBCg5TdGF0dXNSZXNwb25zZRIPCgdpc19yZXBvGAEgASgIEg4KBmJyYW5jaBgCIAEoCRIQCgh1cHN0cmVhbRgDIAEoCRINCgVhaGVhZBgEIAEoBRIOCgZiZWhpbmQYBSABKAUSIwoHY2hhbmdlcxgGIAMoCzISLmx5b24udjEuR2l0Q2hhbmdlIhsKCkxvZ1JlcXVlc3QSDQoFbGltaXQYASABKAUiagoJR2l0Q29tbWl0EgsKA3NoYRgBIAEoCRIPCgdzdWJqZWN0GAIgASgJEg4KBmF1dGhvchgDIAEoCRIPCgdhdF91bml4GAQgASgDEgwKBHJlZnMYBSADKAkSEAoIb3V0Z29pbmcYBiABKAgiMgoLTG9nUmVzcG9uc2USIwoHY29tbWl0cxgBIAMoCzISLmx5b24udjEuR2l0Q29tbWl0IiAKDUNvbW1pdFJlcXVlc3QSDwoHbWVzc2FnZRgBIAEoCSIuCg5Db21taXRSZXNwb25zZRILCgNzaGEYASABKAkSDwoHc3VtbWFyeRgCIAEoCSINCgtTeW5jUmVxdWVzdCIeCgxTeW5jUmVzcG9uc2USDgoGb3V0cHV0GAEgASgJIhsKC0RpZmZSZXF1ZXN0EgwKBHBhdGgYASABKAkiLQoMRGlmZlJlc3BvbnNlEg8KB2lzX3JlcG8YASABKAgSDAoEZGlmZhgCIAEoCTKeAgoKR2l0U2VydmljZRI5CgZTdGF0dXMSFi5seW9uLnYxLlN0YXR1c1JlcXVlc3QaFy5seW9uLnYxLlN0YXR1c1Jlc3BvbnNlEjAKA0xvZxITLmx5b24udjEuTG9nUmVxdWVzdBoULmx5b24udjEuTG9nUmVzcG9uc2USOQoGQ29tbWl0EhYubHlvbi52MS5Db21taXRSZXF1ZXN0GhcubHlvbi52MS5Db21taXRSZXNwb25zZRIzCgRTeW5jEhQubHlvbi52MS5TeW5jUmVxdWVzdBoVLmx5b24udjEuU3luY1Jlc3BvbnNlEjMKBERpZmYSFC5seW9uLnYxLkRpZmZSZXF1ZXN0GhUubHlvbi52MS5EaWZmUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
 
 /**
  * @generated from message lyon.v1.StatusRequest
@@ -280,13 +280,66 @@ export const SyncResponseSchema: GenMessage<SyncResponse> = /*@__PURE__*/
   messageDesc(file_lyon_v1_git, 9);
 
 /**
+ * Diff: one path's unified diff against HEAD — staged and unstaged
+ * changes together (无论是否已 add: both halves show). This powers the
+ * 产出文件 card's 变更模式 (#42); the web routes ONLY that card's change
+ * rows here, plain preview never calls it. Untracked files have no HEAD
+ * entry (git prints nothing) — the card sends those to the plain preview.
+ *
+ * @generated from message lyon.v1.DiffRequest
+ */
+export type DiffRequest = Message<"lyon.v1.DiffRequest"> & {
+  /**
+   * workspace-relative, "/"-separated (as git prints it)
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+};
+
+/**
+ * Describes the message lyon.v1.DiffRequest.
+ * Use `create(DiffRequestSchema)` to create a new message.
+ */
+export const DiffRequestSchema: GenMessage<DiffRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_git, 10);
+
+/**
+ * @generated from message lyon.v1.DiffResponse
+ */
+export type DiffResponse = Message<"lyon.v1.DiffResponse"> & {
+  /**
+   * false → not a repository (empty diff)
+   *
+   * @generated from field: bool is_repo = 1;
+   */
+  isRepo: boolean;
+
+  /**
+   * unified diff text; "" = no text change vs HEAD
+   *
+   * @generated from field: string diff = 2;
+   */
+  diff: string;
+};
+
+/**
+ * Describes the message lyon.v1.DiffResponse.
+ * Use `create(DiffResponseSchema)` to create a new message.
+ */
+export const DiffResponseSchema: GenMessage<DiffResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_git, 11);
+
+/**
  * GitService: the files panel's source-control view — the VS Code
  * source-control sidebar in miniature (changes list, commit box, sync,
  * outgoing commit graph). Every command runs as `git -C <workspace> …`
- * with a fixed argv; the RPCs accept no path, remote, or flag arguments,
- * so the panel can only ever act on the workspace repository itself.
- * Commit stages everything (`git add -A`, gitignore-respected) — the
- * panel commits the working tree, it is not a staging-area editor.
+ * with a fixed argv; the RPCs accept no remote or flag arguments (Diff's
+ * path is a workspace-relative file name that rides one argv slot after
+ * `--`, never a flag), so the panel can only ever act on the workspace
+ * repository itself. Commit stages everything (`git add -A`,
+ * gitignore-respected) — the panel commits the working tree, it is not a
+ * staging-area editor.
  *
  * @generated from service lyon.v1.GitService
  */
@@ -322,6 +375,14 @@ export const GitService: GenService<{
     methodKind: "unary";
     input: typeof SyncRequestSchema;
     output: typeof SyncResponseSchema;
+  },
+  /**
+   * @generated from rpc lyon.v1.GitService.Diff
+   */
+  diff: {
+    methodKind: "unary";
+    input: typeof DiffRequestSchema;
+    output: typeof DiffResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_lyon_v1_git, 0);

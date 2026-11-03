@@ -96,9 +96,9 @@ func TestDiffFileCards(t *testing.T) {
 		"left-the-dirty-set.txt": {xy: " M", mtime: tm},
 	}
 	cur := map[string]fileSnap{
-		"already-dirty.md":     {xy: "??", mtime: tm.Add(time.Second)}, // touched again, letter unchanged
-		"same-state.txt":       {xy: " M", mtime: tm},                   // untouched
-		"brand-new.pptx":       {xy: "??", mtime: tm},                   // new since baseline
+		"already-dirty.md":      {xy: "??", mtime: tm.Add(time.Second)}, // touched again, letter unchanged
+		"same-state.txt":        {xy: " M", mtime: tm},                  // untouched
+		"brand-new.pptx":        {xy: "??", mtime: tm},                  // new since baseline
 		"clean-now-modified.md": {xy: " M", mtime: tm},                  // wasn't dirty, now is (absent from base)
 	}
 	got := diffFileCards(base, cur)
@@ -212,6 +212,153 @@ func TestFileCardsSkipWithoutBaseline(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	if ev := findEvent(h, evFilesChanged); ev != nil {
 		t.Fatalf("files_changed without a baseline: %+v", ev)
+	}
+}
+
+// waitRecorded polls the ledger until sid's write of path landed (the
+// foreign seat's hub records on its own consumer goroutine — never assume
+// the event was processed the moment it was sent).
+func waitRecorded(t *testing.T, w *writeLog, sid, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if w.recorded(sid, path) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("write of %s by %s never recorded", path, sid)
+}
+
+// TestFileCardsForeignWriterExcluded is the Image #41-2 shape: a parallel
+// seat's write_file during this run lands in the workspace-wide delta,
+// but the write ledger knows WHO did it — the card stays this run's own.
+// Shell-built output (no record) and a pre-window foreign write that this
+// run's shell then touched both survive.
+func TestFileCardsForeignWriterExcluded(t *testing.T) {
+	scratchHome(t)
+	repo, _ := newFileCardRepo(t)
+	ledger := &writeLog{}
+
+	// Pre-window: seat B edited old-scratch.md an hour before submit, and
+	// this run's shell later touches it — still this run's row.
+	old := filepath.Join(repo, "old-scratch.md")
+	if err := os.WriteFile(old, []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ledger.record("seat-B", "old-scratch.md", time.Now().Add(-time.Hour))
+
+	events := make(chan agent.Event)
+	h := newHub(events)
+	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(repo) }
+	h.sid, h.ws, h.writes = "seat-A", repo, ledger
+	go h.run()
+	defer close(events)
+
+	// Seat B's hub: same ledger, its own seat — records through the real
+	// tool_exec_start tap, exactly like production.
+	bEvents := make(chan agent.Event)
+	bh := newHub(bEvents)
+	bh.sid, bh.ws, bh.writes = "seat-B", repo, ledger
+	go bh.run()
+	defer close(bEvents)
+
+	h.beginFileCards(repo)
+	waitFileBaseline(t, h)
+
+	// During the run window: B writes foreign-notes.md (the contamination).
+	bEvents <- agent.Event{
+		Type:     agent.EventToolExecStart,
+		ToolName: "write_file",
+		Input:    json.RawMessage(`{"path":"foreign-notes.md"}`),
+	}
+	waitRecorded(t, ledger, "seat-B", "foreign-notes.md")
+
+	// This run's footprint: a shell deliverable (unattributable → stays)
+	// and the pre-window foreign file touched again (stays), plus B's file
+	// on disk (in the delta, must be dropped).
+	if err := os.WriteFile(filepath.Join(repo, "foreign-notes.md"), []byte("B's notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "report.pptx"), []byte("pptx-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("v2 — this run's shell edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	events <- agent.Event{Type: agent.EventPromptEnd}
+	ev := waitFilesChanged(t, h)
+
+	var cards []fileCard
+	if err := json.Unmarshal([]byte(ev.Attrs["files"]), &cards); err != nil {
+		t.Fatalf("attrs.files JSON: %v\n%s", err, ev.Attrs["files"])
+	}
+	// Path-sorted, foreign row gone: [old-scratch.md report.pptx].
+	if len(cards) != 2 ||
+		cards[0].Path != "old-scratch.md" || cards[1].Path != "report.pptx" {
+		t.Fatalf("cards = %+v, want [old-scratch.md report.pptx] (foreign write excluded)", cards)
+	}
+}
+
+// TestNoteWriteAndFilter: the ledger's unit contract — non-write tools and
+// malformed input never record; write_file/edit_file normalize into the
+// porcelain's shape; the filter drops only OTHER seats' in-window writes.
+func TestNoteWriteAndFilter(t *testing.T) {
+	ledger := &writeLog{}
+	ws := t.TempDir()
+	h := &hub{sid: "seat-A", ws: ws, writes: ledger}
+
+	h.noteWrite(agent.Event{ToolName: "run_shell", Input: json.RawMessage(`{"cmd":"x"}`)})
+	h.noteWrite(agent.Event{ToolName: "write_file", Input: json.RawMessage(`{`)})
+	h.noteWrite(agent.Event{ToolName: "write_file", Input: nil})
+	h.noteWrite(agent.Event{ToolName: "write_file", Input: json.RawMessage(`{"path":""}`)})
+	ledger.mu.Lock()
+	n := len(ledger.m)
+	ledger.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("ledger = %d entries after non-writes, want 0", n)
+	}
+
+	h.noteWrite(agent.Event{ToolName: "edit_file", Input: json.RawMessage(`{"path":"docs/a.md"}`)})
+	if !ledger.recorded("seat-A", "docs/a.md") {
+		t.Fatal("edit_file by seat-A not recorded")
+	}
+	// An absolute input normalizes to the same porcelain key.
+	h.noteWrite(agent.Event{ToolName: "write_file",
+		Input: json.RawMessage(`{"path":` + string(mustJSON(filepath.Join(ws, "docs", "b.md"))) + `}`)})
+	if !ledger.recorded("seat-A", "docs/b.md") {
+		t.Fatal("absolute path did not normalize to docs/b.md")
+	}
+
+	since := time.Now().Add(-time.Minute)
+	ledger.record("seat-B", "docs/foreign.md", time.Now())
+	cards := []fileCard{
+		{Path: "docs/a.md"},       // own write → stays
+		{Path: "docs/b.md"},       // own write (abs-normalized) → stays
+		{Path: "docs/foreign.md"}, // other seat, in window → dropped
+		{Path: "shell.pptx"},      // no record → stays
+	}
+	out := filterCardsByWriter(cards, "seat-A", ledger, since)
+	var got []string
+	for _, c := range out {
+		got = append(got, c.Path)
+	}
+	want := []string{"docs/a.md", "docs/b.md", "shell.pptx"}
+	if len(got) != len(want) {
+		t.Fatalf("filtered = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("filtered = %v, want %v", got, want)
+		}
+	}
+
+	// Pre-window foreign write (changed by this run's shell) → stays.
+	ledger.record("seat-B", "docs/old.md", time.Now().Add(-2*time.Hour))
+	out = filterCardsByWriter([]fileCard{{Path: "docs/old.md"}}, "seat-A", ledger, since)
+	if len(out) != 1 {
+		t.Fatalf("pre-window foreign write dropped: %+v", out)
 	}
 }
 

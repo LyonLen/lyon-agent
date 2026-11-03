@@ -178,6 +178,9 @@ func (c *sessionService) SubmitPrompt(_ context.Context, req *connect.Request[ly
 	if err := sess.SubmitOn(msg.Prompt, msg.Model); err != nil {
 		return nil, rpcErr(err)
 	}
+	// The ask is the ONLY clock the list row follows (#44): mark it after
+	// the submit is accepted, not on open/peek.
+	c.s.store.MarkAsked(msg.SessionId)
 	return connect.NewResponse(&lyonv1.SubmitPromptResponse{Started: true}), nil
 }
 
@@ -198,6 +201,8 @@ func (c *sessionService) EnqueuePrompt(_ context.Context, req *connect.Request[l
 	if err := sess.Enqueue(msg.Prompt); err != nil {
 		return nil, rpcErr(err)
 	}
+	// A queued question is still a question (#44) — same row clock as submit.
+	c.s.store.MarkAsked(msg.SessionId)
 	return connect.NewResponse(&lyonv1.EnqueuePromptResponse{QueueLen: int32(sess.QueueLen())}), nil
 }
 

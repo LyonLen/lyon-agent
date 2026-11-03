@@ -189,6 +189,18 @@ function lastThinking(blocks: Block[]): number {
   return -1;
 }
 
+// textAfter: the run has already produced conclusion text past this row —
+// the thinking has said its piece and the answer below is what to read
+// now, so the row may fold (#40). Tools after it don't count: with no
+// conclusion yet the thinking stays open, at least there's something to
+// read.
+function textAfter(blocks: Block[], i: number): boolean {
+  for (let j = i + 1; j < blocks.length; j++) {
+    if (blocks[j].kind === "text") return true;
+  }
+  return false;
+}
+
 // Last index matching pred — hand-rolled: the lib target is ES2022 and
 // Array.prototype.findLastIndex is ES2023.
 function lastToolIndex(
@@ -642,8 +654,11 @@ export default function ChatView(props: {
   onSteps: (s: StepRow[]) => void;
   onCommand: (cmd: string) => void;
   /** Open a produced file in the preview pane (files_changed card rows) —
-   *  the same routing FilePanel clicks use. */
+   *  the same routing FilePanel clicks use. Untracked rows land here. */
   onOpenFile?: (path: string) => void;
+  /** Open the 变更模式 (unified diff, #42) — reached ONLY from the
+   *  files_changed card's change rows; plain preview never routes here. */
+  onOpenDiff?: (path: string) => void;
   /** Live prompt_end only (not history replay): the server regenerates
    *  session titles asynchronously on its interval beats, so App re-reads
    *  the list a beat later. */
@@ -1499,12 +1514,18 @@ export default function ChatView(props: {
             }
             // The newest thinking block while the seat streams is the run
             // the reader came to watch: BlockView shows its body even under
-            // a closed fold (#47, "展开，让用户看着运行") — but only while
-            // it stays short (LIVE_THINK_MAX_LINES); a long chain-of-thought
-            // folds itself rather than bury the feed. It stays open through
-            // the answer that follows and folds when the run ends;
-            // everything older stays folded.
+            // a closed fold (#47) — but only until it has served its
+            // purpose. Two gates: a long chain-of-thought self-folds
+            // (LIVE_THINK_MAX_LINES), and once the run's conclusion text
+            // lands after this row the thinking folds too (#40) — the
+            // answer is what to read now. With no conclusion text yet the
+            // row stays open, so there is always something to read.
             live={busy && i === lastThinking(blocks)}
+            autoOpen={
+              busy &&
+              i === lastThinking(blocks) &&
+              !textAfter(blocks, i)
+            }
             // The duration clock only ticks on the feed's TRAILING block:
             // the moment a tool row lands after this thinking, the call is
             // over — a timer that keeps counting through run_shell made a
@@ -1512,6 +1533,7 @@ export default function ChatView(props: {
             ticking={busy && i === blocks.length - 1}
             hinted={i === lastThinking(blocks)}
             onOpenFile={props.onOpenFile}
+            onOpenDiff={props.onOpenDiff}
           />
         ))}
         {blocks.length === 0 && (
@@ -1905,14 +1927,19 @@ function BlockView({
   block,
   thinkOpen,
   live,
+  autoOpen,
   ticking,
   ord,
   onOpenFile,
+  onOpenDiff,
   hinted,
 }: {
   block: Block;
   thinkOpen: boolean;
   live?: boolean;
+  /** Auto-expand the row: the run's current thinking with no conclusion
+   *  text after it yet (#40). Long rows still self-fold below. */
+  autoOpen?: boolean;
   /** The duration clock runs only on the feed's trailing block — a tool
    *  row after this thinking means the call is over (#36). */
   ticking?: boolean;
@@ -1920,6 +1947,8 @@ function BlockView({
   ord?: number;
   /** files_changed rows click into the preview pane (App.openPreviewFile). */
   onOpenFile?: (path: string) => void;
+  /** …except change rows, which open the 变更模式 diff (#42, card-only). */
+  onOpenDiff?: (path: string) => void;
   /** The feed's last thinking row carries the fold hint (one per feed). */
   hinted?: boolean;
 }) {
@@ -1942,14 +1971,15 @@ function BlockView({
         </div>
       );
     case "thinking": {
-      // live is the newest block while the seat streams. Auto-open it so the
-      // reader can watch the run (#47) — but only while it stays short: once
-      // it passes LIVE_THINK_MAX_LINES it folds itself so a long
-      // chain-of-thought doesn't bury the feed. A global ctrl+o fold opens
-      // it for the ordinary reason (the hint then reads the chord, not live).
+      // autoOpen (newest thinking, no conclusion text after it yet) is
+      // the run to watch: open it so the reader can follow (#47) — but
+      // only while it stays short: once it passes LIVE_THINK_MAX_LINES
+      // it folds itself so a long chain-of-thought doesn't bury the
+      // feed. A global ctrl+o fold opens it for the ordinary reason (the
+      // hint then reads the chord, not live).
       const isLive = !!live;
       const auto =
-        isLive && !thinkOpen && lineCount(block.text) <= LIVE_THINK_MAX_LINES;
+        !!autoOpen && !thinkOpen && lineCount(block.text) <= LIVE_THINK_MAX_LINES;
       return (
         <ThinkingBlock
           key={`${String(thinkOpen)}:${String(auto)}:${String(isLive)}`}
@@ -2080,8 +2110,11 @@ function BlockView({
       );
     }
     case "files":
-      // 产出文件 card — one row per file the run created or touched;
-      // click opens the preview pane (same routing as the files panel).
+      // 产出文件 card — one row per file the run created or touched.
+      // Routing (#42): a CHANGE row (M/A/D/R/C — 无论是否已 add) opens the
+      // 变更模式 diff, because "改了啥" is the question a badge answers;
+      // an untracked new file has nothing to compare, so it keeps the
+      // plain preview. The diff is reachable ONLY from this card.
       return (
         <div className="blk-files">
           <div className="blk-files-head">产出文件 · {block.files.length}</div>
@@ -2090,7 +2123,11 @@ function BlockView({
               key={f.path}
               type="button"
               className="blk-file-row"
-              onClick={() => onOpenFile?.(f.path)}
+              onClick={() =>
+                f.kind === "untracked" || !onOpenDiff
+                  ? onOpenFile?.(f.path)
+                  : onOpenDiff(f.path)
+              }
               title={f.path}
             >
               <FileIcon name={f.path} isDir={false} />

@@ -24,14 +24,39 @@ export function dirnameOf(p: string): string {
 }
 
 /**
+ * kindOf resolves one path's kind the way a directory listing would, for
+ * tabs opened without a DirEntry — chat file cards, workspace links, and
+ * tabs restored from a build that didn't record the kind. Asking the
+ * server keeps classification in one place (fileKind on the server);
+ * guessing from the extension here would be a second, drifting copy.
+ * A failed lookup returns TEXT, the pre-existing default: the read below
+ * then reports the file's real error (missing, permission) itself.
+ */
+async function kindOf(p: string): Promise<FileKind> {
+  const dir = dirnameOf(p);
+  const name = dir ? p.slice(dir.length + 1) : p;
+  try {
+    const res = await fileClient.listDirectory({ path: dir || "." });
+    const hit = res.entries.find((e) => e.name === name);
+    if (hit) return hit.kind;
+  } catch {
+    // unreadable parent: fall through to the text default
+  }
+  return FileKind.TEXT;
+}
+
+/**
  * Read a file into a renderable Preview. kindHint comes from the DirEntry
- * when clicked from a listing; unknown/OTHER sniffs text first (the
- * server-classified kind) and falls back to a binary download stub.
+ * when clicked from a listing; without it the path's kind is looked up on
+ * the server first, so a .pptx opened from a chat file card still lands in
+ * the deck viewer instead of failing on a text read. unknown/OTHER sniffs
+ * text first (the server-classified kind) and falls back to a binary
+ * download stub.
  * Media URLs are object URLs — the caller revokes them on unmount/tab
  * close (see usePreviewResource).
  */
 export async function fetchPreview(p: string, kindHint?: FileKind): Promise<Preview> {
-  const kind = kindHint ?? FileKind.TEXT;
+  const kind = kindHint ?? (await kindOf(p));
   if (kind === FileKind.PPTX || kind === FileKind.DOCX || kind === FileKind.XLSX) {
     const res = await fileClient.readBinaryFile({ path: p });
     return {

@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 
@@ -32,8 +33,15 @@ var _ lyonv1connect.GitServiceHandler = (*gitService)(nil)
 // no shell — so user text (commit messages) can never become syntax.
 // On failure the stderr tail becomes a FailedPrecondition message; the
 // caller pattern-matches "not a git repository" to degrade to is_repo=false.
+//
+// -c core.quotepath=false rides every call: git's default C-quotes
+// non-ASCII paths ("\345\276\204…"), which the git panel and the
+// files_changed card then render as octal mojibake — and a preview tab
+// opened from such a row hands the escaped string to the OS, which
+// cannot open it. Raw UTF-8 on the wire instead.
 func gitRun(ctx context.Context, ws string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", ws}, args...)...)
+	argv := append([]string{"-C", ws, "-c", "core.quotepath=false"}, args...)
+	cmd := exec.CommandContext(ctx, "git", argv...)
 	var out, errBuf strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
@@ -269,6 +277,44 @@ func (g *gitService) Commit(ctx context.Context,
 		Sha:     strings.TrimSpace(sha),
 		Summary: strings.TrimSpace(summary),
 	}), nil
+}
+
+// diffCap bounds one Diff response: a whole-file rewrite must not become
+// a multi-megabyte RPC payload. Cut on a rune boundary — protojson rejects
+// invalid UTF-8 outright.
+const diffCap = 256 << 10 // 256KB
+
+// Diff: one path's unified diff against HEAD — staged AND unstaged
+// together (无论提交与否: `git diff HEAD` spans index + worktree, both
+// halves of the next commit's story). The path rides one argv slot after
+// "--": never a flag, never a shell. Untracked files have no HEAD entry —
+// git prints nothing, and the 产出文件 card routes those rows to the plain
+// preview instead (#42 变更模式; only that card enters this view on the
+// web). A binary file degrades to git's own "Binary files … differ" line.
+// Not-a-repo degrades to is_repo=false like Status.
+func (g *gitService) Diff(ctx context.Context,
+	req *connect.Request[lyonv1.DiffRequest]) (*connect.Response[lyonv1.DiffResponse], error) {
+	path := strings.TrimSpace(req.Msg.Path)
+	if path == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("path is empty"))
+	}
+	ws := g.s.eng.Config().Workspace
+	out, err := gitRun(ctx, ws, "diff", "HEAD", "--", path)
+	if isNotARepo(err) {
+		return connect.NewResponse(&lyonv1.DiffResponse{}), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(out) > diffCap {
+		cut := diffCap
+		for cut > 0 && !utf8.RuneStart(out[cut]) {
+			cut--
+		}
+		out = out[:cut] + "\n... diff truncated at 256KB ...\n"
+	}
+	return connect.NewResponse(&lyonv1.DiffResponse{IsRepo: true, Diff: out}), nil
 }
 
 // Sync: pull --rebase --autostash, then push. The panel only offers the

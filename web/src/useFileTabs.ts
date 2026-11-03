@@ -21,6 +21,10 @@ export interface PVFile {
   // previews as media after a refresh (fetchPreview without it would
   // sniff text).
   kind?: FileKind;
+  // 变更模式 tab (#42): unified diff instead of the plain preview. Set
+  // ONLY by the 产出文件 card's change rows — the files panel and normal
+  // preview always open with diff=false (or leave it unset on merge).
+  diff?: boolean;
 }
 
 export interface LeafTabs {
@@ -43,11 +47,12 @@ function load(key: string): FileTabsState | null {
       if (!Array.isArray(r.files) || r.files.length === 0) continue;
       const files: PVFile[] = [];
       for (const f of r.files) {
-        const fv = f as { path?: unknown; kind?: unknown };
+        const fv = f as { path?: unknown; kind?: unknown; diff?: unknown };
         if (typeof fv.path !== "string" || fv.path === "") continue;
         files.push({
           path: fv.path,
           kind: typeof fv.kind === "number" ? (fv.kind as FileKind) : undefined,
+          diff: typeof fv.diff === "boolean" ? fv.diff : undefined,
         });
       }
       if (files.length === 0) continue;
@@ -128,7 +133,23 @@ export function useFileTabs(root: TileNode, sessionId: string): FileTabsApi {
     setTabs((t) => {
       const cur = t[leafId] ?? { files: [], active: 0, lastActive: 0 };
       const idx = cur.files.findIndex((f) => f.path === file.path);
-      const files = idx >= 0 ? cur.files : [...cur.files, file];
+      // Re-opening an existing path UPDATES its record: the 变更模式 flag
+      // (#42) must flip when the card re-enters as diff and flip back when
+      // the files panel re-enters as preview — while an omitted kind keeps
+      // the click-time kind (a diff open carries no kind).
+      const files =
+        idx >= 0
+          ? cur.files.map((f, j) =>
+              j === idx
+                ? {
+                    ...f,
+                    ...file,
+                    kind: file.kind ?? f.kind,
+                    diff: file.diff ?? f.diff,
+                  }
+                : f,
+            )
+          : [...cur.files, file];
       return {
         ...t,
         [leafId]: {

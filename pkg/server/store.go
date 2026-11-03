@@ -57,14 +57,28 @@ type Store struct {
 	// grade and evolve like TUI sessions (BACKLOG §2.5). Nil = off, the
 	// default for embedders and tests.
 	promptObs func(sess *agent.Session, ev agent.Event)
+	// writes is the cross-seat write ledger behind the file-card
+	// attribution filter (#41-2): every hub records its seat's
+	// path-taking tool writes here, and scheduleFileCards drops rows
+	// another seat wrote during the run. Shared by pointer with each
+	// hub; one entry per path, never copied.
+	writes writeLog
 }
 
 type entry struct {
-	sess       *agent.Session
-	hub        *hub         // fan-out of sess.Events(); the sole consumer
-	draft      *agent.Draft // mirror to the seat's dump file
-	created    time.Time
+	sess    *agent.Session
+	hub     *hub         // fan-out of sess.Events(); the sole consumer
+	draft   *agent.Draft // mirror to the seat's dump file
+	created time.Time
+	// lastActive is the LIST ROW's clock (#44): it moves only when a
+	// question is asked (Store.MarkAsked — submit/enqueue), never on
+	// open/peek. Displayed for live rows, sorted by, persisted via
+	// sess.MarkActive into the dump.
 	lastActive time.Time
+	// lastUsed is the idle clock for Reap: any touch (Get/Hub/Ref/ask)
+	// refreshes it, so viewing a session still keeps it in memory — the
+	// keep-alive and the displayed time are deliberately separate now.
+	lastUsed time.Time
 }
 
 // parkedSeat is one disk-only seat: its dump path and the metadata read back
@@ -179,8 +193,12 @@ func (s *Store) register(sess *agent.Session, id string) (string, error) {
 	// of handing the client a new id for the same conversation.
 	sess.SetSeat(id, created)
 	sess.MarkActive(lastActive)
-	e := &entry{sess: sess, created: created, lastActive: lastActive}
+	e := &entry{sess: sess, created: created, lastActive: lastActive, lastUsed: lastActive}
 	e.hub = newHub(sess.Events())
+	// Attribution seam for the file-card filter (#41-2): the hub knows its
+	// seat and workspace and records into the store-wide ledger. Fixed
+	// before run() starts — the consumer goroutine reads these free.
+	e.hub.sid, e.hub.ws, e.hub.writes = id, sess.Workspace(), &s.writes
 	// Every state change mirrors the conversation to the seat's dump, so a
 	// hard kill (taskkill /F, OOM) costs one prompt — and an idle seat has
 	// nothing left to lose when it is unloaded. The path is derived from
@@ -213,10 +231,11 @@ func (s *Store) register(sess *agent.Session, id string) (string, error) {
 	return id, nil
 }
 
-// Get returns the live session for id, refreshing its idle timer. Strictly
-// live: a seat that is only on disk is not "gotten" (that would make a
-// deleted or reaped id silently resurrect). Server.acquire is the
-// adopt-on-touch counterpart.
+// Get returns the live session for id, refreshing its idle timer only.
+// Opening a session must NOT move the list row's displayed time (#44) —
+// that clock is MarkAsked's. Strictly live: a seat that is only on disk is
+// not "gotten" (that would make a deleted or reaped id silently
+// resurrect). Server.acquire is the adopt-on-touch counterpart.
 func (s *Store) Get(id string) (*agent.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -224,9 +243,25 @@ func (s *Store) Get(id string) (*agent.Session, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	e.lastActive = time.Now()
-	e.sess.MarkActive(e.lastActive)
+	e.lastUsed = time.Now()
 	return e.sess, nil
+}
+
+// MarkAsked records a prompt submit (or a successful enqueue) as the
+// seat's new "last active" — the ONLY thing that refreshes the list row's
+// displayed time (#44: 问了问题才刷新, 打开不刷新). Also refreshes the
+// idle clock: an asking session is by definition in use.
+func (s *Store) MarkAsked(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.sessions[id]
+	if !ok {
+		return // a seat reaped between submit and here: nothing to mark
+	}
+	now := time.Now()
+	e.lastActive = now
+	e.lastUsed = now
+	e.sess.MarkActive(now)
 }
 
 // Delete removes a seat for good: live map entry, disk dump, in-memory
@@ -334,7 +369,8 @@ func (s *Store) Park(id string) bool {
 	return true
 }
 
-// Hub returns the session's event hub, refreshing its idle timer.
+// Hub returns the session's event hub, refreshing its idle timer only —
+// a stream attach is a view, not a question (#44).
 func (s *Store) Hub(id string) (*hub, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -342,7 +378,7 @@ func (s *Store) Hub(id string) (*hub, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	e.lastActive = time.Now()
+	e.lastUsed = time.Now()
 	return e.hub, nil
 }
 
@@ -358,8 +394,9 @@ type StoreRef struct {
 	Snap *agent.Snapshot
 }
 
-// Ref returns the full record for id, refreshing its idle timer. Live only —
-// see Get.
+// Ref returns the full record for id, refreshing its idle timer only —
+// LastActive it reports is the ask clock, untouched by the peek (#44).
+// Live only — see Get.
 func (s *Store) Ref(id string) (StoreRef, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -367,8 +404,7 @@ func (s *Store) Ref(id string) (StoreRef, error) {
 	if !ok {
 		return StoreRef{}, ErrNotFound
 	}
-	e.lastActive = time.Now()
-	e.sess.MarkActive(e.lastActive)
+	e.lastUsed = time.Now()
 	return StoreRef{ID: id, Session: e.sess, Created: e.created, LastActive: e.lastActive}, nil
 }
 
@@ -497,8 +533,11 @@ func (s *Store) IDOf(sess *agent.Session) string {
 // Reap unloads sessions idle longer than the TTL to disk. Returns how many
 // were unloaded. It is a no-op when ttl<=0.
 //
-// A running prompt keeps its seat live no matter how old lastActive is: a
-// long run is work in progress, not an abandoned conversation.
+// A running prompt keeps its seat live no matter how old lastUsed is: a
+// long run is work in progress, not an abandoned conversation. The idle
+// clock is lastUsed (any touch), NOT the displayed lastActive (#44) —
+// viewing a session still keeps it in memory even though the row's time
+// stays at the last ask.
 func (s *Store) Reap() int {
 	if s.ttl <= 0 {
 		return 0
@@ -511,7 +550,7 @@ func (s *Store) Reap() int {
 	var doomed []victim
 	deadline := time.Now().Add(-s.ttl)
 	for id, e := range s.sessions {
-		if e.lastActive.Before(deadline) && !e.sess.Busy() {
+		if e.lastUsed.Before(deadline) && !e.sess.Busy() {
 			doomed = append(doomed, victim{id: id, e: e})
 			delete(s.sessions, id)
 		}

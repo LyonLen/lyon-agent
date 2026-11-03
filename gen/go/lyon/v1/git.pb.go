@@ -560,6 +560,107 @@ func (x *SyncResponse) GetOutput() string {
 	return ""
 }
 
+// Diff: one path's unified diff against HEAD — staged and unstaged
+// changes together (无论是否已 add: both halves show). This powers the
+// 产出文件 card's 变更模式 (#42); the web routes ONLY that card's change
+// rows here, plain preview never calls it. Untracked files have no HEAD
+// entry (git prints nothing) — the card sends those to the plain preview.
+type DiffRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"` // workspace-relative, "/"-separated (as git prints it)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiffRequest) Reset() {
+	*x = DiffRequest{}
+	mi := &file_lyon_v1_git_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiffRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiffRequest) ProtoMessage() {}
+
+func (x *DiffRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_git_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiffRequest.ProtoReflect.Descriptor instead.
+func (*DiffRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_git_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DiffRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type DiffResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IsRepo        bool                   `protobuf:"varint,1,opt,name=is_repo,json=isRepo,proto3" json:"is_repo,omitempty"` // false → not a repository (empty diff)
+	Diff          string                 `protobuf:"bytes,2,opt,name=diff,proto3" json:"diff,omitempty"`                    // unified diff text; "" = no text change vs HEAD
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiffResponse) Reset() {
+	*x = DiffResponse{}
+	mi := &file_lyon_v1_git_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiffResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiffResponse) ProtoMessage() {}
+
+func (x *DiffResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_git_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiffResponse.ProtoReflect.Descriptor instead.
+func (*DiffResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_git_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *DiffResponse) GetIsRepo() bool {
+	if x != nil {
+		return x.IsRepo
+	}
+	return false
+}
+
+func (x *DiffResponse) GetDiff() string {
+	if x != nil {
+		return x.Diff
+	}
+	return ""
+}
+
 var File_lyon_v1_git_proto protoreflect.FileDescriptor
 
 const file_lyon_v1_git_proto_rawDesc = "" +
@@ -597,13 +698,19 @@ const file_lyon_v1_git_proto_rawDesc = "" +
 	"\asummary\x18\x02 \x01(\tR\asummary\"\r\n" +
 	"\vSyncRequest\"&\n" +
 	"\fSyncResponse\x12\x16\n" +
-	"\x06output\x18\x01 \x01(\tR\x06output2\xe9\x01\n" +
+	"\x06output\x18\x01 \x01(\tR\x06output\"!\n" +
+	"\vDiffRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\";\n" +
+	"\fDiffResponse\x12\x17\n" +
+	"\ais_repo\x18\x01 \x01(\bR\x06isRepo\x12\x12\n" +
+	"\x04diff\x18\x02 \x01(\tR\x04diff2\x9e\x02\n" +
 	"\n" +
 	"GitService\x129\n" +
 	"\x06Status\x12\x16.lyon.v1.StatusRequest\x1a\x17.lyon.v1.StatusResponse\x120\n" +
 	"\x03Log\x12\x13.lyon.v1.LogRequest\x1a\x14.lyon.v1.LogResponse\x129\n" +
 	"\x06Commit\x12\x16.lyon.v1.CommitRequest\x1a\x17.lyon.v1.CommitResponse\x123\n" +
-	"\x04Sync\x12\x14.lyon.v1.SyncRequest\x1a\x15.lyon.v1.SyncResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
+	"\x04Sync\x12\x14.lyon.v1.SyncRequest\x1a\x15.lyon.v1.SyncResponse\x123\n" +
+	"\x04Diff\x12\x14.lyon.v1.DiffRequest\x1a\x15.lyon.v1.DiffResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
 
 var (
 	file_lyon_v1_git_proto_rawDescOnce sync.Once
@@ -617,7 +724,7 @@ func file_lyon_v1_git_proto_rawDescGZIP() []byte {
 	return file_lyon_v1_git_proto_rawDescData
 }
 
-var file_lyon_v1_git_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_lyon_v1_git_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_lyon_v1_git_proto_goTypes = []any{
 	(*StatusRequest)(nil),  // 0: lyon.v1.StatusRequest
 	(*GitChange)(nil),      // 1: lyon.v1.GitChange
@@ -629,23 +736,27 @@ var file_lyon_v1_git_proto_goTypes = []any{
 	(*CommitResponse)(nil), // 7: lyon.v1.CommitResponse
 	(*SyncRequest)(nil),    // 8: lyon.v1.SyncRequest
 	(*SyncResponse)(nil),   // 9: lyon.v1.SyncResponse
+	(*DiffRequest)(nil),    // 10: lyon.v1.DiffRequest
+	(*DiffResponse)(nil),   // 11: lyon.v1.DiffResponse
 }
 var file_lyon_v1_git_proto_depIdxs = []int32{
-	1, // 0: lyon.v1.StatusResponse.changes:type_name -> lyon.v1.GitChange
-	4, // 1: lyon.v1.LogResponse.commits:type_name -> lyon.v1.GitCommit
-	0, // 2: lyon.v1.GitService.Status:input_type -> lyon.v1.StatusRequest
-	3, // 3: lyon.v1.GitService.Log:input_type -> lyon.v1.LogRequest
-	6, // 4: lyon.v1.GitService.Commit:input_type -> lyon.v1.CommitRequest
-	8, // 5: lyon.v1.GitService.Sync:input_type -> lyon.v1.SyncRequest
-	2, // 6: lyon.v1.GitService.Status:output_type -> lyon.v1.StatusResponse
-	5, // 7: lyon.v1.GitService.Log:output_type -> lyon.v1.LogResponse
-	7, // 8: lyon.v1.GitService.Commit:output_type -> lyon.v1.CommitResponse
-	9, // 9: lyon.v1.GitService.Sync:output_type -> lyon.v1.SyncResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1,  // 0: lyon.v1.StatusResponse.changes:type_name -> lyon.v1.GitChange
+	4,  // 1: lyon.v1.LogResponse.commits:type_name -> lyon.v1.GitCommit
+	0,  // 2: lyon.v1.GitService.Status:input_type -> lyon.v1.StatusRequest
+	3,  // 3: lyon.v1.GitService.Log:input_type -> lyon.v1.LogRequest
+	6,  // 4: lyon.v1.GitService.Commit:input_type -> lyon.v1.CommitRequest
+	8,  // 5: lyon.v1.GitService.Sync:input_type -> lyon.v1.SyncRequest
+	10, // 6: lyon.v1.GitService.Diff:input_type -> lyon.v1.DiffRequest
+	2,  // 7: lyon.v1.GitService.Status:output_type -> lyon.v1.StatusResponse
+	5,  // 8: lyon.v1.GitService.Log:output_type -> lyon.v1.LogResponse
+	7,  // 9: lyon.v1.GitService.Commit:output_type -> lyon.v1.CommitResponse
+	9,  // 10: lyon.v1.GitService.Sync:output_type -> lyon.v1.SyncResponse
+	11, // 11: lyon.v1.GitService.Diff:output_type -> lyon.v1.DiffResponse
+	7,  // [7:12] is the sub-list for method output_type
+	2,  // [2:7] is the sub-list for method input_type
+	2,  // [2:2] is the sub-list for extension type_name
+	2,  // [2:2] is the sub-list for extension extendee
+	0,  // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_lyon_v1_git_proto_init() }
@@ -659,7 +770,7 @@ func file_lyon_v1_git_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lyon_v1_git_proto_rawDesc), len(file_lyon_v1_git_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

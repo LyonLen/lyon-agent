@@ -167,12 +167,13 @@ func (s *Session) Settled() Snapshot {
 	turns := append([]TurnStat(nil), s.turns...)
 	runs := append([]RunEnd(nil), s.runEnds...)
 	s.mu.Unlock()
-	// Same monotonicity as Export: a slow mirror landing after a newer one
-	// must not reorder the seat list.
+	// lastActive is the seat's LAST-ASKED clock (Store.MarkAsked on submit)
+	// — the list row's time (#44). The mirror must NOT move it to now:
+	// every state change (title, tool event, mode) would otherwise refresh
+	// the row, and "opening a session" must never look like a question.
+	// Zero only for a seat that never asked — fall back to now so a parked
+	// row is never zero-valued.
 	now := time.Now()
-	if now.After(lastActive) {
-		lastActive = now
-	}
 	if lastActive.IsZero() {
 		lastActive = now
 	}
@@ -223,13 +224,11 @@ func (s *Session) Export() Snapshot {
 	uiTodos := append(json.RawMessage(nil), s.uiTodos...)
 	runs := append([]RunEnd(nil), s.runEnds...)
 	s.mu.Unlock()
-	// LastActive never moves backwards (a slow mirror landing after a
-	// newer one must not reorder the list) and never lies: the mirror
-	// writes on every state change, so this is when the seat last moved.
+	// Same contract as Settled: LastActive is the ask clock (#44) and never
+	// forced to now — Export runs on every state change, so forcing it would
+	// make any activity read as a question. Zero only for a seat that never
+	// asked.
 	now := time.Now()
-	if now.After(lastActive) {
-		lastActive = now
-	}
 	if lastActive.IsZero() {
 		lastActive = now
 	}

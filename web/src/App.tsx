@@ -445,7 +445,10 @@ export default function App() {
   // the sibling page order): the most recently active preview leaf → the
   // first one → split a new pane beside files/chat. splitLeafAt hands
   // back the fresh nodeId so the tab record can be seeded before paint.
-  const openPreviewFile = (path: string, kind?: FileKind) => {
+  // diff=true opens the 变更模式 (unified diff) instead (#42) — reached
+  // ONLY from the 产出文件 card's change rows; every other caller leaves
+  // it false, which also flips a diff tab back to plain preview.
+  const openPreviewFile = (path: string, kind?: FileKind, diff = false) => {
     const leaves = collectLeaves(ws.root).filter((l) => l.pane === "preview");
     let target: string | null = leaves
       .filter((l) => fileTabs.tabs[l.nodeId])
@@ -458,7 +461,7 @@ export default function App() {
       target = ws.splitLeafAt(anchor, "h", "preview");
     }
     if (!target) return;
-    fileTabs.open(target, { path, kind });
+    fileTabs.open(target, { path, kind, diff });
     ws.setFocus(target);
   };
 
@@ -626,6 +629,7 @@ export default function App() {
               onSteps={setSteps}
               onCommand={runCommand}
               onOpenFile={openPreviewFile}
+              onOpenDiff={(p) => openPreviewFile(p, undefined, true)}
               onPromptEnd={scheduleTitleRefresh}
               onCtx={setCtxTok}
               onCost={setCtxCost}

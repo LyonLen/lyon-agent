@@ -7,15 +7,18 @@ option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
 // GitService: the files panel's source-control view — the VS Code
 // source-control sidebar in miniature (changes list, commit box, sync,
 // outgoing commit graph). Every command runs as `git -C <workspace> …`
-// with a fixed argv; the RPCs accept no path, remote, or flag arguments,
-// so the panel can only ever act on the workspace repository itself.
-// Commit stages everything (`git add -A`, gitignore-respected) — the
-// panel commits the working tree, it is not a staging-area editor.
+// with a fixed argv; the RPCs accept no remote or flag arguments (Diff's
+// path is a workspace-relative file name that rides one argv slot after
+// `--`, never a flag), so the panel can only ever act on the workspace
+// repository itself. Commit stages everything (`git add -A`,
+// gitignore-respected) — the panel commits the working tree, it is not a
+// staging-area editor.
 service GitService {
   rpc Status(StatusRequest) returns (StatusResponse);
   rpc Log(LogRequest) returns (LogResponse);
   rpc Commit(CommitRequest) returns (CommitResponse);
   rpc Sync(SyncRequest) returns (SyncResponse);
+  rpc Diff(DiffRequest) returns (DiffResponse);
 }
 
 message StatusRequest {}
@@ -69,4 +72,18 @@ message SyncRequest {}
 
 message SyncResponse {
   string output = 1; // combined pull --rebase + push output
+}
+
+// Diff: one path's unified diff against HEAD — staged and unstaged
+// changes together (无论是否已 add: both halves show). This powers the
+// 产出文件 card's 变更模式 (#42); the web routes ONLY that card's change
+// rows here, plain preview never calls it. Untracked files have no HEAD
+// entry (git prints nothing) — the card sends those to the plain preview.
+message DiffRequest {
+  string path = 1; // workspace-relative, "/"-separated (as git prints it)
+}
+
+message DiffResponse {
+  bool is_repo = 1; // false → not a repository (empty diff)
+  string diff = 2;  // unified diff text; "" = no text change vs HEAD
 }
