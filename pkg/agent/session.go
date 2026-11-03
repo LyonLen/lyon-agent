@@ -464,14 +464,58 @@ func (s *Session) Enqueue(prompt string) error {
 	return nil
 }
 
+// requestAgain reports whether the runner will issue another API request
+// after the given last turn — nil means no turn has completed yet this run.
+// It mirrors nextRequest's own control flow, because that is where the
+// answer lives: the SDK latches IsCompleted only inside the NEXT
+// NextStreaming call, so after the last turn's end_turn the loop always
+// visits one more top with IsCompleted still false — draining the queue
+// there appends the lines to a finished run and announces queue_injected
+// for a POST that never goes out ("queued messages never processed").
+//
+// A non-nil turn continues only for the buckets where determineNextStep-
+// FromStopReason says run or resume (tool_use, pause_turn, compaction);
+// every other stop — end_turn, max_tokens, refusal, stop_sequence, an
+// omitted stop_reason, unknown values — reaches finalTurnRequest, which
+// latches completed and returns nil before anything else. A nil turn (fresh
+// runner) and every continuing turn then face nextRequest's iteration-
+// budget refusal, the only remaining stopper. The inputs are the very
+// fields nextRequest reads (LastMessage, IterationCount,
+// Params.MaxIterations), so a runner recreated mid-run with a shrunk
+// budget answers the same as the SDK will. A wrong "false" self-heals —
+// the lines stay parked and either a later live gap or the prompt_end
+// re-send delivers them; only a wrong "true" could lose a line.
+func requestAgain(lm *anthropic.BetaMessage, iter, maxIter int) bool {
+	if lm != nil {
+		switch lm.StopReason {
+		case anthropic.BetaStopReasonToolUse, anthropic.BetaStopReasonPauseTurn,
+			anthropic.BetaStopReasonCompaction:
+			// continue: tools execute or the paused turn resumes
+		default:
+			return false // final turn: completed latches, nextRequest returns nil
+		}
+	}
+	return maxIter <= 0 || iter < maxIter
+}
+
 // injectQueuedGap drains the inbox at a turn gap (#2): each line joins the
 // runner's history as its own user turn — the next round appends its
 // tool_results right after, which the API combines into one turn (and the
 // apiGuard preflights to the same shape) — so the running prompt picks the
 // instruction up on its very next API call. The event lets the frontend
 // drop its display copy, and prompt_start keeps the audit trail honest.
+//
+// On the runner's FINAL gap (requestAgain false — the ghost iteration
+// after end_turn, where IsCompleted latches one call late) there is no
+// next API call to carry the lines, so the drain is skipped: the inbox
+// stays parked, drive's exit drops it under the usual contract, and the
+// client — never told to drop its copy, no queue_injected — re-sends on
+// prompt_end, exactly like a line enqueued after the run already ended.
 // Drive goroutine only; never called with the runner nil.
 func (s *Session) injectQueuedGap() {
+	if !requestAgain(s.runner.LastMessage(), s.runner.IterationCount(), s.runner.Params.MaxIterations) {
+		return // final gap: the lines ride the exit drop + prompt_end re-send
+	}
 	s.mu.Lock()
 	if len(s.inbox) == 0 {
 		s.mu.Unlock()
@@ -771,7 +815,10 @@ func (s *Session) drive(prompt, runModel string) {
 
 		// The gap between rounds (#2): parked prompts join the conversation
 		// before this round's tools execute and POST — the model reads them
-		// together with the tool results on the very next API call.
+		// together with the tool results on the very next API call. The
+		// final gap after end_turn is skipped inside (requestAgain): no
+		// request follows, so the lines stay parked for the exit drop and
+		// the client's prompt_end re-send.
 		s.injectQueuedGap()
 
 		// Global turn admission: bounds in-flight API+tool iterations across

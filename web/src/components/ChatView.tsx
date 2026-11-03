@@ -812,6 +812,11 @@ export default function ChatView(props: {
                   .then(() => props.onChanged())
                   .catch((e) => {
                     if (!live) return;
+                    // The re-send lost the race (seat reaped, another pane
+                    // grabbed the run): park the head again instead of
+                    // dropping it — visible in the queue, it rides the next
+                    // prompt_end, while the error line explains the miss.
+                    setQueued((q) => [head, ...q]);
                     setErr(errText(e));
                     setBusy(false);
                   });
@@ -1251,10 +1256,27 @@ export default function ChatView(props: {
     setErr("");
     try {
       if (busy) {
-        await sessionClient.enqueuePrompt({
-          sessionId: props.sessionId,
-          prompt,
-        });
+        try {
+          await sessionClient.enqueuePrompt({
+            sessionId: props.sessionId,
+            prompt,
+          });
+        } catch (e) {
+          // FailedPrecondition = the run ended between our busy check and
+          // the RPC: the server maps ErrNoPromptRunning there and documents
+          // "the caller should fall back to SubmitPrompt"
+          // (connect_session.go). Submit instead of dropping the line —
+          // without this fallback the input box already consumed the prompt
+          // and it evaporates with only a transient error to show for it.
+          if (ConnectError.from(e).code !== Code.FailedPrecondition) throw e;
+          setBusy(true);
+          await sessionClient.submitPrompt({
+            sessionId: props.sessionId,
+            prompt,
+          });
+          props.onChanged();
+          return;
+        }
         setBusy(true);
         // Show the line itself, not just its depth (TUI queueRows): the
         // point of parking a prompt is seeing what will join the run. The
