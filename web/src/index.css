@@ -560,6 +560,9 @@ button:focus-visible,
 .tool-status.done { color: var(--ok); }
 .tool-status.failed { color: var(--danger); }
 .tool-status.running { color: var(--accent); }
+/* live elapsed on a long-running tool (appears after a 5s grace) —
+   a number ticking is the difference between "working" and "stuck" */
+.tool-elapsed { font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace; color: var(--dim); }
 .spin {
   width: 10px; height: 10px; border-radius: 50%;
   border: 2px solid var(--line); border-top-color: var(--accent);
@@ -884,6 +887,12 @@ button:focus-visible,
   transition: border-color var(--dur-1), box-shadow var(--dur-1);
 }
 .approval-card.active { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn-55); }
+/* plan-mode interception: a policy choice, not a consent ask — the accent
+   tint separates it from an approval card in a mixed queue */
+.approval-card.mode { border-color: var(--accent-line); border-left-color: var(--accent); }
+.approval-card.mode.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-a28); }
+.approval-card.mode .appr-q { color: var(--accent); }
+.approval-card.mode .appr-actions button { background: var(--accent); color: var(--on-accent); }
 @keyframes appr-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }

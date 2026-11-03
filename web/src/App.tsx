@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Session } from "./gen/lyon/v1/session_pb";
 import type { SnapshotRef } from "./gen/lyon/v1/dashboard_pb";
-import type { WatchPendingResponse } from "./gen/lyon/v1/approval_pb";
+import { ModeAction, type WatchPendingResponse } from "./gen/lyon/v1/approval_pb";
 import { approvalClient, dashboardClient, errText, fileClient, getToken, sessionClient, setToken } from "./api";
 import type { FileKind } from "./gen/lyon/v1/file_pb";
 import SessionList from "./components/SessionList";
@@ -235,7 +235,11 @@ export default function App() {
               const title =
                 sessionsRef.current.find((s) => s.id === ev.sessionId)?.title ??
                 ev.sessionId.slice(0, 8);
-              setToast(`${ev.toolName} needs approval — ${title}`);
+              setToast(
+                ev.modeBlock
+                  ? `plan 拦截 ${ev.toolName} — ${title}`
+                  : `${ev.toolName} needs approval — ${title}`,
+              );
               if (toastTimer.current) clearTimeout(toastTimer.current);
               toastTimer.current = setTimeout(() => setToast(""), 3000);
             }
@@ -257,18 +261,27 @@ export default function App() {
     };
   }, []);
 
-  // decide answers a parked approval. The resolve event also removes the
-  // card (idempotent); this local removal just makes the click feel
-  // instant, and NotFound means someone else — or an interrupt — beat us
-  // to it, which is equally a reason to drop the card.
+  // decide answers a parked approval or plan interception. action is the
+  // mode_block vocabulary (approval.proto ModeAction); approvals leave it
+  // UNSPECIFIED. The resolve event also removes the card (idempotent);
+  // this local removal just makes the click feel instant, and NotFound
+  // means someone else — or an interrupt — beat us to it, which is
+  // equally a reason to drop the card.
   const decide = async (
     sessionId: string,
     execId: bigint,
     approve: boolean,
     remember: boolean,
+    action?: ModeAction,
   ) => {
     try {
-      await approvalClient.decide({ sessionId, execId, approve, remember });
+      await approvalClient.decide({
+        sessionId,
+        execId,
+        approve,
+        remember,
+        action: action ?? ModeAction.UNSPECIFIED,
+      });
     } catch (e) {
       const code = ConnectError.from(e).code;
       if (code !== Code.NotFound) {

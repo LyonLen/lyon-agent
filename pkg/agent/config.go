@@ -60,6 +60,11 @@ type Config struct {
 	// (run_shell, write_file, edit_file) before execution. Denials become
 	// is_error tool results. Typically set by the CLI for interactive y/n.
 	Approve tools.ApproveFunc
+	// ModeBlock, when set, turns plan-mode's hard block into an
+	// interception: the call parks until a human answers (vouch file /
+	// switch mode / deny). nil keeps the hard block — TUI and tests.
+	// Runs BEFORE Approve (mode is policy, approval is consent).
+	ModeBlock ModeBlockFunc
 	// WebToolMode selects how web tools are offered:
 	//
 	//	"server" — server-side web_search/web_fetch executed by Anthropic

@@ -271,9 +271,11 @@ type AdapterConfig struct {
 	Approve ApproveFunc
 	// PreTool is the security seam: it runs after the exec-start observer
 	// event but BEFORE approval, so a denied invocation never reaches the
-	// human or the workspace. A returned error fails the tool (the model
-	// sees it as the tool result); nil means no gate.
-	PreTool func(ctx context.Context, name string, input json.RawMessage) error
+	// human or the workspace. It receives the whole ExecEvent (ExecID
+	// already minted) so an interactive gate can key its pending on the
+	// same id the observer emitted. A returned error fails the tool (the
+	// model sees it as the tool result); nil means no gate.
+	PreTool func(ctx context.Context, e ExecEvent) error
 	// Seq, when set, is the shared ExecID counter for the whole session so
 	// ids are unique across tools (nil falls back to a per-tool counter).
 	Seq *atomic.Uint64
@@ -350,7 +352,7 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 	// Security gate first: local policy and blocking hooks decide before
 	// the human is bothered — a blocked tool must never prompt for approval.
 	if a.cfg.PreTool != nil {
-		if err := a.cfg.PreTool(ctx, ev.Name, input); err != nil {
+		if err := a.cfg.PreTool(ctx, ev); err != nil {
 			return nil, err
 		}
 	}

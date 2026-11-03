@@ -2,15 +2,15 @@
 // @generated from file lyon/v1/approval.proto (package lyon.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file lyon/v1/approval.proto.
  */
 export const file_lyon_v1_approval: GenFile = /*@__PURE__*/
-  fileDesc("ChZseW9uL3YxL2FwcHJvdmFsLnByb3RvEgdseW9uLnYxInsKFFdhdGNoUGVuZGluZ1Jlc3BvbnNlEhIKCnNlc3Npb25faWQYASABKAkSDwoHZXhlY19pZBgCIAEoAxIRCgl0b29sX25hbWUYAyABKAkSEgoKaW5wdXRfanNvbhgEIAEoCRIXCg9yZXF1ZXN0ZWRfYXRfbXMYBSABKAMiFQoTV2F0Y2hQZW5kaW5nUmVxdWVzdCJXCg1EZWNpZGVSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDwoHZXhlY19pZBgCIAEoAxIPCgdhcHByb3ZlGAMgASgIEhAKCHJlbWVtYmVyGAQgASgIIkYKDkRlY2lkZVJlc3BvbnNlEhIKCnNlc3Npb25faWQYASABKAkSDwoHZXhlY19pZBgCIAEoAxIPCgdhcHByb3ZlGAMgASgIMpsBCg9BcHByb3ZhbFNlcnZpY2USTQoMV2F0Y2hQZW5kaW5nEhwubHlvbi52MS5XYXRjaFBlbmRpbmdSZXF1ZXN0Gh0ubHlvbi52MS5XYXRjaFBlbmRpbmdSZXNwb25zZTABEjkKBkRlY2lkZRIWLmx5b24udjEuRGVjaWRlUmVxdWVzdBoXLmx5b24udjEuRGVjaWRlUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
+  fileDesc("ChZseW9uL3YxL2FwcHJvdmFsLnByb3RvEgdseW9uLnYxIo8BChRXYXRjaFBlbmRpbmdSZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2V4ZWNfaWQYAiABKAMSEQoJdG9vbF9uYW1lGAMgASgJEhIKCmlucHV0X2pzb24YBCABKAkSFwoPcmVxdWVzdGVkX2F0X21zGAUgASgDEhIKCm1vZGVfYmxvY2sYBiABKAgiFQoTV2F0Y2hQZW5kaW5nUmVxdWVzdCJ8Cg1EZWNpZGVSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDwoHZXhlY19pZBgCIAEoAxIPCgdhcHByb3ZlGAMgASgIEhAKCHJlbWVtYmVyGAQgASgIEiMKBmFjdGlvbhgFIAEoDjITLmx5b24udjEuTW9kZUFjdGlvbiJGCg5EZWNpZGVSZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2V4ZWNfaWQYAiABKAMSDwoHYXBwcm92ZRgDIAEoCCqWAQoKTW9kZUFjdGlvbhIbChdNT0RFX0FDVElPTl9VTlNQRUNJRklFRBAAEhQKEE1PREVfQUNUSU9OX0RFTlkQARIaChZNT0RFX0FDVElPTl9BTExPV19QQVRIEAISHAoYTU9ERV9BQ1RJT05fTU9ERV9ERUZBVUxUEAMSGwoXTU9ERV9BQ1RJT05fTU9ERV9CWVBBU1MQBDKbAQoPQXBwcm92YWxTZXJ2aWNlEk0KDFdhdGNoUGVuZGluZxIcLmx5b24udjEuV2F0Y2hQZW5kaW5nUmVxdWVzdBodLmx5b24udjEuV2F0Y2hQZW5kaW5nUmVzcG9uc2UwARI5CgZEZWNpZGUSFi5seW9uLnYxLkRlY2lkZVJlcXVlc3QaFy5seW9uLnYxLkRlY2lkZVJlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM");
 
 /**
  * WatchPendingResponse is one pending approval (draft name ApprovalRequest;
@@ -48,6 +48,15 @@ export type WatchPendingResponse = Message<"lyon.v1.WatchPendingResponse"> & {
    * @generated from field: int64 requested_at_ms = 5;
    */
   requestedAtMs: bigint;
+
+  /**
+   * mode_block: a plan-mode interception, not a NeedsApproval ask — the
+   * client renders the chooser (vouch file / switch mode / deny) and
+   * answers with Decide.action instead of approve/remember.
+   *
+   * @generated from field: bool mode_block = 6;
+   */
+  modeBlock: boolean;
 };
 
 /**
@@ -95,6 +104,13 @@ export type DecideRequest = Message<"lyon.v1.DecideRequest"> & {
    * @generated from field: bool remember = 4;
    */
   remember: boolean;
+
+  /**
+   * mode_block pendings: authoritative (see enum note)
+   *
+   * @generated from field: lyon.v1.ModeAction action = 5;
+   */
+  action: ModeAction;
 };
 
 /**
@@ -134,11 +150,58 @@ export const DecideResponseSchema: GenMessage<DecideResponse> = /*@__PURE__*/
   messageDesc(file_lyon_v1_approval, 3);
 
 /**
- * ApprovalService — TODO(wire): lyond currently never sets cfg.Approve, so
- * every NeedsApproval tool auto-approves (cmd/lyond/main.go; the adapter gate
- * is pkg/tools/tool.go). When lyond grows an -approve flag, wire
- * tools.ApproveFunc to this service: the approvee parks until Decide or
- * timeout (returning false, matching TUI behavior).
+ * ModeAction is the chooser's answer on a mode_block pending. Old clients
+ * that only speak approve/remember map approve → MODE_DEFAULT (let the
+ * call run, leave plan) and deny → MODE_ACTION_DENY; unspecified fails
+ * closed to deny.
+ *
+ * @generated from enum lyon.v1.ModeAction
+ */
+export enum ModeAction {
+  /**
+   * @generated from enum value: MODE_ACTION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: MODE_ACTION_DENY = 1;
+   */
+  DENY = 1,
+
+  /**
+   * session vouch for this file (write/edit path)
+   *
+   * @generated from enum value: MODE_ACTION_ALLOW_PATH = 2;
+   */
+  ALLOW_PATH = 2,
+
+  /**
+   * SetMode(default) — approvals resume as wired
+   *
+   * @generated from enum value: MODE_ACTION_MODE_DEFAULT = 3;
+   */
+  MODE_DEFAULT = 3,
+
+  /**
+   * SetMode(bypass) — approvals auto-pass too
+   *
+   * @generated from enum value: MODE_ACTION_MODE_BYPASS = 4;
+   */
+  MODE_BYPASS = 4,
+}
+
+/**
+ * Describes the enum lyon.v1.ModeAction.
+ */
+export const ModeActionSchema: GenEnum<ModeAction> = /*@__PURE__*/
+  enumDesc(file_lyon_v1_approval, 0);
+
+/**
+ * ApprovalService — lyond wires tools.ApproveFunc to this service
+ * (path-aware by default, strict under -approve; cmd/lyond/main.go): the
+ * approvee parks until Decide or the run context dies (deny, matching TUI).
+ * The same stream carries plan-mode interceptions (mode_block below) —
+ * one card pipeline for every human gate.
  *
  * @generated from service lyon.v1.ApprovalService
  */

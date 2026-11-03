@@ -21,6 +21,65 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ModeAction is the chooser's answer on a mode_block pending. Old clients
+// that only speak approve/remember map approve → MODE_DEFAULT (let the
+// call run, leave plan) and deny → MODE_ACTION_DENY; unspecified fails
+// closed to deny.
+type ModeAction int32
+
+const (
+	ModeAction_MODE_ACTION_UNSPECIFIED  ModeAction = 0
+	ModeAction_MODE_ACTION_DENY         ModeAction = 1
+	ModeAction_MODE_ACTION_ALLOW_PATH   ModeAction = 2 // session vouch for this file (write/edit path)
+	ModeAction_MODE_ACTION_MODE_DEFAULT ModeAction = 3 // SetMode(default) — approvals resume as wired
+	ModeAction_MODE_ACTION_MODE_BYPASS  ModeAction = 4 // SetMode(bypass) — approvals auto-pass too
+)
+
+// Enum value maps for ModeAction.
+var (
+	ModeAction_name = map[int32]string{
+		0: "MODE_ACTION_UNSPECIFIED",
+		1: "MODE_ACTION_DENY",
+		2: "MODE_ACTION_ALLOW_PATH",
+		3: "MODE_ACTION_MODE_DEFAULT",
+		4: "MODE_ACTION_MODE_BYPASS",
+	}
+	ModeAction_value = map[string]int32{
+		"MODE_ACTION_UNSPECIFIED":  0,
+		"MODE_ACTION_DENY":         1,
+		"MODE_ACTION_ALLOW_PATH":   2,
+		"MODE_ACTION_MODE_DEFAULT": 3,
+		"MODE_ACTION_MODE_BYPASS":  4,
+	}
+)
+
+func (x ModeAction) Enum() *ModeAction {
+	p := new(ModeAction)
+	*p = x
+	return p
+}
+
+func (x ModeAction) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ModeAction) Descriptor() protoreflect.EnumDescriptor {
+	return file_lyon_v1_approval_proto_enumTypes[0].Descriptor()
+}
+
+func (ModeAction) Type() protoreflect.EnumType {
+	return &file_lyon_v1_approval_proto_enumTypes[0]
+}
+
+func (x ModeAction) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ModeAction.Descriptor instead.
+func (ModeAction) EnumDescriptor() ([]byte, []int) {
+	return file_lyon_v1_approval_proto_rawDescGZIP(), []int{0}
+}
+
 // WatchPendingResponse is one pending approval (draft name ApprovalRequest;
 // renamed for lint STANDARD's RPC_RESPONSE_STANDARD_NAME — the message is
 // the streamed response, not a request).
@@ -35,6 +94,10 @@ type WatchPendingResponse struct {
 	ToolName      string                 `protobuf:"bytes,3,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`
 	InputJson     string                 `protobuf:"bytes,4,opt,name=input_json,json=inputJson,proto3" json:"input_json,omitempty"`
 	RequestedAtMs int64                  `protobuf:"varint,5,opt,name=requested_at_ms,json=requestedAtMs,proto3" json:"requested_at_ms,omitempty"`
+	// mode_block: a plan-mode interception, not a NeedsApproval ask — the
+	// client renders the chooser (vouch file / switch mode / deny) and
+	// answers with Decide.action instead of approve/remember.
+	ModeBlock     bool `protobuf:"varint,6,opt,name=mode_block,json=modeBlock,proto3" json:"mode_block,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -104,6 +167,13 @@ func (x *WatchPendingResponse) GetRequestedAtMs() int64 {
 	return 0
 }
 
+func (x *WatchPendingResponse) GetModeBlock() bool {
+	if x != nil {
+		return x.ModeBlock
+	}
+	return false
+}
+
 type WatchPendingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -145,7 +215,8 @@ type DecideRequest struct {
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	ExecId        int64                  `protobuf:"varint,2,opt,name=exec_id,json=execId,proto3" json:"exec_id,omitempty"`
 	Approve       bool                   `protobuf:"varint,3,opt,name=approve,proto3" json:"approve,omitempty"`
-	Remember      bool                   `protobuf:"varint,4,opt,name=remember,proto3" json:"remember,omitempty"` // grant persists for this seat in $LYON_HOME/approvals.json
+	Remember      bool                   `protobuf:"varint,4,opt,name=remember,proto3" json:"remember,omitempty"`                     // grant persists for this seat in $LYON_HOME/approvals.json
+	Action        ModeAction             `protobuf:"varint,5,opt,name=action,proto3,enum=lyon.v1.ModeAction" json:"action,omitempty"` // mode_block pendings: authoritative (see enum note)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -206,6 +277,13 @@ func (x *DecideRequest) GetRemember() bool {
 		return x.Remember
 	}
 	return false
+}
+
+func (x *DecideRequest) GetAction() ModeAction {
+	if x != nil {
+		return x.Action
+	}
+	return ModeAction_MODE_ACTION_UNSPECIFIED
 }
 
 // DecideResponse (draft name ApprovalDecision).
@@ -273,7 +351,7 @@ var File_lyon_v1_approval_proto protoreflect.FileDescriptor
 
 const file_lyon_v1_approval_proto_rawDesc = "" +
 	"\n" +
-	"\x16lyon/v1/approval.proto\x12\alyon.v1\"\xb2\x01\n" +
+	"\x16lyon/v1/approval.proto\x12\alyon.v1\"\xd1\x01\n" +
 	"\x14WatchPendingResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
@@ -281,19 +359,29 @@ const file_lyon_v1_approval_proto_rawDesc = "" +
 	"\ttool_name\x18\x03 \x01(\tR\btoolName\x12\x1d\n" +
 	"\n" +
 	"input_json\x18\x04 \x01(\tR\tinputJson\x12&\n" +
-	"\x0frequested_at_ms\x18\x05 \x01(\x03R\rrequestedAtMs\"\x15\n" +
-	"\x13WatchPendingRequest\"}\n" +
+	"\x0frequested_at_ms\x18\x05 \x01(\x03R\rrequestedAtMs\x12\x1d\n" +
+	"\n" +
+	"mode_block\x18\x06 \x01(\bR\tmodeBlock\"\x15\n" +
+	"\x13WatchPendingRequest\"\xaa\x01\n" +
 	"\rDecideRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\aexec_id\x18\x02 \x01(\x03R\x06execId\x12\x18\n" +
 	"\aapprove\x18\x03 \x01(\bR\aapprove\x12\x1a\n" +
-	"\bremember\x18\x04 \x01(\bR\bremember\"b\n" +
+	"\bremember\x18\x04 \x01(\bR\bremember\x12+\n" +
+	"\x06action\x18\x05 \x01(\x0e2\x13.lyon.v1.ModeActionR\x06action\"b\n" +
 	"\x0eDecideResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\aexec_id\x18\x02 \x01(\x03R\x06execId\x12\x18\n" +
-	"\aapprove\x18\x03 \x01(\bR\aapprove2\x9b\x01\n" +
+	"\aapprove\x18\x03 \x01(\bR\aapprove*\x96\x01\n" +
+	"\n" +
+	"ModeAction\x12\x1b\n" +
+	"\x17MODE_ACTION_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10MODE_ACTION_DENY\x10\x01\x12\x1a\n" +
+	"\x16MODE_ACTION_ALLOW_PATH\x10\x02\x12\x1c\n" +
+	"\x18MODE_ACTION_MODE_DEFAULT\x10\x03\x12\x1b\n" +
+	"\x17MODE_ACTION_MODE_BYPASS\x10\x042\x9b\x01\n" +
 	"\x0fApprovalService\x12M\n" +
 	"\fWatchPending\x12\x1c.lyon.v1.WatchPendingRequest\x1a\x1d.lyon.v1.WatchPendingResponse0\x01\x129\n" +
 	"\x06Decide\x12\x16.lyon.v1.DecideRequest\x1a\x17.lyon.v1.DecideResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
@@ -310,23 +398,26 @@ func file_lyon_v1_approval_proto_rawDescGZIP() []byte {
 	return file_lyon_v1_approval_proto_rawDescData
 }
 
+var file_lyon_v1_approval_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_lyon_v1_approval_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_lyon_v1_approval_proto_goTypes = []any{
-	(*WatchPendingResponse)(nil), // 0: lyon.v1.WatchPendingResponse
-	(*WatchPendingRequest)(nil),  // 1: lyon.v1.WatchPendingRequest
-	(*DecideRequest)(nil),        // 2: lyon.v1.DecideRequest
-	(*DecideResponse)(nil),       // 3: lyon.v1.DecideResponse
+	(ModeAction)(0),              // 0: lyon.v1.ModeAction
+	(*WatchPendingResponse)(nil), // 1: lyon.v1.WatchPendingResponse
+	(*WatchPendingRequest)(nil),  // 2: lyon.v1.WatchPendingRequest
+	(*DecideRequest)(nil),        // 3: lyon.v1.DecideRequest
+	(*DecideResponse)(nil),       // 4: lyon.v1.DecideResponse
 }
 var file_lyon_v1_approval_proto_depIdxs = []int32{
-	1, // 0: lyon.v1.ApprovalService.WatchPending:input_type -> lyon.v1.WatchPendingRequest
-	2, // 1: lyon.v1.ApprovalService.Decide:input_type -> lyon.v1.DecideRequest
-	0, // 2: lyon.v1.ApprovalService.WatchPending:output_type -> lyon.v1.WatchPendingResponse
-	3, // 3: lyon.v1.ApprovalService.Decide:output_type -> lyon.v1.DecideResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: lyon.v1.DecideRequest.action:type_name -> lyon.v1.ModeAction
+	2, // 1: lyon.v1.ApprovalService.WatchPending:input_type -> lyon.v1.WatchPendingRequest
+	3, // 2: lyon.v1.ApprovalService.Decide:input_type -> lyon.v1.DecideRequest
+	1, // 3: lyon.v1.ApprovalService.WatchPending:output_type -> lyon.v1.WatchPendingResponse
+	4, // 4: lyon.v1.ApprovalService.Decide:output_type -> lyon.v1.DecideResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_lyon_v1_approval_proto_init() }
@@ -339,13 +430,14 @@ func file_lyon_v1_approval_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lyon_v1_approval_proto_rawDesc), len(file_lyon_v1_approval_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_lyon_v1_approval_proto_goTypes,
 		DependencyIndexes: file_lyon_v1_approval_proto_depIdxs,
+		EnumInfos:         file_lyon_v1_approval_proto_enumTypes,
 		MessageInfos:      file_lyon_v1_approval_proto_msgTypes,
 	}.Build()
 	File_lyon_v1_approval_proto = out.File

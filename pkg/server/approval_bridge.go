@@ -28,10 +28,13 @@ type parkKey struct {
 }
 
 // park is one approval waiting on a human. resp is the wire form pushed
-// to every WatchPending subscriber the moment the adapter asks.
+// to every WatchPending subscriber the moment the adapter asks. chMode
+// non-nil marks a plan-mode interception (mode_block): the answer is a
+// ModeAction, not approve/remember — ch stays nil on those parks.
 type park struct {
-	resp *lyonv1.WatchPendingResponse
-	ch   chan bool // buffered(1): Decide never blocks on a dead approvee
+	resp   *lyonv1.WatchPendingResponse
+	ch     chan bool                     // buffered(1): Decide never blocks on a dead approvee
+	chMode chan agent.ModeBlockDecision  // mode parks only; nil on approval parks
 }
 
 // ApprovalBridge parks NeedsApproval tool executions until a web client
@@ -135,10 +138,72 @@ func (b *ApprovalBridge) ApproveFunc() tools.ApproveFunc {
 	}
 }
 
-// decide answers one parked approval. remember also vouches for the tool
-// name on this seat (TUI "a"). ErrApprovalGone covers double decisions
+// ModeBlockFunc is the engine's plan-gate chooser — the twin of
+// ApproveFunc (same park/ctx-deny mechanics), answering with mode
+// decisions instead of booleans. Remembered grants are deliberately NOT
+// consulted: approvals.json vouches live at the approval stage (consent
+// for a known-dangerous tool), while this runs at the policy stage (is
+// the tool allowed at all in plan mode) — mixing the two would let an
+// old "always allow run_shell" silently defeat plan mode.
+func (b *ApprovalBridge) ModeBlockFunc() agent.ModeBlockFunc {
+	return func(ctx context.Context, e tools.ExecEvent) (agent.ModeBlockDecision, error) {
+		if ctx.Err() != nil {
+			return agent.ModeBlockDeny, nil
+		}
+		sess := agent.SessionFromContext(ctx)
+		if sess == nil || b.store == nil {
+			return agent.ModeBlockDeny, nil // no seat → fail closed as the block
+		}
+		sid := b.store.IDOf(sess)
+		if sid == "" {
+			return agent.ModeBlockDeny, nil // evicted under the caller mid-execution
+		}
+
+		key := parkKey{sid: sid, exec: e.ExecID}
+		p := &park{
+			resp: &lyonv1.WatchPendingResponse{
+				SessionId:     sid,
+				ExecId:        int64(e.ExecID),
+				ToolName:      e.Name,
+				InputJson:     string(e.Input),
+				RequestedAtMs: time.Now().UnixMilli(),
+				ModeBlock:     true,
+			},
+			chMode: make(chan agent.ModeBlockDecision, 1),
+		}
+		b.mu.Lock()
+		b.pending[key] = p
+		b.broadcastLocked(p.resp)
+		b.mu.Unlock()
+
+		defer func() {
+			// Same resolve contract as ApproveFunc: every exit path frees
+			// the seat and tells subscribers to drop the card.
+			b.mu.Lock()
+			if _, ok := b.pending[key]; ok {
+				delete(b.pending, key)
+				b.broadcastLocked(&lyonv1.WatchPendingResponse{
+					SessionId: sid, ExecId: int64(e.ExecID),
+				})
+			}
+			b.mu.Unlock()
+		}()
+
+		select {
+		case d := <-p.chMode:
+			return d, nil
+		case <-ctx.Done():
+			return agent.ModeBlockDeny, nil // interrupt / reap — deny, matching TUI
+		}
+	}
+}
+
+// decide answers one parked approval or mode interception. For approval
+// parks, remember also vouches for the tool name on this seat (TUI "a");
+// mode parks ignore remember (their answer is policy, not consent) and
+// carry the ModeAction instead. ErrApprovalGone covers double decisions
 // and unknown keys.
-func (b *ApprovalBridge) decide(sid string, exec uint64, approve, remember bool) error {
+func (b *ApprovalBridge) decide(sid string, exec uint64, approve, remember bool, action lyonv1.ModeAction) error {
 	key := parkKey{sid: sid, exec: exec}
 	b.mu.Lock()
 	p, ok := b.pending[key]
@@ -147,14 +212,40 @@ func (b *ApprovalBridge) decide(sid string, exec uint64, approve, remember bool)
 		return ErrApprovalGone
 	}
 	delete(b.pending, key)
-	if remember && approve {
+	if remember && approve && p.chMode == nil {
 		b.grants[sid+"\x00"+p.resp.ToolName] = true
 		b.saveGrantsLocked() // best-effort: failure only costs durability
 	}
 	b.broadcastLocked(&lyonv1.WatchPendingResponse{SessionId: sid, ExecId: int64(exec)})
 	b.mu.Unlock()
+	if p.chMode != nil {
+		p.chMode <- modeDecision(action, approve) // buffered(1), taken by ModeBlockFunc
+		return nil
+	}
 	p.ch <- approve // buffered(1), taken by the parked ApproveFunc
 	return nil
+}
+
+// modeDecision maps the wire answer onto the gate's vocabulary. Old
+// clients that never set action send UNSPECIFIED: approve means "let the
+// call run and leave plan" (MODE_DEFAULT), deny — and anything unknown —
+// fails closed.
+func modeDecision(action lyonv1.ModeAction, approve bool) agent.ModeBlockDecision {
+	switch action {
+	case lyonv1.ModeAction_MODE_ACTION_ALLOW_PATH:
+		return agent.ModeBlockAllowPath
+	case lyonv1.ModeAction_MODE_ACTION_MODE_DEFAULT:
+		return agent.ModeBlockDefault
+	case lyonv1.ModeAction_MODE_ACTION_MODE_BYPASS:
+		return agent.ModeBlockBypass
+	case lyonv1.ModeAction_MODE_ACTION_DENY:
+		return agent.ModeBlockDeny
+	default: // UNSPECIFIED — old-client compat
+		if approve {
+			return agent.ModeBlockDefault
+		}
+		return agent.ModeBlockDeny
+	}
 }
 
 // snapshot replies the current pending set — the WatchPending opener, so a

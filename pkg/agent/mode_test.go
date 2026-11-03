@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func TestPlanModeGate(t *testing.T) {
 
 	// Default: gate is transparent (policy/hooks are separate).
 	for _, name := range []string{"run_shell", "write_file", "mcp_srv_tool"} {
-		if err := s.preTool(ctx, name, in); err != nil {
+		if err := s.preTool(ctx, tools.ExecEvent{Name: name, Input: in}); err != nil {
 			t.Fatalf("default mode blocked %s: %v", name, err)
 		}
 	}
@@ -71,14 +72,14 @@ func TestPlanModeGate(t *testing.T) {
 		"never-registered", // unknown tool — fail closed
 	}
 	for _, name := range blocked {
-		err := s.preTool(ctx, name, in)
+		err := s.preTool(ctx, tools.ExecEvent{Name: name, Input: in})
 		if err == nil || !strings.Contains(err.Error(), "plan mode") {
 			t.Errorf("plan mode must block %s, got %v", name, err)
 		}
 	}
 	allowed := []string{"read_file", "view_image", "read_memory", "run_subagent", "run_subagents"}
 	for _, name := range allowed {
-		if err := s.preTool(ctx, name, in); err != nil {
+		if err := s.preTool(ctx, tools.ExecEvent{Name: name, Input: in}); err != nil {
 			t.Errorf("plan mode must pass %s: %v", name, err)
 		}
 	}
@@ -87,7 +88,7 @@ func TestPlanModeGate(t *testing.T) {
 	if _, err := s.SetMode(ModeDefault); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.preTool(ctx, "run_shell", in); err != nil {
+	if err := s.preTool(ctx, tools.ExecEvent{Name: "run_shell", Input: in}); err != nil {
 		t.Fatalf("default after plan: %v", err)
 	}
 }
@@ -162,7 +163,7 @@ func TestModeAuditTrail(t *testing.T) {
 	if _, err := s.SetMode(ModePlan); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.preTool(context.Background(), "run_shell", json.RawMessage(`{}`)); err == nil {
+	if err := s.preTool(context.Background(), tools.ExecEvent{Name: "run_shell", Input: json.RawMessage(`{}`)}); err == nil {
 		t.Fatal("plan mode let run_shell through")
 	}
 	if _, err := s.SetMode(ModeBypass); err != nil {
@@ -204,5 +205,118 @@ func TestModeAuditTrail(t *testing.T) {
 	}
 	if blocks != 1 {
 		t.Errorf("mode:plan security_block records = %d, want 1", blocks)
+	}
+}
+
+// TestModeBlockDecisions: with a chooser wired, each ModeBlockDecision
+// does what the card promises — Deny reproduces the hard block (and its
+// audit), AllowPath vouches the file for the session (pathless inputs
+// fail closed), Default/Bypass switch the mode so the call proceeds, and
+// a chooser error fails closed. Read-only tools never reach the chooser.
+func TestModeBlockDecisions(t *testing.T) {
+	s := modeTestSession(t)
+	ctx := context.Background()
+	writeIn := json.RawMessage(`{"path":"docs/plan.md","content":"x"}`)
+	shellIn := json.RawMessage(`{"command":"echo hi"}`)
+
+	calls := 0
+	dec := ModeBlockDeny
+	s.eng.cfg.ModeBlock = func(context.Context, tools.ExecEvent) (ModeBlockDecision, error) {
+		calls++
+		return dec, nil
+	}
+	if _, err := s.SetMode(ModePlan); err != nil {
+		t.Fatal(err)
+	}
+	ev := func(in json.RawMessage) tools.ExecEvent {
+		return tools.ExecEvent{Name: "write_file", Input: in}
+	}
+
+	// Deny: the hard block, verbatim, and the chooser was asked once.
+	if err := s.preTool(ctx, ev(writeIn)); err == nil || !strings.Contains(err.Error(), "plan mode") {
+		t.Fatalf("Deny must reproduce the block, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("chooser calls = %d, want 1", calls)
+	}
+
+	// AllowPath: vouches the normalized key — the same path passes later
+	// without asking again; a different file still asks.
+	dec = ModeBlockAllowPath
+	if err := s.preTool(ctx, ev(writeIn)); err != nil {
+		t.Fatalf("AllowPath must let the vouched file through: %v", err)
+	}
+	if err := s.preTool(ctx, ev(writeIn)); err != nil {
+		t.Fatalf("vouched file must pass without re-asking: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("chooser calls = %d, want 2 (second call must hit the vouch)", calls)
+	}
+	// Pathless input has nothing to vouch — AllowPath fails closed.
+	if err := s.preTool(ctx, tools.ExecEvent{Name: "run_shell", Input: shellIn}); err == nil {
+		t.Fatal("AllowPath on a pathless input must fail closed")
+	}
+
+	// Default: the mode flips and the call runs; later calls skip the chooser.
+	dec = ModeBlockDefault
+	other := json.RawMessage(`{"path":"docs/other.md","content":"x"}`)
+	if err := s.preTool(ctx, ev(other)); err != nil {
+		t.Fatalf("Default must let the call through: %v", err)
+	}
+	if s.Mode() != ModeDefault {
+		t.Fatalf("mode = %s, want default after ModeBlockDefault", s.Mode())
+	}
+	if err := s.preTool(ctx, ev(writeIn)); err != nil {
+		t.Fatalf("default mode must pass mutations: %v", err)
+	}
+	// 4 = Deny + AllowPath + pathless fail-closed + Default; the vouched
+	// re-ask and both post-switch calls never reached the chooser.
+	if calls != 4 {
+		t.Fatalf("chooser calls = %d, want 4 (default mode never parks)", calls)
+	}
+
+	// Bypass: same shape, lands in bypass.
+	if _, err := s.SetMode(ModePlan); err != nil {
+		t.Fatal(err)
+	}
+	dec = ModeBlockBypass
+	if err := s.preTool(ctx, ev(other)); err != nil {
+		t.Fatalf("Bypass must let the call through: %v", err)
+	}
+	if s.Mode() != ModeBypass {
+		t.Fatalf("mode = %s, want bypass after ModeBlockBypass", s.Mode())
+	}
+
+	// Chooser machinery failure fails closed as the block — on a file that
+	// carries no vouch yet (the earlier AllowPath keys would short-circuit).
+	if _, err := s.SetMode(ModePlan); err != nil {
+		t.Fatal(err)
+	}
+	s.eng.cfg.ModeBlock = func(context.Context, tools.ExecEvent) (ModeBlockDecision, error) {
+		return ModeBlockDeny, errors.New("wire exploded")
+	}
+	fresh := json.RawMessage(`{"path":"docs/fresh.md","content":"x"}`)
+	if err := s.preTool(ctx, ev(fresh)); err == nil || !strings.Contains(err.Error(), "plan mode") {
+		t.Fatalf("chooser error must fail closed, got %v", err)
+	}
+}
+
+// TestModePathKey: relative and absolute spellings of the same file
+// vouch the same key; cross-root paths keep their absolute form.
+func TestModePathKey(t *testing.T) {
+	ws := t.TempDir()
+	rel := modePathKey(ws, json.RawMessage(`{"path":"docs/a.md"}`))
+	abs := modePathKey(ws, json.RawMessage(`{"path":"`+filepath.ToSlash(filepath.Join(ws, "docs", "a.md"))+`"}`))
+	if rel == "" || rel != abs {
+		t.Fatalf("rel=%q abs=%q — same file must normalize to one key", rel, abs)
+	}
+	if rel != "docs/a.md" {
+		t.Fatalf("key = %q, want docs/a.md", rel)
+	}
+	if modePathKey(ws, json.RawMessage(`{}`)) != "" {
+		t.Fatal("pathless input must have no key")
+	}
+	if modePathKey(ws, json.RawMessage(`{"path":"C:/other/x.md"}`)) == "" {
+		t.Fatal("cross-root path must keep an absolute key")
 	}
 }

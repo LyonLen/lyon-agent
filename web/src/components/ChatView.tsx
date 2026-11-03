@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { ClipboardEvent as ReactClipboardEvent } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
-import type { WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
+import { ModeAction, type WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
 import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
@@ -15,7 +15,7 @@ import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
 import OutputDrawer from "./OutputDrawer";
 import { KEY_TABLE } from "../keys";
-import { fmtCount, fmtDuration } from "../fmt";
+import { fmtDuration } from "../fmt";
 
 // The markdown parser rides its own chunk — Suspense fallback shows the
 // raw text until it lands (Phase F split).
@@ -111,6 +111,9 @@ type Block =
       output: string;
       status: "pending" | "running" | "done" | "failed" | "server";
       durationMs: number;
+      // Client receipt of tool_exec_start — the running badge's clock
+      // (after a 5s grace, "running" alone reads as stuck).
+      startedAt?: number;
       error: string;
       server: boolean;
       sub: boolean;
@@ -275,6 +278,8 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
         execId: ev.execId,
         input: ev.inputJson || base.input,
         status: ev.sub && base.status === "pending" ? "pending" : "running",
+        // First start wins — a replayed duplicate must not reset the clock.
+        startedAt: base.startedAt ?? Date.now(),
         sub: base.sub || ev.sub,
       });
       let next: Block[];
@@ -518,6 +523,21 @@ function estimateTokens(s: string): number {
   return Math.max(1, Math.round((s.length - cjk) / 4 + cjk));
 }
 
+// fmtTokens is the thinking row's compact count — "↓ 5.9k tokens" reads
+// at a glance where "5,900" makes the eye stop (k/M units, one decimal
+// below 10k so 5900 → 5.9k).
+function fmtTokens(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "0";
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1_000_000) {
+    const k = n / 1000;
+    const s = k < 10 ? k.toFixed(1) : String(Math.round(k));
+    return s.endsWith(".0") ? s.slice(0, -2) + "k" : s + "k";
+  }
+  const m = (n / 1_000_000).toFixed(1);
+  return (m.endsWith(".0") ? m.slice(0, -2) : m) + "M";
+}
+
 function firstLine(s: string, n = 110): string {
   let i = 0;
   while (i < s.length) {
@@ -591,6 +611,19 @@ function toolSummary(name: string, raw: string): string {
   return clipLine(oneLine(JSON.stringify(inp)));
 }
 
+// modeHasPath: the chooser's "仅该文件" option only exists when the
+// parked input names a file — run_shell's command has nothing to vouch,
+// and answering ALLOW_PATH there would fail closed server-side anyway.
+function modeHasPath(p: WatchPendingResponse | undefined): boolean {
+  if (!p?.modeBlock) return false;
+  try {
+    const j = JSON.parse(p.inputJson || "{}");
+    return typeof j.path === "string" && j.path !== "";
+  } catch {
+    return false;
+  }
+}
+
 export default function ChatView(props: {
   sessionId: string;
   onChanged: () => void;
@@ -600,6 +633,7 @@ export default function ChatView(props: {
     execId: bigint,
     approve: boolean,
     remember: boolean,
+    action?: ModeAction,
   ) => void;
   onTodos: (t: TodoItem[]) => void;
   /** Open the plan pane, or focus + shake it when it is already open (the
@@ -702,13 +736,26 @@ export default function ChatView(props: {
 
   // Approval keys mirror TUI's card: y/n/a answer, arrows/tab walk the
   // queue. Never while the user is typing into an input — a prompt that
-  // contains "y" must not approve anything.
+  // contains "y" must not approve anything. A mode_block card swaps the
+  // vocabulary (f/d/b/n — the chooser below): a policy answer, not consent.
   useEffect(() => {
     if (pendings.length === 0) return;
     const answer = (approve: boolean, remember: boolean) => {
       const p = pendings[sel];
       if (p) props.onDecide(p.sessionId, p.execId, approve, remember);
     };
+    const answerMode = (action: ModeAction) => {
+      const p = pendings[sel];
+      if (p)
+        props.onDecide(
+          p.sessionId,
+          p.execId,
+          action === ModeAction.MODE_DEFAULT, // approve flag: old-client compat only
+          false,
+          action,
+        );
+    };
+    const isMode = !!pendings[sel]?.modeBlock;
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement;
       // isContentEditable: CodeMirror edits are typing too — a "y" in the
@@ -730,17 +777,39 @@ export default function ChatView(props: {
           setApprSel((s) => (s - 1 + pendings.length) % pendings.length);
           break;
         case "y":
-          answer(true, false);
+          // Old-client compat: y on a mode card = "let it run" = default.
+          if (isMode) answerMode(ModeAction.MODE_DEFAULT);
+          else answer(true, false);
           break;
         case "n":
-          answer(false, false);
+          if (isMode) answerMode(ModeAction.DENY);
+          else answer(false, false);
           break;
         case "a":
-          answer(true, true);
+          if (!isMode) answer(true, true); // no "always" on a policy card
+          break;
+        case "f":
+          if (isMode && modeHasPath(pendings[sel])) {
+            e.preventDefault();
+            answerMode(ModeAction.ALLOW_PATH);
+          }
+          break;
+        case "d":
+          if (isMode) {
+            e.preventDefault();
+            answerMode(ModeAction.MODE_DEFAULT);
+          }
+          break;
+        case "b":
+          if (isMode) {
+            e.preventDefault();
+            answerMode(ModeAction.MODE_BYPASS);
+          }
           break;
         case "Enter":
           e.preventDefault();
-          answer(true, false);
+          if (isMode) answerMode(ModeAction.MODE_DEFAULT);
+          else answer(true, false);
           break;
       }
     };
@@ -1436,6 +1505,11 @@ export default function ChatView(props: {
             // the answer that follows and folds when the run ends;
             // everything older stays folded.
             live={busy && i === lastThinking(blocks)}
+            // The duration clock only ticks on the feed's TRAILING block:
+            // the moment a tool row lands after this thinking, the call is
+            // over — a timer that keeps counting through run_shell made a
+            // 656ms think look like a 4.77s one (#36).
+            ticking={busy && i === blocks.length - 1}
             hinted={i === lastThinking(blocks)}
             onOpenFile={props.onOpenFile}
           />
@@ -1462,46 +1536,84 @@ export default function ChatView(props: {
       )}
       {pendings.length > 0 && (
         <div className="approval-stack">
-          {pendings.map((p, i) => (
-            <div
-              key={`${p.sessionId}:${p.execId}`}
-              className={"approval-card" + (i === sel ? " active" : "")}
-            >
-              <div className="appr-head">
-                <span className="appr-title">
-                  <span className="appr-q">approve?</span>
-                  <span className="tool-name">{p.toolName}</span>
-                </span>
-                {i === sel && (
-                  <span className="appr-hint">
-                    y approve · n deny · a always · ↑↓ switch
+          {pendings.map((p, i) => {
+            const isMode = p.modeBlock;
+            const hasPath = modeHasPath(p);
+            // One card, two vocabularies: an approval asks consent
+            // (y/n/a), a plan interception answers policy (f/d/b/n).
+            const decide = (approve: boolean, remember: boolean, action?: ModeAction) =>
+              props.onDecide(p.sessionId, p.execId, approve, remember, action);
+            return (
+              <div
+                key={`${p.sessionId}:${p.execId}`}
+                className={
+                  "approval-card" +
+                  (i === sel ? " active" : "") +
+                  (isMode ? " mode" : "")
+                }
+              >
+                <div className="appr-head">
+                  <span className="appr-title">
+                    <span className="appr-q">{isMode ? "plan 拦截" : "approve?"}</span>
+                    <span className="tool-name">{p.toolName}</span>
                   </span>
+                  {i === sel && (
+                    <span className="appr-hint">
+                      {isMode
+                        ? hasPath
+                          ? "f 仅该文件 · d 切 default · b 切 bypass · n 拒绝"
+                          : "d 切 default · b 切 bypass · n 拒绝"
+                        : "y approve · n deny · a always · ↑↓ switch"}
+                    </span>
+                  )}
+                </div>
+                {p.inputJson && (
+                  <pre className="appr-input">{prettyInput(p.inputJson)}</pre>
                 )}
+                <div className="appr-actions">
+                  {isMode ? (
+                    <>
+                      {hasPath && (
+                        <button
+                          onClick={() => decide(false, false, ModeAction.ALLOW_PATH)}
+                        >
+                          仅该文件 f
+                        </button>
+                      )}
+                      <button
+                        className="ghost"
+                        onClick={() => decide(true, false, ModeAction.MODE_DEFAULT)}
+                      >
+                        切 default d
+                      </button>
+                      <button
+                        className="ghost"
+                        onClick={() => decide(true, false, ModeAction.MODE_BYPASS)}
+                      >
+                        切 bypass b
+                      </button>
+                      <button
+                        className="ghost"
+                        onClick={() => decide(false, false, ModeAction.DENY)}
+                      >
+                        拒绝 n
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => decide(true, false)}>approve</button>
+                      <button className="ghost" onClick={() => decide(false, false)}>
+                        deny
+                      </button>
+                      <button className="ghost" onClick={() => decide(true, true)}>
+                        always
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              {p.inputJson && (
-                <pre className="appr-input">{prettyInput(p.inputJson)}</pre>
-              )}
-              <div className="appr-actions">
-                <button
-                  onClick={() => props.onDecide(p.sessionId, p.execId, true, false)}
-                >
-                  approve
-                </button>
-                <button
-                  className="ghost"
-                  onClick={() => props.onDecide(p.sessionId, p.execId, false, false)}
-                >
-                  deny
-                </button>
-                <button
-                  className="ghost"
-                  onClick={() => props.onDecide(p.sessionId, p.execId, true, true)}
-                >
-                  always
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {slashOpen && slashMatches.length > 0 && (
@@ -1613,7 +1725,13 @@ export default function ChatView(props: {
         {cmdNote ? (
           <span className="sl-note">{cmdNote}</span>
         ) : pendings.length > 0 ? (
-          <span className="sl-appr">approval pending — y approve · n deny · a always</span>
+          <span className="sl-appr">
+            {pendings[sel]?.modeBlock
+              ? modeHasPath(pendings[sel])
+                ? "plan 拦截 — f 仅该文件 · d default · b bypass · n 拒绝"
+                : "plan 拦截 — d default · b bypass · n 拒绝"
+              : "approval pending — y approve · n deny · a always"}
+          </span>
         ) : busy ? (
           <span className="sl-hint">
             <span className="spin" aria-hidden="true" />
@@ -1787,6 +1905,7 @@ function BlockView({
   block,
   thinkOpen,
   live,
+  ticking,
   ord,
   onOpenFile,
   hinted,
@@ -1794,6 +1913,9 @@ function BlockView({
   block: Block;
   thinkOpen: boolean;
   live?: boolean;
+  /** The duration clock runs only on the feed's trailing block — a tool
+   *  row after this thinking means the call is over (#36). */
+  ticking?: boolean;
   /** Fan-out task number (1-based) for subtask cards and sub rows. */
   ord?: number;
   /** files_changed rows click into the preview pane (App.openPreviewFile). */
@@ -1834,6 +1956,7 @@ function BlockView({
           block={block}
           thinkOpen={thinkOpen || auto}
           live={isLive}
+          ticking={!!ticking}
           hinted={!!hinted}
         />
       );
@@ -1892,6 +2015,9 @@ function BlockView({
                 )}
                 {block.status === "pending" && "…"}
                 {block.status === "running" && "running"}
+                {block.status === "running" && block.startedAt !== undefined && (
+                  <RunningClock since={block.startedAt} />
+                )}
                 {/* Replayed history has no timing — show the marker bare
                     instead of a misleading "0ms". */}
                 {block.status === "done" &&
@@ -1991,6 +2117,22 @@ function BlockView({
   }
 }
 
+// RunningClock: a running tool stays just a spinner for the first 5s —
+// then the elapsed time appears and ticks, because "running" with no
+// number for minutes is what makes people glance at the clock (#37).
+// Client-receipt based (same clock as the tick), so it never mixes with
+// the server's event timestamps.
+function RunningClock({ since }: { since: number }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 250);
+    return () => clearInterval(id);
+  }, []);
+  const elapsed = Date.now() - since;
+  if (elapsed < 5000) return null;
+  return <span className="tool-elapsed">{fmtDuration(elapsed)}</span>;
+}
+
 // ThinkingBlock splits out so it can track its own open state: ctrl+o
 // flips thinkOpen (the key remounts and re-seeds), while a manual summary
 // click rides the native toggle event. The hint reads whichever way the
@@ -2002,22 +2144,27 @@ function ThinkingBlock({
   block,
   thinkOpen,
   live,
+  ticking,
   hinted,
 }: {
   block: Extract<Block, { kind: "thinking" }>;
   thinkOpen: boolean;
   live: boolean;
+  /** Duration-clock switch: only the trailing block of a live run ticks —
+   *  a tool row landing after this thinking means the call is over, and
+   *  the number freezes at the real span (#36: run_shell 阶段还在计时). */
+  ticking: boolean;
   hinted: boolean;
 }) {
   const [open, setOpen] = useState(thinkOpen);
-  // Live rows tick between deltas: server span-so-far plus the client
+  // Ticking rows count between deltas: server span-so-far plus the client
   // tail since the last chunk — durations only, the clocks never mix.
   const [tick, setTick] = useState(() => Date.now());
   useEffect(() => {
-    if (!live) return;
+    if (!ticking) return;
     const id = setInterval(() => setTick(Date.now()), 250);
     return () => clearInterval(id);
-  }, [live]);
+  }, [ticking]);
   const hint = !hinted
     ? ""
     : live
@@ -2032,7 +2179,7 @@ function ThinkingBlock({
   const durMs =
     block.t0 === undefined
       ? 0
-      : live
+      : ticking
         ? (block.t1 ?? block.t0) - block.t0 + (tick - (block.lc ?? tick))
         : (block.t1 ?? block.t0) - block.t0;
   // Tokens: the call's actual output once turn_end stamped it, else a
@@ -2056,8 +2203,8 @@ function ThinkingBlock({
         )}
         {tokens !== undefined && (
           <span className="think-stats">
-            {block.tokens === undefined ? "~" : ""}
-            {fmtCount(tokens)} tok
+            ↓ {block.tokens === undefined ? "~" : ""}
+            {fmtTokens(tokens)} tokens
           </span>
         )}
         {peek && <span className="think-peek">{peek}</span>}

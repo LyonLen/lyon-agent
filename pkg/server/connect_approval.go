@@ -76,7 +76,7 @@ func (s *approvalService) Decide(_ context.Context, req *connect.Request[lyonv1.
 		return nil, errApprovalStub
 	}
 	msg := req.Msg
-	if err := b.decide(msg.SessionId, uint64(msg.ExecId), msg.Approve, msg.Remember); err != nil {
+	if err := b.decide(msg.SessionId, uint64(msg.ExecId), msg.Approve, msg.Remember, msg.Action); err != nil {
 		if errors.Is(err, ErrApprovalGone) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}

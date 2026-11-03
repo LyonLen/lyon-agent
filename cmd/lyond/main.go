@@ -113,6 +113,10 @@ func main() {
 	} else {
 		cfg.Approve = tools.PathAwareApprove(cfg.Workspace, appr.ApproveFunc())
 	}
+	// Plan-mode interceptions always park on the same bridge, independent
+	// of -approve: mode is policy, approval is consent — a strict-approve
+	// daemon still owes the user a chooser card when plan blocks a write.
+	cfg.ModeBlock = appr.ModeBlockFunc()
 
 	eng := agent.NewEngine(cfg, nil)
 	store := server.NewStore(*maxSess, *ttl)

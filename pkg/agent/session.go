@@ -188,6 +188,12 @@ type Session struct {
 	// drive goroutine's preTool/approve gates read it.
 	mode atomic.Pointer[Mode]
 
+	// modePaths is the plan gate's file vouch (mode.go — the interception
+	// card's "仅该文件"): normalized keys the gate lets through for this
+	// session. Guarded by mu; in-memory on purpose — a restart re-asks
+	// instead of silently keeping a security-relevant allow.
+	modePaths map[string]bool
+
 	// agentID is the specialist identity the session runs as (space.go):
 	// "self" until routing hands control to an elected candidate. Atomic
 	// — the UI goroutine sets it on a routing swap, the space tool reads
@@ -554,11 +560,14 @@ func (s *Session) Hooks() *hooks.Manager { return s.eng.hooks }
 // preTool is the security seam handed to every adapted tool (main and
 // subagent): plan mode's read-only gate first, then local policy and
 // blocking hooks — all before approval.
-func (s *Session) preTool(ctx context.Context, name string, input json.RawMessage) error {
-	if err := s.modeGate(name, input); err != nil {
+// preTool is the adapter's PreTool seam — it carries the whole ExecEvent
+// (not just name/input) so an interactive plan gate can key its pending
+// on the same exec id the observer already emitted.
+func (s *Session) preTool(ctx context.Context, e tools.ExecEvent) error {
+	if err := s.modeGate(ctx, e); err != nil {
 		return err
 	}
-	return s.eng.hooks.CheckTool(ctx, name, input)
+	return s.eng.hooks.CheckTool(ctx, e.Name, e.Input)
 }
 
 // wrapApprove brackets the configured approver with audit events so every

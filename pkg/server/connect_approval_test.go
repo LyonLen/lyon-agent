@@ -414,6 +414,177 @@ func TestApprovalFailClosedOnInterrupt(t *testing.T) {
 	t.Fatal("no prompt_end after interrupt")
 }
 
+// newModeBlockFixture builds a lyond whose plan gate parks on the bridge
+// (cfg.ModeBlock) while approval stays unwired — the mode card in
+// isolation, so a vouched write does not then park a second approval card.
+func newModeBlockFixture(t *testing.T, script []mockapi.Turn) (lyonv1connect.SessionServiceClient, lyonv1connect.ApprovalServiceClient) {
+	t.Helper()
+	scratchHome(t)
+	mock := mockapi.New(mockapi.Config{Script: script, Latency: time.Millisecond})
+	t.Cleanup(mock.Close)
+	t.Setenv("ANTHROPIC_BASE_URL", mock.URL())
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "mode-block-test-token")
+
+	appr := NewApprovalBridge()
+	cfg := agent.DefaultConfig()
+	cfg.Workspace = t.TempDir() // write_file lands here; the vouch keys off it
+	cfg.ModeBlock = appr.ModeBlockFunc()
+	eng := agent.NewEngine(cfg, nil)
+	s := New(eng, NewStore(0, 0))
+	s.SetApproval(appr)
+	s.SetObserver(tools.NewMetrics())
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+	t.Cleanup(s.store.CloseAll)
+	return lyonv1connect.NewSessionServiceClient(http.DefaultClient, ts.URL),
+		lyonv1connect.NewApprovalServiceClient(http.DefaultClient, ts.URL)
+}
+
+// TestConnectModeBlockAllowPath: a plan-mode write_file parks with
+// mode_block set (not a NeedsApproval ask), Decide(ALLOW_PATH) vouches
+// that file for the session — the write executes without ever reaching
+// an approval card — and remember is ignored (policy answer, not consent:
+// no approvals.json entry).
+func TestConnectModeBlockAllowPath(t *testing.T) {
+	client, apprClient := newModeBlockFixture(t, []mockapi.Turn{
+		{Tool: &mockapi.ToolCall{Name: "write_file", Input: `{"path":"notes.md","content":"vouched"}`}},
+		{Text: []string{"wrote it"}},
+	})
+	ctx := context.Background()
+	cres, err := client.CreateSession(ctx, connect.NewRequest(&lyonv1.CreateSessionRequest{
+		Mode: "plan",
+	}))
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	sid := cres.Msg.Session.Id
+	arrivals, resolves := startApprovalWatch(t, apprClient)
+
+	if _, err := client.SubmitPrompt(ctx, connect.NewRequest(&lyonv1.SubmitPromptRequest{
+		SessionId: sid, Prompt: "take a note",
+	})); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+
+	pend := waitPending(t, arrivals, "parked write_file")
+	if !pend.ModeBlock {
+		t.Fatalf("pending = %+v, want mode_block=true", pend)
+	}
+	if pend.ToolName != "write_file" || !strings.Contains(pend.InputJson, "notes.md") {
+		t.Fatalf("pending tool/input = %q %q", pend.ToolName, pend.InputJson)
+	}
+
+	if _, err := apprClient.Decide(ctx, connect.NewRequest(&lyonv1.DecideRequest{
+		SessionId: pend.SessionId, ExecId: pend.ExecId, Approve: true, Remember: true,
+		Action: lyonv1.ModeAction_MODE_ACTION_ALLOW_PATH,
+	})); err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	res := waitPending(t, resolves, "resolve after allow-path")
+	if res.ExecId != pend.ExecId {
+		t.Fatalf("resolve exec = %d, want %d", res.ExecId, pend.ExecId)
+	}
+
+	evs := collectPromptEvents(t, client, sid)
+	var sawExec, sawText bool
+	for _, ev := range evs {
+		switch ev.TypeName {
+		case "tool_exec_end":
+			if ev.ExecId != pend.ExecId {
+				continue
+			}
+			if ev.IsError {
+				t.Fatalf("vouched write failed: %s", ev.Error)
+			}
+			sawExec = true
+		case "text_delta":
+			sawText = sawText || strings.Contains(ev.Text, "wrote it")
+		}
+	}
+	if !sawExec {
+		t.Fatal("no successful tool_exec_end after allow-path")
+	}
+	if !sawText {
+		t.Fatal("second turn never landed")
+	}
+
+	// remember must not write the consent ledger: a vouch-by-file is not
+	// an approvals.json tool grant.
+	if raw, err := os.ReadFile(filepath.Join(os.Getenv("LYON_HOME"), "approvals.json")); err == nil {
+		t.Fatalf("mode decide wrote approvals.json: %s", raw)
+	}
+}
+
+// TestConnectModeBlockDeny: Decide(DENY) reproduces the plan hard block
+// as the tool result — the model sees "blocked by plan mode" and the run
+// continues to its next turn.
+func TestConnectModeBlockDeny(t *testing.T) {
+	client, apprClient := newModeBlockFixture(t, []mockapi.Turn{
+		{Tool: &mockapi.ToolCall{Name: "write_file", Input: `{"path":"nope.md","content":"x"}`}},
+		{Text: []string{"understood"}},
+	})
+	ctx := context.Background()
+	cres, err := client.CreateSession(ctx, connect.NewRequest(&lyonv1.CreateSessionRequest{
+		Mode: "plan",
+	}))
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	sid := cres.Msg.Session.Id
+	arrivals, _ := startApprovalWatch(t, apprClient)
+
+	if _, err := client.SubmitPrompt(ctx, connect.NewRequest(&lyonv1.SubmitPromptRequest{
+		SessionId: sid, Prompt: "write it",
+	})); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	pend := waitPending(t, arrivals, "parked write_file")
+	if !pend.ModeBlock {
+		t.Fatalf("pending = %+v, want mode_block=true", pend)
+	}
+	if _, err := apprClient.Decide(ctx, connect.NewRequest(&lyonv1.DecideRequest{
+		SessionId: pend.SessionId, ExecId: pend.ExecId,
+		Action: lyonv1.ModeAction_MODE_ACTION_DENY,
+	})); err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+
+	var blocked bool
+	for _, ev := range collectPromptEvents(t, client, sid) {
+		if ev.TypeName == "tool_exec_end" && ev.ExecId == pend.ExecId && ev.IsError &&
+			strings.Contains(ev.Error, "plan mode") {
+			blocked = true
+		}
+	}
+	if !blocked {
+		t.Fatal("deny did not surface as the plan-mode block")
+	}
+}
+
+// TestModeDecisionMapping pins the Decide.action wire contract,
+// including old-client compat (UNSPECIFIED + approve → default, deny →
+// deny) — approval parks ignore action entirely (see decide).
+func TestModeDecisionMapping(t *testing.T) {
+	cases := []struct {
+		name    string
+		action  lyonv1.ModeAction
+		approve bool
+		want    agent.ModeBlockDecision
+	}{
+		{"allow_path", lyonv1.ModeAction_MODE_ACTION_ALLOW_PATH, false, agent.ModeBlockAllowPath},
+		{"default", lyonv1.ModeAction_MODE_ACTION_MODE_DEFAULT, false, agent.ModeBlockDefault},
+		{"bypass", lyonv1.ModeAction_MODE_ACTION_MODE_BYPASS, false, agent.ModeBlockBypass},
+		{"deny", lyonv1.ModeAction_MODE_ACTION_DENY, true, agent.ModeBlockDeny},
+		{"compat approve", lyonv1.ModeAction_MODE_ACTION_UNSPECIFIED, true, agent.ModeBlockDefault},
+		{"compat deny", lyonv1.ModeAction_MODE_ACTION_UNSPECIFIED, false, agent.ModeBlockDeny},
+	}
+	for _, c := range cases {
+		if got := modeDecision(c.action, c.approve); got != c.want {
+			t.Errorf("%s: modeDecision = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
 // TestApprovalConcurrentParks: unlike TUI's single overlay slot (apprMu),
 // two seats asking at once both surface — a human answering one card must
 // not stall the other session (concurrency is a product requirement).
