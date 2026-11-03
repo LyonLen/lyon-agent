@@ -30,11 +30,11 @@ const STORAGE_KEY = "lyon_layout_v1";
 const storageKey = (sessionId: string) =>
   sessionId ? `${STORAGE_KEY}:${sessionId}` : STORAGE_KEY;
 
-// Default layout ≈ today's three columns as a tree:
-// sessions 18% | chat (72% of the rest) | right column: files over plan/steps.
+// Default layout (#46): three columns —
+// sessions ~11% | chat ~70% | files ~18%. plan/steps are NOT in the
+// default tree; openPane splits them in on demand (hasPane/openPane),
+// so absent leaves are safe.
 function defaultLayout(): TileNode {
-  const steps = makeLeaf("steps");
-  const plan = makeLeaf("plan");
   const files = makeLeaf("files");
   const chat = makeLeaf("chat");
   const sessions = makeLeaf("sessions");
@@ -42,29 +42,15 @@ function defaultLayout(): TileNode {
     type: "split",
     nodeId: `t0_default_v`,
     dir: "h",
-    ratio: 0.18,
+    ratio: 0.11,
     first: sessions,
     second: {
       type: "split",
       nodeId: `t0_default_mid`,
       dir: "h",
-      ratio: 0.72,
+      ratio: 0.8,
       first: chat,
-      second: {
-        type: "split",
-        nodeId: `t0_default_right`,
-        dir: "v",
-        ratio: 0.45,
-        first: files,
-        second: {
-          type: "split",
-          nodeId: `t0_default_br`,
-          dir: "v",
-          ratio: 0.45,
-          first: plan,
-          second: steps,
-        },
-      },
+      second: files,
     },
   };
 }

@@ -129,30 +129,35 @@ function isHtmlPath(p: string): boolean {
 // HtmlRender — #38b: .html/.htm opens RENDERED by default — a sandboxed
 // iframe (allow-scripts WITHOUT allow-same-origin: page JS runs in an
 // opaque origin and cannot touch the app or its storage). One click shows
-// the source in the usual CodeEditor, so edit/save stay available.
+// the source in the usual CodeEditor, so edit/save stay available. The
+// bar is kept in BOTH modes (round-trip bug: source mode used to return
+// the bare CodeEditor, dropping the toggle with no way back).
 function HtmlRender({ path, content }: { path: string; content: string }) {
   const [source, setSource] = useState(false);
-  if (source) {
-    return (
-      <Suspense fallback={<pre className="pv-pre">{content}</pre>}>
-        <CodeEditor key={path} path={path} content={content} />
-      </Suspense>
-    );
-  }
   return (
     <div className="pv-html">
       <div className="pv-html-bar">
-        <span className="pv-html-path">{path} · rendered</span>
-        <button className="ghost" onClick={() => setSource(true)}>
-          源码
+        <span className="pv-html-path">
+          {path} · {source ? "source" : "rendered"}
+        </span>
+        <button className="ghost" onClick={() => setSource((s) => !s)}>
+          {source ? "渲染" : "源码"}
         </button>
       </div>
-      <iframe
-        className="pv-html-frame"
-        sandbox="allow-scripts"
-        srcDoc={content}
-        title={path}
-      />
+      {source ? (
+        // .pv-html is a flex column and .ce carries flex:1/min-height:0,
+        // so the editor fills the pane under the bar.
+        <Suspense fallback={<pre className="pv-pre">{content}</pre>}>
+          <CodeEditor key={path} path={path} content={content} />
+        </Suspense>
+      ) : (
+        <iframe
+          className="pv-html-frame"
+          sandbox="allow-scripts"
+          srcDoc={content}
+          title={path}
+        />
+      )}
     </div>
   );
 }

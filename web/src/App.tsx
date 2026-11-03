@@ -18,7 +18,7 @@ import SettingsPane from "./components/SettingsPane";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
 import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
-import { collectLeaves, findParentSplit } from "./tiling/types";
+import { collectLeaves, findParentSplit, widthShare } from "./tiling/types";
 import { useFileTabs } from "./useFileTabs";
 import { fmtCount } from "./fmt";
 
@@ -443,22 +443,34 @@ export default function App() {
 
   // openPreviewFile routes a file click to a preview pane (the sibling product
   // the sibling page order): the most recently active preview leaf → the
-  // first one → split a new pane beside files/chat. splitLeafAt hands
-  // back the fresh nodeId so the tab record can be seeded before paint.
+  // first one → split a new pane. splitLeafAt hands back the fresh nodeId
+  // so the tab record can be seeded before paint.
+  // #47/#48: a pane split off the old files anchor rendered as an unreadable
+  // sliver — a narrow existing pane is NOT reused when splitting off CHAT
+  // would be wider; fresh panes land to chat's right at half of chat.
   // diff=true opens the 变更模式 (unified diff) instead (#42) — reached
   // ONLY from the 产出文件 card's change rows; every other caller leaves
   // it false, which also flips a diff tab back to plain preview.
   const openPreviewFile = (path: string, kind?: FileKind, diff = false) => {
     const leaves = collectLeaves(ws.root).filter((l) => l.pane === "preview");
-    let target: string | null = leaves
+    const recent: string | null = leaves
       .filter((l) => fileTabs.tabs[l.nodeId])
       .sort((a, b) => (fileTabs.tabs[b.nodeId].lastActive) - (fileTabs.tabs[a.nodeId].lastActive))[0]?.nodeId
       ?? leaves[0]?.nodeId
       ?? null;
-    if (!target) {
-      const anchor = ws.leafOf("files") ?? ws.leafOf("chat");
-      if (!anchor) return;
-      target = ws.splitLeafAt(anchor, "h", "preview");
+    // Sliver heuristic (#48): a pane under ~320px can't show a document —
+    // replace it with a fresh chat-split when that would actually be wider
+    // (splitLeaf's default ratio is 0.5 of the anchor's share).
+    const shareOf = (id: string | null) => (id ? widthShare(ws.root, id) : 0);
+    const minShare = 320 / Math.max(window.innerWidth, 1);
+    const chat = ws.leafOf("chat");
+    const freshShare = 0.5 * shareOf(chat);
+    let target: string | null = recent;
+    if (!target || (shareOf(recent) < minShare && freshShare > shareOf(recent))) {
+      // #47: anchor CHAT first — the preview is produced on chat's right;
+      // files only as the no-chat fallback (which is what made slivers).
+      const anchor = chat ?? ws.leafOf("files");
+      if (anchor) target = ws.splitLeafAt(anchor, "h", "preview");
     }
     if (!target) return;
     fileTabs.open(target, { path, kind, diff });

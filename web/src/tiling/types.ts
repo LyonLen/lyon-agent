@@ -148,6 +148,22 @@ export function countLeaves(node: TileNode): number {
   return countLeaves(node.first) + countLeaves(node.second);
 }
 
+/**
+ * Fraction of the workspace WIDTH the leaf occupies: dir-h ratios multiply
+ * down the path (first gets `ratio`, second gets `1-ratio`), dir-v splits
+ * keep the width. Returns 0 when the leaf is absent — 0 is unambiguous
+ * because every real share is a product of clamped [0.1, 0.9] ratios.
+ * Used by openPreviewFile to detect a sliver pane (#48) before reusing it.
+ */
+export function widthShare(root: TileNode, leafId: string): number {
+  if (root.type === "leaf") return root.nodeId === leafId ? 1 : 0;
+  const inFirst = widthShare(root.first, leafId);
+  if (inFirst > 0) return root.dir === "h" ? root.ratio * inFirst : inFirst;
+  const inSecond = widthShare(root.second, leafId);
+  if (inSecond > 0) return root.dir === "h" ? (1 - root.ratio) * inSecond : inSecond;
+  return 0;
+}
+
 /** All leaves in tree order (first before second, depth-first). */
 export function collectLeaves(node: TileNode): TileLeaf[] {
   if (node.type === "leaf") return [node];
