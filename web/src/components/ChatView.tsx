@@ -15,7 +15,7 @@ import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
 import OutputDrawer from "./OutputDrawer";
 import { KEY_TABLE } from "../keys";
-import { fmtDuration } from "../fmt";
+import { fmtCount, fmtDuration } from "../fmt";
 
 // The markdown parser rides its own chunk — Suspense fallback shows the
 // raw text until it lands (Phase F split).
@@ -88,7 +88,20 @@ type Block =
   // resolution) to the reply. turn_end is one API call: pinning that
   // showed a last-leg "51.38s" on a run that took ten minutes.
   | { kind: "text"; text: string; turnMs?: number }
-  | { kind: "thinking"; text: string }
+  // t0/t1 = first/last thinking_delta's server TS (ms epoch) — the row's
+  // duration is where a run's wall time actually goes (39-minute runs
+  // with millisecond tools are thinking time). lc = client receipt of the
+  // last delta: a LIVE row ticks past t1 using durations only, so the
+  // two clocks never mix. tokens = the call's actual output (turn_end
+  // stamps it over the stream estimate).
+  | {
+      kind: "thinking";
+      text: string;
+      t0?: number;
+      t1?: number;
+      lc?: number;
+      tokens?: number;
+    }
   | {
       kind: "tool";
       name: string;
@@ -214,8 +227,25 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       return ev.text ? [...blocks, { kind: "user", text: ev.text }] : blocks;
     case "text_delta":
       return appendToLast(blocks, "text", ev.text);
-    case "thinking_delta":
-      return appendToLast(blocks, "thinking", ev.thinking);
+    case "thinking_delta": {
+      // Stamps ride the row: t0/t1 from the event's server TS (replay
+      // computes the same duration history showed live), lc from the
+      // client receipt (the live tick's tail).
+      const ts = ev.ts ? timestampDate(ev.ts).getTime() : Date.now();
+      const last = blocks[blocks.length - 1];
+      if (last && last.kind === "thinking") {
+        return replaceAt(blocks, blocks.length - 1, {
+          ...last,
+          text: last.text + ev.thinking,
+          t1: ts,
+          lc: Date.now(),
+        });
+      }
+      return [
+        ...blocks,
+        { kind: "thinking", text: ev.thinking, t0: ts, t1: ts, lc: Date.now() },
+      ];
+    }
     case "tool_use_start": {
       const card = newToolBlock(ev);
       if (ev.server) {
@@ -429,9 +459,24 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       }
       return out;
     }
+    case "turn_end": {
+      // The call's output tokens land on its reasoning row: walk back to
+      // the trailing thinking block and stamp the API's actual count over
+      // the stream estimate (reasoning dominates output; a block already
+      // stamped belongs to an earlier call — stop there).
+      const out = ev.usage?.output;
+      if (!out) return blocks;
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (b.kind !== "thinking") continue;
+        if (b.tokens !== undefined) return blocks;
+        return replaceAt(blocks, i, { ...b, tokens: Number(out) });
+      }
+      return blocks;
+    }
     default:
-      // message_start / turn_end / subagent_start / unknown — nothing to
-      // draw (TUI draws nothing for turn boundaries either).
+      // message_start / subagent_start / unknown — nothing to draw (TUI
+      // draws nothing for turn boundaries either).
       return blocks;
   }
 }
@@ -461,6 +506,18 @@ function clipLine(s: string, n = 90): string {
 // First non-empty line, clipped — the folded-row peek for thinking and
 // tool output. Hand-rolled scan: these strings stream in and can be
 // tens of KB; no full split per render.
+// Rough live token count for a thinking row until turn_end's actual
+// lands: ASCII ~4 chars/token, CJK ~1 (deepseek-family tokenizer shape).
+// The "~" prefix in the render says estimate — the stamped usage replaces
+// it the moment the call ends.
+function estimateTokens(s: string): number {
+  let cjk = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) >= 0x2e80) cjk++;
+  }
+  return Math.max(1, Math.round((s.length - cjk) / 4 + cjk));
+}
+
 function firstLine(s: string, n = 110): string {
   let i = 0;
   while (i < s.length) {
@@ -1379,6 +1436,7 @@ export default function ChatView(props: {
             // the answer that follows and folds when the run ends;
             // everything older stays folded.
             live={busy && i === lastThinking(blocks)}
+            hinted={i === lastThinking(blocks)}
             onOpenFile={props.onOpenFile}
           />
         ))}
@@ -1731,6 +1789,7 @@ function BlockView({
   live,
   ord,
   onOpenFile,
+  hinted,
 }: {
   block: Block;
   thinkOpen: boolean;
@@ -1739,6 +1798,8 @@ function BlockView({
   ord?: number;
   /** files_changed rows click into the preview pane (App.openPreviewFile). */
   onOpenFile?: (path: string) => void;
+  /** The feed's last thinking row carries the fold hint (one per feed). */
+  hinted?: boolean;
 }) {
   switch (block.kind) {
     case "user":
@@ -1773,6 +1834,7 @@ function BlockView({
           block={block}
           thinkOpen={thinkOpen || auto}
           live={isLive}
+          hinted={!!hinted}
         />
       );
     }
@@ -1933,24 +1995,50 @@ function BlockView({
 // flips thinkOpen (the key remounts and re-seeds), while a manual summary
 // click rides the native toggle event. The hint reads whichever way the
 // block currently sits — an open block says collapse, not expand; a live
-// block says live, and offers the way back in once it has folded itself.
+// block says live, and offers the way back in once it has folded itself —
+// but only on the feed's LAST thinking row: a chord printed on every
+// folded row is noise, the eye should land in one place.
 function ThinkingBlock({
   block,
   thinkOpen,
   live,
+  hinted,
 }: {
   block: Extract<Block, { kind: "thinking" }>;
   thinkOpen: boolean;
   live: boolean;
+  hinted: boolean;
 }) {
   const [open, setOpen] = useState(thinkOpen);
-  const hint = live
-    ? open
-      ? "live"
-      : "live · ctrl+o to expand"
-    : open
-      ? "ctrl+o to collapse"
-      : "ctrl+o to expand";
+  // Live rows tick between deltas: server span-so-far plus the client
+  // tail since the last chunk — durations only, the clocks never mix.
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const id = setInterval(() => setTick(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [live]);
+  const hint = !hinted
+    ? ""
+    : live
+      ? open
+        ? "live"
+        : "live · ctrl+o to expand"
+      : open
+        ? "ctrl+o to collapse"
+        : "ctrl+o to expand";
+  // Duration = where the run's wall time actually went (a 39-minute run
+  // with millisecond tools is thinking time — now it shows on the row).
+  const durMs =
+    block.t0 === undefined
+      ? 0
+      : live
+        ? (block.t1 ?? block.t0) - block.t0 + (tick - (block.lc ?? tick))
+        : (block.t1 ?? block.t0) - block.t0;
+  // Tokens: the call's actual output once turn_end stamped it, else a
+  // live estimate while the row is still receiving.
+  const tokens =
+    block.tokens ?? (live ? estimateTokens(block.text) : undefined);
   // Folded peek: the reasoning's first line rides the header so a
   // closed block still says *why* the next step happens — the whole
   // complaint behind "thinking 不好阅读". Hidden while open.
@@ -1963,6 +2051,15 @@ function ThinkingBlock({
     >
       <summary>
         thinking
+        {durMs > 0 && (
+          <span className="think-stats">{fmtDuration(durMs)}</span>
+        )}
+        {tokens !== undefined && (
+          <span className="think-stats">
+            {block.tokens === undefined ? "~" : ""}
+            {fmtCount(tokens)} tok
+          </span>
+        )}
         {peek && <span className="think-peek">{peek}</span>}
         <span className={"think-key" + (live ? " live" : "")}>{hint}</span>
       </summary>
