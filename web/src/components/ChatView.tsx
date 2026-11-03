@@ -7,6 +7,7 @@ import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { errText, fileClient, sessionClient } from "../api";
+import { FileIcon, gitBadge } from "../fileIcons";
 import { uploadPaste } from "../paste";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
@@ -121,7 +122,15 @@ type Block =
       steps: number; // inner tool executions seen so far
     }
   | { kind: "notice"; text: string; detail?: string }
-  | { kind: "error"; text: string };
+  | { kind: "error"; text: string }
+  // The run's file footprint (server-side git delta at prompt_end,
+  // files_changed): rows click straight into the preview pane — new +
+  // touched files the run produced, badge-colored like the files panel.
+  | { kind: "files"; files: FileCard[] };
+
+// One row of the files_changed card — GitChange's JSON shape off the
+// server's diff (pkg/server/filecards.go), so gitBadge applies as-is.
+type FileCard = { path: string; xy: string; kind: string; staged: boolean };
 
 function appendToLast(
   blocks: Block[],
@@ -369,6 +378,18 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
         },
       ];
     }
+    case "files_changed": {
+      // Server-side git delta (filecards.go), JSON rows in attrs.files —
+      // malformed attrs skip the card, never the stream.
+      let files: FileCard[] = [];
+      try {
+        const raw: unknown = JSON.parse(ev.attrs["files"] || "[]");
+        if (Array.isArray(raw)) files = raw as FileCard[];
+      } catch {
+        return blocks;
+      }
+      return files.length ? [...blocks, { kind: "files", files }] : blocks;
+    }
     case "error":
       return [...blocks, { kind: "error", text: ev.error || ev.detail }];
     case "prompt_end": {
@@ -529,6 +550,9 @@ export default function ChatView(props: {
   onOpenPlan?: () => void;
   onSteps: (s: StepRow[]) => void;
   onCommand: (cmd: string) => void;
+  /** Open a produced file in the preview pane (files_changed card rows) —
+   *  the same routing FilePanel clicks use. */
+  onOpenFile?: (path: string) => void;
   /** Live prompt_end only (not history replay): the server regenerates
    *  session titles asynchronously on its interval beats, so App re-reads
    *  the list a beat later. */
@@ -1355,6 +1379,7 @@ export default function ChatView(props: {
             // the answer that follows and folds when the run ends;
             // everything older stays folded.
             live={busy && i === lastThinking(blocks)}
+            onOpenFile={props.onOpenFile}
           />
         ))}
         {blocks.length === 0 && (
@@ -1705,12 +1730,15 @@ function BlockView({
   thinkOpen,
   live,
   ord,
+  onOpenFile,
 }: {
   block: Block;
   thinkOpen: boolean;
   live?: boolean;
   /** Fan-out task number (1-based) for subtask cards and sub rows. */
   ord?: number;
+  /** files_changed rows click into the preview pane (App.openPreviewFile). */
+  onOpenFile?: (path: string) => void;
 }) {
   switch (block.kind) {
     case "user":
@@ -1863,6 +1891,29 @@ function BlockView({
         </details>
       );
     }
+    case "files":
+      // 产出文件 card — one row per file the run created or touched;
+      // click opens the preview pane (same routing as the files panel).
+      return (
+        <div className="blk-files">
+          <div className="blk-files-head">产出文件 · {block.files.length}</div>
+          {block.files.map((f) => (
+            <button
+              key={f.path}
+              type="button"
+              className="blk-file-row"
+              onClick={() => onOpenFile?.(f.path)}
+              title={f.path}
+            >
+              <FileIcon name={f.path} isDir={false} />
+              <span className="blk-file-path">{f.path}</span>
+              <span className={"file-badge " + gitBadge(f).cls}>
+                {gitBadge(f).letter}
+              </span>
+            </button>
+          ))}
+        </div>
+      );
     case "notice":
       if (block.detail) {
         return (

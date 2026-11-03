@@ -363,6 +363,7 @@ button:focus-visible,
 .chat-feed .blk-tool,
 .chat-feed .blk-subtask,
 .chat-feed .blk-notice,
+.chat-feed .blk-files,
 .chat-feed .err {
   animation: rise-in var(--dur-2) var(--ease) both;
 }
@@ -484,6 +485,25 @@ button:focus-visible,
 .blk-notice { color: var(--dim); font-style: italic; font-size: 12px; }
 .blk-notice summary { cursor: pointer; }
 .blk-notice summary::marker, .blk-tool summary::marker { color: transparent; }
+
+/* files_changed card — the run's produced/edited files; each row clicks
+   into the preview pane (same routing as the files panel). Badges reuse
+   .file-badge: 新增绿 · 变更蓝 · 删除灰（冲突橙）. */
+.blk-files {
+  border: 1px solid var(--line); border-radius: var(--radius-2);
+  background: var(--bg-row); padding: 6px 8px; font-size: 12px;
+}
+.blk-files-head { color: var(--dim); margin-bottom: 2px; }
+.blk-file-row {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 3px 4px; border: 0; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer; border-radius: 4px;
+}
+.blk-file-row:hover { background: var(--bg-hover); }
+.blk-file-path {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .notice-detail {
   white-space: pre-wrap; word-break: break-word; margin: 4px 0 0;
   font-size: 12px; font-style: normal; color: var(--fg);

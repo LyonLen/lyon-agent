@@ -69,13 +69,26 @@ func (g *gitService) Status(ctx context.Context,
 		return nil, err
 	}
 	resp := &lyonv1.StatusResponse{IsRepo: true}
-	for i, line := range strings.Split(out, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if line == "" {
-			continue
+	for _, line := range strings.Split(out, "\n") {
+		// The branch header is always the first line; rows follow.
+		if strings.HasPrefix(line, "## ") {
+			parseBranchHeader(strings.TrimRight(line[3:], "\r"), resp)
+			break
 		}
-		if i == 0 && strings.HasPrefix(line, "## ") {
-			parseBranchHeader(line[3:], resp)
+	}
+	resp.Changes = parsePorcelainRows(out)
+	return connect.NewResponse(resp), nil
+}
+
+// parsePorcelainRows turns porcelain v1 output into change records —
+// shared by Status and the file-card diff (filecards.go) so both classify
+// identically. Branch headers (## …) and blank lines are skipped; a rename
+// row keeps the new name (the panel opens that one).
+func parsePorcelainRows(out string) []*lyonv1.GitChange {
+	var changes []*lyonv1.GitChange
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" || strings.HasPrefix(line, "## ") {
 			continue
 		}
 		if len(line) < 3 {
@@ -88,11 +101,11 @@ func (g *gitService) Status(ctx context.Context,
 			path = path[idx+4:]
 		}
 		kind, staged := classifyChange(xy)
-		resp.Changes = append(resp.Changes, &lyonv1.GitChange{
+		changes = append(changes, &lyonv1.GitChange{
 			Path: path, Xy: xy, Staged: staged, Kind: kind,
 		})
 	}
-	return connect.NewResponse(resp), nil
+	return changes
 }
 
 // parseBranchHeader fills branch/upstream/ahead/behind from the

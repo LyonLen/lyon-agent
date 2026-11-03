@@ -170,6 +170,10 @@ func (c *sessionService) SubmitPrompt(_ context.Context, req *connect.Request[ly
 	}
 	if h, herr := c.s.store.Hub(msg.SessionId); herr == nil {
 		h.inject(agent.Event{Type: evUserMessage, Text: msg.Prompt})
+		// File-card baseline for this run (filecards.go): async git status
+		// snapshot, diffed at prompt_end. Same hub — a seat without one
+		// simply gets no card.
+		h.beginFileCards(c.s.eng.Config().Workspace)
 	}
 	if err := sess.SubmitOn(msg.Prompt, msg.Model); err != nil {
 		return nil, rpcErr(err)

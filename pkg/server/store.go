@@ -196,8 +196,13 @@ func (s *Store) register(sess *agent.Session, id string) (string, error) {
 	// and title writes that never cross a prompt_end. The optional
 	// observer (lyond's evolution loop) composes in the same tap.
 	obs := s.promptObs
+	h := e.hub
 	e.hub.onPromptEnd = func(ev agent.Event) {
 		maybeIntervalTitle(sess)
+		// File-card diff rides the same tap (filecards.go): schedule only —
+		// the git pass runs in its own goroutine and injects files_changed
+		// after this prompt_end's seq, so the card lands under its reply.
+		h.scheduleFileCards(sess.Workspace())
 		if obs != nil {
 			obs(sess, ev)
 		}

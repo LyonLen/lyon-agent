@@ -39,6 +39,16 @@ type hub struct {
 	ring   []hubItem          // bounded replay buffer, seq-ascending
 	subs   map[uint64]*hubSub // live subscribers by id
 	nextID uint64
+
+	// File-card baseline (filecards.go): the workspace's git status snapshotted
+	// async at submit, consumed once at prompt_end. fileGen invalidates captures
+	// still in flight when a run ends without one (run shorter than a git
+	// status) or a phantom double-submit races the live run — a stale snapshot
+	// must never become the next run's baseline.
+	baselineMu sync.Mutex
+	baseline   map[string]fileSnap
+	baselineOK bool   // a trustworthy snapshot is stored
+	fileGen    uint64 // begin/schedule bump it; a capture stores only on match
 }
 
 // hubItem is one stamped event on the wire.

@@ -604,6 +604,7 @@ export default function App() {
               onOpenPlan={openPlan}
               onSteps={setSteps}
               onCommand={runCommand}
+              onOpenFile={openPreviewFile}
               onPromptEnd={scheduleTitleRefresh}
               onCtx={setCtxTok}
               onCost={setCtxCost}
