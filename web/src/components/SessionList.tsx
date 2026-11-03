@@ -43,7 +43,12 @@ export default function SessionList(props: {
                 <span className="run-badge">running</span>
               </>
             ) : null}
-            {s.queueLen > 0 ? ` · queued ${s.queueLen}` : ""} · {s.turns} turns
+            {s.queueLen > 0 ? ` · queued ${s.queueLen}` : ""}
+            {/* turn count read as noise ("318 turns" says nothing the
+                reader can act on) — when the seat was last touched does. */}
+            {s.lastActive
+              ? ` · ${shortWhen(timestampDate(s.lastActive))}`
+              : ""}
           </span>
         </button>
       ))}

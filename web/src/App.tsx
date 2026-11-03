@@ -92,6 +92,14 @@ export default function App() {
   useEffect(() => {
     selectedRef.current = selectedId;
   }, [selectedId]);
+  // Plan/steps are App state (the panes outlive ChatView's key remount), so
+  // a fresh selection must start clean — otherwise a new session inherited
+  // the previous seat's todo list. Restored seats re-seed the RIGHT todos
+  // from their own history right after (ChatView's GetHistory fold).
+  useEffect(() => {
+    setTodos([]);
+    setSteps([]);
+  }, [selectedId]);
   useEffect(() => {
     pendingRef.current = pending;
   }, [pending]);
