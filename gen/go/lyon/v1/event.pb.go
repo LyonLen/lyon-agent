@@ -45,6 +45,9 @@ const (
 	EventType_EVENT_TYPE_TURN_END           EventType = 14
 	EventType_EVENT_TYPE_PROMPT_END         EventType = 15
 	EventType_EVENT_TYPE_ERROR              EventType = 16
+	// Mindmap (docs/design/mindmap.md §3): the live conversation map.
+	EventType_EVENT_TYPE_MINDMAP_UPDATE EventType = 17 // 结构变化（蒸馏器产出）
+	EventType_EVENT_TYPE_MINDMAP_EDIT   EventType = 18 // 人的编辑动作（图 → chat 的输入通道）
 )
 
 // Enum value maps for EventType.
@@ -67,6 +70,8 @@ var (
 		14: "EVENT_TYPE_TURN_END",
 		15: "EVENT_TYPE_PROMPT_END",
 		16: "EVENT_TYPE_ERROR",
+		17: "EVENT_TYPE_MINDMAP_UPDATE",
+		18: "EVENT_TYPE_MINDMAP_EDIT",
 	}
 	EventType_value = map[string]int32{
 		"EVENT_TYPE_UNSPECIFIED":        0,
@@ -86,6 +91,8 @@ var (
 		"EVENT_TYPE_TURN_END":           14,
 		"EVENT_TYPE_PROMPT_END":         15,
 		"EVENT_TYPE_ERROR":              16,
+		"EVENT_TYPE_MINDMAP_UPDATE":     17,
+		"EVENT_TYPE_MINDMAP_EDIT":       18,
 	}
 )
 
@@ -471,7 +478,7 @@ const file_lyon_v1_event_proto_rawDesc = "" +
 	"AttrsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\v\n" +
-	"\t_cost_usdJ\x04\b[\x10dR\anode_idR\x0eapproval_state*\x80\x04\n" +
+	"\t_cost_usdJ\x04\b[\x10dR\anode_idR\x0eapproval_state*\xbc\x04\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18EVENT_TYPE_MESSAGE_START\x10\x01\x12\x19\n" +
@@ -490,7 +497,9 @@ const file_lyon_v1_event_proto_rawDesc = "" +
 	"\x19EVENT_TYPE_QUEUE_INJECTED\x10\r\x12\x17\n" +
 	"\x13EVENT_TYPE_TURN_END\x10\x0e\x12\x19\n" +
 	"\x15EVENT_TYPE_PROMPT_END\x10\x0f\x12\x14\n" +
-	"\x10EVENT_TYPE_ERROR\x10\x10B\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
+	"\x10EVENT_TYPE_ERROR\x10\x10\x12\x1d\n" +
+	"\x19EVENT_TYPE_MINDMAP_UPDATE\x10\x11\x12\x1b\n" +
+	"\x17EVENT_TYPE_MINDMAP_EDIT\x10\x12B\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
 
 var (
 	file_lyon_v1_event_proto_rawDescOnce sync.Once

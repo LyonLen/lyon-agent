@@ -14,6 +14,9 @@ func TestMain(m *testing.M) {
 	if err == nil && os.Getenv("LYON_HOME") == "" {
 		os.Setenv("LYON_HOME", dir)
 	}
+	// The planner (planner.go) would consume a scripted mock turn on any
+	// gate-passing prompt; tests opt in per-case with t.Setenv.
+	os.Setenv("LYON_PLANNER", "off")
 	code := m.Run()
 	if dir != "" {
 		os.RemoveAll(dir)

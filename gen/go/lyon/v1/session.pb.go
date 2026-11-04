@@ -380,6 +380,105 @@ func (x *SaveCheckpointResponse) GetCheckpoint() *Checkpoint {
 	return nil
 }
 
+type UndoLastRunRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UndoLastRunRequest) Reset() {
+	*x = UndoLastRunRequest{}
+	mi := &file_lyon_v1_session_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UndoLastRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UndoLastRunRequest) ProtoMessage() {}
+
+func (x *UndoLastRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_session_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UndoLastRunRequest.ProtoReflect.Descriptor instead.
+func (*UndoLastRunRequest) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *UndoLastRunRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+type UndoLastRunResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Worktree paths the undo restored or removed (the flash list).
+	RestoredPaths []string `protobuf:"bytes,1,rep,name=restored_paths,json=restoredPaths,proto3" json:"restored_paths,omitempty"`
+	// Side ref after the undo: short sha of the new chain tip, "" when the
+	// chain is exhausted (the ref was removed — next call finds nothing).
+	Ref           string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UndoLastRunResponse) Reset() {
+	*x = UndoLastRunResponse{}
+	mi := &file_lyon_v1_session_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UndoLastRunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UndoLastRunResponse) ProtoMessage() {}
+
+func (x *UndoLastRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lyon_v1_session_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UndoLastRunResponse.ProtoReflect.Descriptor instead.
+func (*UndoLastRunResponse) Descriptor() ([]byte, []int) {
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UndoLastRunResponse) GetRestoredPaths() []string {
+	if x != nil {
+		return x.RestoredPaths
+	}
+	return nil
+}
+
+func (x *UndoLastRunResponse) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
 type Session struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -410,7 +509,7 @@ type Session struct {
 
 func (x *Session) Reset() {
 	*x = Session{}
-	mi := &file_lyon_v1_session_proto_msgTypes[7]
+	mi := &file_lyon_v1_session_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -422,7 +521,7 @@ func (x *Session) String() string {
 func (*Session) ProtoMessage() {}
 
 func (x *Session) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[7]
+	mi := &file_lyon_v1_session_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -435,7 +534,7 @@ func (x *Session) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Session.ProtoReflect.Descriptor instead.
 func (*Session) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{7}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Session) GetId() string {
@@ -546,7 +645,7 @@ type CreateSessionRequest struct {
 
 func (x *CreateSessionRequest) Reset() {
 	*x = CreateSessionRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[8]
+	mi := &file_lyon_v1_session_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -558,7 +657,7 @@ func (x *CreateSessionRequest) String() string {
 func (*CreateSessionRequest) ProtoMessage() {}
 
 func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[8]
+	mi := &file_lyon_v1_session_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -571,7 +670,7 @@ func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSessionRequest.ProtoReflect.Descriptor instead.
 func (*CreateSessionRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{8}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CreateSessionRequest) GetModel() string {
@@ -597,7 +696,7 @@ type CreateSessionResponse struct {
 
 func (x *CreateSessionResponse) Reset() {
 	*x = CreateSessionResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[9]
+	mi := &file_lyon_v1_session_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -609,7 +708,7 @@ func (x *CreateSessionResponse) String() string {
 func (*CreateSessionResponse) ProtoMessage() {}
 
 func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[9]
+	mi := &file_lyon_v1_session_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -622,7 +721,7 @@ func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSessionResponse.ProtoReflect.Descriptor instead.
 func (*CreateSessionResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{9}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CreateSessionResponse) GetSession() *Session {
@@ -640,7 +739,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[10]
+	mi := &file_lyon_v1_session_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -652,7 +751,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[10]
+	mi := &file_lyon_v1_session_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -665,7 +764,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{10}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{12}
 }
 
 type ListSessionsResponse struct {
@@ -677,7 +776,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[11]
+	mi := &file_lyon_v1_session_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -689,7 +788,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[11]
+	mi := &file_lyon_v1_session_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -702,7 +801,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{11}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*Session {
@@ -721,7 +820,7 @@ type GetSessionRequest struct {
 
 func (x *GetSessionRequest) Reset() {
 	*x = GetSessionRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[12]
+	mi := &file_lyon_v1_session_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -733,7 +832,7 @@ func (x *GetSessionRequest) String() string {
 func (*GetSessionRequest) ProtoMessage() {}
 
 func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[12]
+	mi := &file_lyon_v1_session_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -746,7 +845,7 @@ func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{12}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetSessionRequest) GetSessionId() string {
@@ -765,7 +864,7 @@ type GetSessionResponse struct {
 
 func (x *GetSessionResponse) Reset() {
 	*x = GetSessionResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[13]
+	mi := &file_lyon_v1_session_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +876,7 @@ func (x *GetSessionResponse) String() string {
 func (*GetSessionResponse) ProtoMessage() {}
 
 func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[13]
+	mi := &file_lyon_v1_session_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +889,7 @@ func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{13}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetSessionResponse) GetSession() *Session {
@@ -809,7 +908,7 @@ type DeleteSessionRequest struct {
 
 func (x *DeleteSessionRequest) Reset() {
 	*x = DeleteSessionRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[14]
+	mi := &file_lyon_v1_session_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -821,7 +920,7 @@ func (x *DeleteSessionRequest) String() string {
 func (*DeleteSessionRequest) ProtoMessage() {}
 
 func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[14]
+	mi := &file_lyon_v1_session_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +933,7 @@ func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSessionRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{14}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DeleteSessionRequest) GetSessionId() string {
@@ -852,7 +951,7 @@ type DeleteSessionResponse struct {
 
 func (x *DeleteSessionResponse) Reset() {
 	*x = DeleteSessionResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[15]
+	mi := &file_lyon_v1_session_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -864,7 +963,7 @@ func (x *DeleteSessionResponse) String() string {
 func (*DeleteSessionResponse) ProtoMessage() {}
 
 func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[15]
+	mi := &file_lyon_v1_session_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -877,7 +976,7 @@ func (x *DeleteSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSessionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSessionResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{15}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{17}
 }
 
 type SubmitPromptRequest struct {
@@ -891,7 +990,7 @@ type SubmitPromptRequest struct {
 
 func (x *SubmitPromptRequest) Reset() {
 	*x = SubmitPromptRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[16]
+	mi := &file_lyon_v1_session_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -903,7 +1002,7 @@ func (x *SubmitPromptRequest) String() string {
 func (*SubmitPromptRequest) ProtoMessage() {}
 
 func (x *SubmitPromptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[16]
+	mi := &file_lyon_v1_session_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -916,7 +1015,7 @@ func (x *SubmitPromptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitPromptRequest.ProtoReflect.Descriptor instead.
 func (*SubmitPromptRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{16}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SubmitPromptRequest) GetSessionId() string {
@@ -949,7 +1048,7 @@ type SubmitPromptResponse struct {
 
 func (x *SubmitPromptResponse) Reset() {
 	*x = SubmitPromptResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[17]
+	mi := &file_lyon_v1_session_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -961,7 +1060,7 @@ func (x *SubmitPromptResponse) String() string {
 func (*SubmitPromptResponse) ProtoMessage() {}
 
 func (x *SubmitPromptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[17]
+	mi := &file_lyon_v1_session_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -974,7 +1073,7 @@ func (x *SubmitPromptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitPromptResponse.ProtoReflect.Descriptor instead.
 func (*SubmitPromptResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{17}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SubmitPromptResponse) GetStarted() bool {
@@ -994,7 +1093,7 @@ type EnqueuePromptRequest struct {
 
 func (x *EnqueuePromptRequest) Reset() {
 	*x = EnqueuePromptRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[18]
+	mi := &file_lyon_v1_session_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1006,7 +1105,7 @@ func (x *EnqueuePromptRequest) String() string {
 func (*EnqueuePromptRequest) ProtoMessage() {}
 
 func (x *EnqueuePromptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[18]
+	mi := &file_lyon_v1_session_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1019,7 +1118,7 @@ func (x *EnqueuePromptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnqueuePromptRequest.ProtoReflect.Descriptor instead.
 func (*EnqueuePromptRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{18}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EnqueuePromptRequest) GetSessionId() string {
@@ -1045,7 +1144,7 @@ type EnqueuePromptResponse struct {
 
 func (x *EnqueuePromptResponse) Reset() {
 	*x = EnqueuePromptResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[19]
+	mi := &file_lyon_v1_session_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1057,7 +1156,7 @@ func (x *EnqueuePromptResponse) String() string {
 func (*EnqueuePromptResponse) ProtoMessage() {}
 
 func (x *EnqueuePromptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[19]
+	mi := &file_lyon_v1_session_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1070,7 +1169,7 @@ func (x *EnqueuePromptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnqueuePromptResponse.ProtoReflect.Descriptor instead.
 func (*EnqueuePromptResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{19}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *EnqueuePromptResponse) GetQueueLen() int32 {
@@ -1089,7 +1188,7 @@ type InterruptRequest struct {
 
 func (x *InterruptRequest) Reset() {
 	*x = InterruptRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[20]
+	mi := &file_lyon_v1_session_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1101,7 +1200,7 @@ func (x *InterruptRequest) String() string {
 func (*InterruptRequest) ProtoMessage() {}
 
 func (x *InterruptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[20]
+	mi := &file_lyon_v1_session_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1114,7 +1213,7 @@ func (x *InterruptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterruptRequest.ProtoReflect.Descriptor instead.
 func (*InterruptRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{20}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *InterruptRequest) GetSessionId() string {
@@ -1133,7 +1232,7 @@ type InterruptResponse struct {
 
 func (x *InterruptResponse) Reset() {
 	*x = InterruptResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[21]
+	mi := &file_lyon_v1_session_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1145,7 +1244,7 @@ func (x *InterruptResponse) String() string {
 func (*InterruptResponse) ProtoMessage() {}
 
 func (x *InterruptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[21]
+	mi := &file_lyon_v1_session_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1158,7 +1257,7 @@ func (x *InterruptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterruptResponse.ProtoReflect.Descriptor instead.
 func (*InterruptResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{21}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *InterruptResponse) GetInterrupted() bool {
@@ -1177,7 +1276,7 @@ type GetStatsRequest struct {
 
 func (x *GetStatsRequest) Reset() {
 	*x = GetStatsRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[22]
+	mi := &file_lyon_v1_session_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1189,7 +1288,7 @@ func (x *GetStatsRequest) String() string {
 func (*GetStatsRequest) ProtoMessage() {}
 
 func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[22]
+	mi := &file_lyon_v1_session_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1202,7 +1301,7 @@ func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetStatsRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{22}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetStatsRequest) GetSessionId() string {
@@ -1225,7 +1324,7 @@ type TurnStat struct {
 
 func (x *TurnStat) Reset() {
 	*x = TurnStat{}
-	mi := &file_lyon_v1_session_proto_msgTypes[23]
+	mi := &file_lyon_v1_session_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1237,7 +1336,7 @@ func (x *TurnStat) String() string {
 func (*TurnStat) ProtoMessage() {}
 
 func (x *TurnStat) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[23]
+	mi := &file_lyon_v1_session_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1250,7 +1349,7 @@ func (x *TurnStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TurnStat.ProtoReflect.Descriptor instead.
 func (*TurnStat) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{23}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *TurnStat) GetTurn() int32 {
@@ -1297,7 +1396,7 @@ type GetStatsResponse struct {
 
 func (x *GetStatsResponse) Reset() {
 	*x = GetStatsResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[24]
+	mi := &file_lyon_v1_session_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1309,7 +1408,7 @@ func (x *GetStatsResponse) String() string {
 func (*GetStatsResponse) ProtoMessage() {}
 
 func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[24]
+	mi := &file_lyon_v1_session_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1322,7 +1421,7 @@ func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetStatsResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{24}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *GetStatsResponse) GetTurns() []*TurnStat {
@@ -1342,7 +1441,7 @@ type SetModeRequest struct {
 
 func (x *SetModeRequest) Reset() {
 	*x = SetModeRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[25]
+	mi := &file_lyon_v1_session_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1354,7 +1453,7 @@ func (x *SetModeRequest) String() string {
 func (*SetModeRequest) ProtoMessage() {}
 
 func (x *SetModeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[25]
+	mi := &file_lyon_v1_session_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1367,7 +1466,7 @@ func (x *SetModeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetModeRequest.ProtoReflect.Descriptor instead.
 func (*SetModeRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{25}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SetModeRequest) GetSessionId() string {
@@ -1393,7 +1492,7 @@ type SetModeResponse struct {
 
 func (x *SetModeResponse) Reset() {
 	*x = SetModeResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[26]
+	mi := &file_lyon_v1_session_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1405,7 +1504,7 @@ func (x *SetModeResponse) String() string {
 func (*SetModeResponse) ProtoMessage() {}
 
 func (x *SetModeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[26]
+	mi := &file_lyon_v1_session_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1418,7 +1517,7 @@ func (x *SetModeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetModeResponse.ProtoReflect.Descriptor instead.
 func (*SetModeResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{26}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SetModeResponse) GetMode() string {
@@ -1439,7 +1538,7 @@ type WatchEventsResponse struct {
 
 func (x *WatchEventsResponse) Reset() {
 	*x = WatchEventsResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[27]
+	mi := &file_lyon_v1_session_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1451,7 +1550,7 @@ func (x *WatchEventsResponse) String() string {
 func (*WatchEventsResponse) ProtoMessage() {}
 
 func (x *WatchEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[27]
+	mi := &file_lyon_v1_session_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1464,7 +1563,7 @@ func (x *WatchEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsResponse.ProtoReflect.Descriptor instead.
 func (*WatchEventsResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{27}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *WatchEventsResponse) GetEvent() *SessionEvent {
@@ -1488,7 +1587,7 @@ type WatchEventsRequest struct {
 
 func (x *WatchEventsRequest) Reset() {
 	*x = WatchEventsRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[28]
+	mi := &file_lyon_v1_session_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1500,7 +1599,7 @@ func (x *WatchEventsRequest) String() string {
 func (*WatchEventsRequest) ProtoMessage() {}
 
 func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[28]
+	mi := &file_lyon_v1_session_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1612,7 @@ func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{28}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *WatchEventsRequest) GetSessionId() string {
@@ -1539,7 +1638,7 @@ type GetHistoryRequest struct {
 
 func (x *GetHistoryRequest) Reset() {
 	*x = GetHistoryRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[29]
+	mi := &file_lyon_v1_session_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1551,7 +1650,7 @@ func (x *GetHistoryRequest) String() string {
 func (*GetHistoryRequest) ProtoMessage() {}
 
 func (x *GetHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[29]
+	mi := &file_lyon_v1_session_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1564,7 +1663,7 @@ func (x *GetHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetHistoryRequest.ProtoReflect.Descriptor instead.
 func (*GetHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{29}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *GetHistoryRequest) GetSessionId() string {
@@ -1584,7 +1683,7 @@ type GetHistoryResponse struct {
 
 func (x *GetHistoryResponse) Reset() {
 	*x = GetHistoryResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[30]
+	mi := &file_lyon_v1_session_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1596,7 +1695,7 @@ func (x *GetHistoryResponse) String() string {
 func (*GetHistoryResponse) ProtoMessage() {}
 
 func (x *GetHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[30]
+	mi := &file_lyon_v1_session_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1609,7 +1708,7 @@ func (x *GetHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetHistoryResponse.ProtoReflect.Descriptor instead.
 func (*GetHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{30}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *GetHistoryResponse) GetEvents() []*SessionEvent {
@@ -1638,7 +1737,7 @@ type RestoreSessionRequest struct {
 
 func (x *RestoreSessionRequest) Reset() {
 	*x = RestoreSessionRequest{}
-	mi := &file_lyon_v1_session_proto_msgTypes[31]
+	mi := &file_lyon_v1_session_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1650,7 +1749,7 @@ func (x *RestoreSessionRequest) String() string {
 func (*RestoreSessionRequest) ProtoMessage() {}
 
 func (x *RestoreSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[31]
+	mi := &file_lyon_v1_session_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1663,7 +1762,7 @@ func (x *RestoreSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreSessionRequest.ProtoReflect.Descriptor instead.
 func (*RestoreSessionRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{31}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RestoreSessionRequest) GetPath() string {
@@ -1683,7 +1782,7 @@ type RestoreSessionResponse struct {
 
 func (x *RestoreSessionResponse) Reset() {
 	*x = RestoreSessionResponse{}
-	mi := &file_lyon_v1_session_proto_msgTypes[32]
+	mi := &file_lyon_v1_session_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1695,7 +1794,7 @@ func (x *RestoreSessionResponse) String() string {
 func (*RestoreSessionResponse) ProtoMessage() {}
 
 func (x *RestoreSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_session_proto_msgTypes[32]
+	mi := &file_lyon_v1_session_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1708,7 +1807,7 @@ func (x *RestoreSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreSessionResponse.ProtoReflect.Descriptor instead.
 func (*RestoreSessionResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_session_proto_rawDescGZIP(), []int{32}
+	return file_lyon_v1_session_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *RestoreSessionResponse) GetSession() *Session {
@@ -1757,7 +1856,13 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\x16SaveCheckpointResponse\x123\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x13.lyon.v1.CheckpointR\n" +
-	"checkpoint\"\xbd\x03\n" +
+	"checkpoint\"3\n" +
+	"\x12UndoLastRunRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"N\n" +
+	"\x13UndoLastRunResponse\x12%\n" +
+	"\x0erestored_paths\x18\x01 \x03(\tR\rrestoredPaths\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xbd\x03\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x14\n" +
@@ -1847,7 +1952,7 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"q\n" +
 	"\x16RestoreSessionResponse\x12*\n" +
 	"\asession\x18\x01 \x01(\v2\x10.lyon.v1.SessionR\asession\x12+\n" +
-	"\x11restored_messages\x18\x02 \x01(\x05R\x10restoredMessages2\x89\t\n" +
+	"\x11restored_messages\x18\x02 \x01(\x05R\x10restoredMessages2\xd3\t\n" +
 	"\x0eSessionService\x12N\n" +
 	"\rCreateSession\x12\x1d.lyon.v1.CreateSessionRequest\x1a\x1e.lyon.v1.CreateSessionResponse\x12K\n" +
 	"\fListSessions\x12\x1c.lyon.v1.ListSessionsRequest\x1a\x1d.lyon.v1.ListSessionsResponse\x12E\n" +
@@ -1865,7 +1970,8 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\x0eRestoreSession\x12\x1e.lyon.v1.RestoreSessionRequest\x1a\x1f.lyon.v1.RestoreSessionResponse\x12T\n" +
 	"\x0fListCheckpoints\x12\x1f.lyon.v1.ListCheckpointsRequest\x1a .lyon.v1.ListCheckpointsResponse\x12T\n" +
 	"\x0fRollbackSession\x12\x1f.lyon.v1.RollbackSessionRequest\x1a .lyon.v1.RollbackSessionResponse\x12Q\n" +
-	"\x0eSaveCheckpoint\x12\x1e.lyon.v1.SaveCheckpointRequest\x1a\x1f.lyon.v1.SaveCheckpointResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
+	"\x0eSaveCheckpoint\x12\x1e.lyon.v1.SaveCheckpointRequest\x1a\x1f.lyon.v1.SaveCheckpointResponse\x12H\n" +
+	"\vUndoLastRun\x12\x1b.lyon.v1.UndoLastRunRequest\x1a\x1c.lyon.v1.UndoLastRunResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
 
 var (
 	file_lyon_v1_session_proto_rawDescOnce sync.Once
@@ -1879,7 +1985,7 @@ func file_lyon_v1_session_proto_rawDescGZIP() []byte {
 	return file_lyon_v1_session_proto_rawDescData
 }
 
-var file_lyon_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_lyon_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_lyon_v1_session_proto_goTypes = []any{
 	(*Checkpoint)(nil),              // 0: lyon.v1.Checkpoint
 	(*ListCheckpointsRequest)(nil),  // 1: lyon.v1.ListCheckpointsRequest
@@ -1888,84 +1994,88 @@ var file_lyon_v1_session_proto_goTypes = []any{
 	(*RollbackSessionResponse)(nil), // 4: lyon.v1.RollbackSessionResponse
 	(*SaveCheckpointRequest)(nil),   // 5: lyon.v1.SaveCheckpointRequest
 	(*SaveCheckpointResponse)(nil),  // 6: lyon.v1.SaveCheckpointResponse
-	(*Session)(nil),                 // 7: lyon.v1.Session
-	(*CreateSessionRequest)(nil),    // 8: lyon.v1.CreateSessionRequest
-	(*CreateSessionResponse)(nil),   // 9: lyon.v1.CreateSessionResponse
-	(*ListSessionsRequest)(nil),     // 10: lyon.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),    // 11: lyon.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),       // 12: lyon.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),      // 13: lyon.v1.GetSessionResponse
-	(*DeleteSessionRequest)(nil),    // 14: lyon.v1.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),   // 15: lyon.v1.DeleteSessionResponse
-	(*SubmitPromptRequest)(nil),     // 16: lyon.v1.SubmitPromptRequest
-	(*SubmitPromptResponse)(nil),    // 17: lyon.v1.SubmitPromptResponse
-	(*EnqueuePromptRequest)(nil),    // 18: lyon.v1.EnqueuePromptRequest
-	(*EnqueuePromptResponse)(nil),   // 19: lyon.v1.EnqueuePromptResponse
-	(*InterruptRequest)(nil),        // 20: lyon.v1.InterruptRequest
-	(*InterruptResponse)(nil),       // 21: lyon.v1.InterruptResponse
-	(*GetStatsRequest)(nil),         // 22: lyon.v1.GetStatsRequest
-	(*TurnStat)(nil),                // 23: lyon.v1.TurnStat
-	(*GetStatsResponse)(nil),        // 24: lyon.v1.GetStatsResponse
-	(*SetModeRequest)(nil),          // 25: lyon.v1.SetModeRequest
-	(*SetModeResponse)(nil),         // 26: lyon.v1.SetModeResponse
-	(*WatchEventsResponse)(nil),     // 27: lyon.v1.WatchEventsResponse
-	(*WatchEventsRequest)(nil),      // 28: lyon.v1.WatchEventsRequest
-	(*GetHistoryRequest)(nil),       // 29: lyon.v1.GetHistoryRequest
-	(*GetHistoryResponse)(nil),      // 30: lyon.v1.GetHistoryResponse
-	(*RestoreSessionRequest)(nil),   // 31: lyon.v1.RestoreSessionRequest
-	(*RestoreSessionResponse)(nil),  // 32: lyon.v1.RestoreSessionResponse
-	(*timestamppb.Timestamp)(nil),   // 33: google.protobuf.Timestamp
-	(*Usage)(nil),                   // 34: lyon.v1.Usage
-	(*SessionEvent)(nil),            // 35: lyon.v1.SessionEvent
+	(*UndoLastRunRequest)(nil),      // 7: lyon.v1.UndoLastRunRequest
+	(*UndoLastRunResponse)(nil),     // 8: lyon.v1.UndoLastRunResponse
+	(*Session)(nil),                 // 9: lyon.v1.Session
+	(*CreateSessionRequest)(nil),    // 10: lyon.v1.CreateSessionRequest
+	(*CreateSessionResponse)(nil),   // 11: lyon.v1.CreateSessionResponse
+	(*ListSessionsRequest)(nil),     // 12: lyon.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),    // 13: lyon.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),       // 14: lyon.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),      // 15: lyon.v1.GetSessionResponse
+	(*DeleteSessionRequest)(nil),    // 16: lyon.v1.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),   // 17: lyon.v1.DeleteSessionResponse
+	(*SubmitPromptRequest)(nil),     // 18: lyon.v1.SubmitPromptRequest
+	(*SubmitPromptResponse)(nil),    // 19: lyon.v1.SubmitPromptResponse
+	(*EnqueuePromptRequest)(nil),    // 20: lyon.v1.EnqueuePromptRequest
+	(*EnqueuePromptResponse)(nil),   // 21: lyon.v1.EnqueuePromptResponse
+	(*InterruptRequest)(nil),        // 22: lyon.v1.InterruptRequest
+	(*InterruptResponse)(nil),       // 23: lyon.v1.InterruptResponse
+	(*GetStatsRequest)(nil),         // 24: lyon.v1.GetStatsRequest
+	(*TurnStat)(nil),                // 25: lyon.v1.TurnStat
+	(*GetStatsResponse)(nil),        // 26: lyon.v1.GetStatsResponse
+	(*SetModeRequest)(nil),          // 27: lyon.v1.SetModeRequest
+	(*SetModeResponse)(nil),         // 28: lyon.v1.SetModeResponse
+	(*WatchEventsResponse)(nil),     // 29: lyon.v1.WatchEventsResponse
+	(*WatchEventsRequest)(nil),      // 30: lyon.v1.WatchEventsRequest
+	(*GetHistoryRequest)(nil),       // 31: lyon.v1.GetHistoryRequest
+	(*GetHistoryResponse)(nil),      // 32: lyon.v1.GetHistoryResponse
+	(*RestoreSessionRequest)(nil),   // 33: lyon.v1.RestoreSessionRequest
+	(*RestoreSessionResponse)(nil),  // 34: lyon.v1.RestoreSessionResponse
+	(*timestamppb.Timestamp)(nil),   // 35: google.protobuf.Timestamp
+	(*Usage)(nil),                   // 36: lyon.v1.Usage
+	(*SessionEvent)(nil),            // 37: lyon.v1.SessionEvent
 }
 var file_lyon_v1_session_proto_depIdxs = []int32{
-	33, // 0: lyon.v1.Checkpoint.at:type_name -> google.protobuf.Timestamp
+	35, // 0: lyon.v1.Checkpoint.at:type_name -> google.protobuf.Timestamp
 	0,  // 1: lyon.v1.ListCheckpointsResponse.checkpoints:type_name -> lyon.v1.Checkpoint
 	0,  // 2: lyon.v1.RollbackSessionResponse.checkpoint:type_name -> lyon.v1.Checkpoint
 	0,  // 3: lyon.v1.SaveCheckpointResponse.checkpoint:type_name -> lyon.v1.Checkpoint
-	33, // 4: lyon.v1.Session.created_at:type_name -> google.protobuf.Timestamp
-	33, // 5: lyon.v1.Session.last_active:type_name -> google.protobuf.Timestamp
-	7,  // 6: lyon.v1.CreateSessionResponse.session:type_name -> lyon.v1.Session
-	7,  // 7: lyon.v1.ListSessionsResponse.sessions:type_name -> lyon.v1.Session
-	7,  // 8: lyon.v1.GetSessionResponse.session:type_name -> lyon.v1.Session
-	34, // 9: lyon.v1.TurnStat.usage:type_name -> lyon.v1.Usage
-	33, // 10: lyon.v1.TurnStat.at:type_name -> google.protobuf.Timestamp
-	23, // 11: lyon.v1.GetStatsResponse.turns:type_name -> lyon.v1.TurnStat
-	35, // 12: lyon.v1.WatchEventsResponse.event:type_name -> lyon.v1.SessionEvent
-	35, // 13: lyon.v1.GetHistoryResponse.events:type_name -> lyon.v1.SessionEvent
-	7,  // 14: lyon.v1.RestoreSessionResponse.session:type_name -> lyon.v1.Session
-	8,  // 15: lyon.v1.SessionService.CreateSession:input_type -> lyon.v1.CreateSessionRequest
-	10, // 16: lyon.v1.SessionService.ListSessions:input_type -> lyon.v1.ListSessionsRequest
-	12, // 17: lyon.v1.SessionService.GetSession:input_type -> lyon.v1.GetSessionRequest
-	14, // 18: lyon.v1.SessionService.DeleteSession:input_type -> lyon.v1.DeleteSessionRequest
-	16, // 19: lyon.v1.SessionService.SubmitPrompt:input_type -> lyon.v1.SubmitPromptRequest
-	18, // 20: lyon.v1.SessionService.EnqueuePrompt:input_type -> lyon.v1.EnqueuePromptRequest
-	20, // 21: lyon.v1.SessionService.Interrupt:input_type -> lyon.v1.InterruptRequest
-	22, // 22: lyon.v1.SessionService.GetStats:input_type -> lyon.v1.GetStatsRequest
-	25, // 23: lyon.v1.SessionService.SetMode:input_type -> lyon.v1.SetModeRequest
-	28, // 24: lyon.v1.SessionService.WatchEvents:input_type -> lyon.v1.WatchEventsRequest
-	29, // 25: lyon.v1.SessionService.GetHistory:input_type -> lyon.v1.GetHistoryRequest
-	31, // 26: lyon.v1.SessionService.RestoreSession:input_type -> lyon.v1.RestoreSessionRequest
+	35, // 4: lyon.v1.Session.created_at:type_name -> google.protobuf.Timestamp
+	35, // 5: lyon.v1.Session.last_active:type_name -> google.protobuf.Timestamp
+	9,  // 6: lyon.v1.CreateSessionResponse.session:type_name -> lyon.v1.Session
+	9,  // 7: lyon.v1.ListSessionsResponse.sessions:type_name -> lyon.v1.Session
+	9,  // 8: lyon.v1.GetSessionResponse.session:type_name -> lyon.v1.Session
+	36, // 9: lyon.v1.TurnStat.usage:type_name -> lyon.v1.Usage
+	35, // 10: lyon.v1.TurnStat.at:type_name -> google.protobuf.Timestamp
+	25, // 11: lyon.v1.GetStatsResponse.turns:type_name -> lyon.v1.TurnStat
+	37, // 12: lyon.v1.WatchEventsResponse.event:type_name -> lyon.v1.SessionEvent
+	37, // 13: lyon.v1.GetHistoryResponse.events:type_name -> lyon.v1.SessionEvent
+	9,  // 14: lyon.v1.RestoreSessionResponse.session:type_name -> lyon.v1.Session
+	10, // 15: lyon.v1.SessionService.CreateSession:input_type -> lyon.v1.CreateSessionRequest
+	12, // 16: lyon.v1.SessionService.ListSessions:input_type -> lyon.v1.ListSessionsRequest
+	14, // 17: lyon.v1.SessionService.GetSession:input_type -> lyon.v1.GetSessionRequest
+	16, // 18: lyon.v1.SessionService.DeleteSession:input_type -> lyon.v1.DeleteSessionRequest
+	18, // 19: lyon.v1.SessionService.SubmitPrompt:input_type -> lyon.v1.SubmitPromptRequest
+	20, // 20: lyon.v1.SessionService.EnqueuePrompt:input_type -> lyon.v1.EnqueuePromptRequest
+	22, // 21: lyon.v1.SessionService.Interrupt:input_type -> lyon.v1.InterruptRequest
+	24, // 22: lyon.v1.SessionService.GetStats:input_type -> lyon.v1.GetStatsRequest
+	27, // 23: lyon.v1.SessionService.SetMode:input_type -> lyon.v1.SetModeRequest
+	30, // 24: lyon.v1.SessionService.WatchEvents:input_type -> lyon.v1.WatchEventsRequest
+	31, // 25: lyon.v1.SessionService.GetHistory:input_type -> lyon.v1.GetHistoryRequest
+	33, // 26: lyon.v1.SessionService.RestoreSession:input_type -> lyon.v1.RestoreSessionRequest
 	1,  // 27: lyon.v1.SessionService.ListCheckpoints:input_type -> lyon.v1.ListCheckpointsRequest
 	3,  // 28: lyon.v1.SessionService.RollbackSession:input_type -> lyon.v1.RollbackSessionRequest
 	5,  // 29: lyon.v1.SessionService.SaveCheckpoint:input_type -> lyon.v1.SaveCheckpointRequest
-	9,  // 30: lyon.v1.SessionService.CreateSession:output_type -> lyon.v1.CreateSessionResponse
-	11, // 31: lyon.v1.SessionService.ListSessions:output_type -> lyon.v1.ListSessionsResponse
-	13, // 32: lyon.v1.SessionService.GetSession:output_type -> lyon.v1.GetSessionResponse
-	15, // 33: lyon.v1.SessionService.DeleteSession:output_type -> lyon.v1.DeleteSessionResponse
-	17, // 34: lyon.v1.SessionService.SubmitPrompt:output_type -> lyon.v1.SubmitPromptResponse
-	19, // 35: lyon.v1.SessionService.EnqueuePrompt:output_type -> lyon.v1.EnqueuePromptResponse
-	21, // 36: lyon.v1.SessionService.Interrupt:output_type -> lyon.v1.InterruptResponse
-	24, // 37: lyon.v1.SessionService.GetStats:output_type -> lyon.v1.GetStatsResponse
-	26, // 38: lyon.v1.SessionService.SetMode:output_type -> lyon.v1.SetModeResponse
-	27, // 39: lyon.v1.SessionService.WatchEvents:output_type -> lyon.v1.WatchEventsResponse
-	30, // 40: lyon.v1.SessionService.GetHistory:output_type -> lyon.v1.GetHistoryResponse
-	32, // 41: lyon.v1.SessionService.RestoreSession:output_type -> lyon.v1.RestoreSessionResponse
-	2,  // 42: lyon.v1.SessionService.ListCheckpoints:output_type -> lyon.v1.ListCheckpointsResponse
-	4,  // 43: lyon.v1.SessionService.RollbackSession:output_type -> lyon.v1.RollbackSessionResponse
-	6,  // 44: lyon.v1.SessionService.SaveCheckpoint:output_type -> lyon.v1.SaveCheckpointResponse
-	30, // [30:45] is the sub-list for method output_type
-	15, // [15:30] is the sub-list for method input_type
+	7,  // 30: lyon.v1.SessionService.UndoLastRun:input_type -> lyon.v1.UndoLastRunRequest
+	11, // 31: lyon.v1.SessionService.CreateSession:output_type -> lyon.v1.CreateSessionResponse
+	13, // 32: lyon.v1.SessionService.ListSessions:output_type -> lyon.v1.ListSessionsResponse
+	15, // 33: lyon.v1.SessionService.GetSession:output_type -> lyon.v1.GetSessionResponse
+	17, // 34: lyon.v1.SessionService.DeleteSession:output_type -> lyon.v1.DeleteSessionResponse
+	19, // 35: lyon.v1.SessionService.SubmitPrompt:output_type -> lyon.v1.SubmitPromptResponse
+	21, // 36: lyon.v1.SessionService.EnqueuePrompt:output_type -> lyon.v1.EnqueuePromptResponse
+	23, // 37: lyon.v1.SessionService.Interrupt:output_type -> lyon.v1.InterruptResponse
+	26, // 38: lyon.v1.SessionService.GetStats:output_type -> lyon.v1.GetStatsResponse
+	28, // 39: lyon.v1.SessionService.SetMode:output_type -> lyon.v1.SetModeResponse
+	29, // 40: lyon.v1.SessionService.WatchEvents:output_type -> lyon.v1.WatchEventsResponse
+	32, // 41: lyon.v1.SessionService.GetHistory:output_type -> lyon.v1.GetHistoryResponse
+	34, // 42: lyon.v1.SessionService.RestoreSession:output_type -> lyon.v1.RestoreSessionResponse
+	2,  // 43: lyon.v1.SessionService.ListCheckpoints:output_type -> lyon.v1.ListCheckpointsResponse
+	4,  // 44: lyon.v1.SessionService.RollbackSession:output_type -> lyon.v1.RollbackSessionResponse
+	6,  // 45: lyon.v1.SessionService.SaveCheckpoint:output_type -> lyon.v1.SaveCheckpointResponse
+	8,  // 46: lyon.v1.SessionService.UndoLastRun:output_type -> lyon.v1.UndoLastRunResponse
+	31, // [31:47] is the sub-list for method output_type
+	15, // [15:31] is the sub-list for method input_type
 	15, // [15:15] is the sub-list for extension type_name
 	15, // [15:15] is the sub-list for extension extendee
 	0,  // [0:15] is the sub-list for field type_name
@@ -1977,14 +2087,14 @@ func file_lyon_v1_session_proto_init() {
 		return
 	}
 	file_lyon_v1_event_proto_init()
-	file_lyon_v1_session_proto_msgTypes[7].OneofWrappers = []any{}
+	file_lyon_v1_session_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lyon_v1_session_proto_rawDesc), len(file_lyon_v1_session_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   33,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

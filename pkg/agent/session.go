@@ -73,6 +73,15 @@ type Session struct {
 	// never reach another session's processes.
 	bgKey string
 
+	// session_start latch (hooks): the event fires exactly once per
+	// Session object — store create/first prompt announce "startup",
+	// Restore announces "resume"/"clear"; every later caller no-ops.
+	// startMu is a leaf lock: nothing it calls re-enters s.mu in reverse
+	// (SeatID takes s.mu, and no path holds s.mu while taking startMu).
+	startMu    sync.Mutex
+	startFired bool
+	startSrc   string // pending source; "" resolves to "startup" at fire time
+
 	// serial gates mutating tools during execution: per-resource for tools
 	// that name one (write_file/edit_file serialize only on the same file,
 	// #32), exclusive for everything else. run_shell decides per command
@@ -150,6 +159,13 @@ type Session struct {
 	// bash or powershell up front. tools detects the shell once per
 	// process, so the line is byte-stable — the cache prefix holds.
 	shellText string
+
+	// repoMapText is the workspace orientation note (repomap.go) riding
+	// after shellText: file list + top-level symbols, captured once at
+	// session creation from the engine's TTL cache, then byte-stable —
+	// same cache contract as skillsText/shellText. Empty when the
+	// workspace has no files (nothing is injected).
+	repoMapText string
 
 	// compactArmed defers an already-triggered compaction until the next
 	// turn has run its pending tool calls, so the summary covers their
@@ -291,6 +307,12 @@ type Session struct {
 	// successfully (distill.go): exit right after /remember skips the
 	// duplicate LLM pass. Guarded by mu.
 	distillHash uint64
+
+	// planned gates the auto planner (planner.go): auto mode drafts a
+	// plan for the first eligible prompt once per session, then leaves
+	// maintenance to the model's own todo_write. Written only by drive —
+	// the session's single runner goroutine, under histMu — no lock.
+	planned bool
 }
 
 func newSession(e *Engine, obs tools.Observer) *Session {
@@ -305,6 +327,9 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		memoryText: tools.MemoryFacts(e.cfg.Workspace),
 		skillsText: skillsSection(),
 		shellText:  shellEnvSection(),
+		// Frozen per session (repomap.go): captured once here so the
+		// system prompt's byte-stable suffix never shifts mid-run.
+		repoMapText: e.repoMapSection(),
 	}
 	s.streamCtx = context.WithValue(ctx, sessionCtxKey{}, s)
 	// D1: save_memory/forget_memory report successes through this seam
@@ -355,6 +380,49 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 	}
 	go s.loop()
 	return s
+}
+
+// EnsureSessionStart fires the session_start hook exactly once for this
+// session (the event existed in hooks.go with no trigger — EVOLUTION-GAPS
+// "SessionStart 触发点"). The first caller picks the source: store create
+// and a never-restored first prompt announce "startup"; Restore announces
+// "resume" (content or known id) or "clear" (empty snapshot / Reset).
+// Safe from any goroutine; double-fires are impossible by construction.
+func (s *Session) EnsureSessionStart() { s.fireSessionStart("", "") }
+
+// fireSessionStart is EnsureSessionStart with a source override — Restore
+// passes resume/clear while the seat id may still be arriving from the
+// snapshot. Empty SessionID falls back to bgKey so TUI sessions (no seat)
+// still carry a stable correlation key in the audit line.
+func (s *Session) fireSessionStart(source, detail string) {
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+	if s.startFired {
+		return
+	}
+	s.startFired = true
+	if source != "" {
+		s.startSrc = source
+	}
+	src := s.startSrc
+	if src == "" {
+		src = "startup"
+	}
+	// Latch still flips with no hooks manager (bare test engines) — the
+	// gate is about announcement, not about who is listening.
+	if s.eng == nil || s.eng.hooks == nil {
+		return
+	}
+	sid := s.SeatID()
+	if sid == "" {
+		sid = s.bgKey
+	}
+	s.eng.hooks.Fire(hooks.Record{
+		Event:     hooks.EvSessionStart,
+		SessionID: sid,
+		Source:    src,
+		Detail:    detail,
+	})
 }
 
 // Events returns the session's event stream. It is closed when the session
@@ -438,6 +506,10 @@ func (s *Session) SubmitOn(prompt, model string) error {
 		s.recentPrompts = appendPromptTail(s.recentPrompts, prompt)
 		s.prompts++
 		s.mu.Unlock()
+		// First prompt on a never-announced session: session_start rides
+		// ahead of prompt_start so the audit reads create → prompt order.
+		// No-op when the store already fired it at register time.
+		s.EnsureSessionStart()
 		// The seat must be on disk before the run even starts: a hard kill
 		// mid-prompt then leaves the session discoverable under this id.
 		s.notifyDirty()
@@ -690,7 +762,7 @@ func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMe
 			// (skills.go) and shell marker — all byte-stable per
 			// session, so the cache prefix holds for the whole
 			// conversation.
-			Text:         s.systemWithMode(cfg.SystemPrompt) + s.skillsText + s.shellText,
+			Text:         s.systemWithMode(cfg.SystemPrompt) + s.skillsText + s.shellText + s.repoMapText,
 			CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 		}},
 		OutputConfig: anthropic.BetaOutputConfigParam{
@@ -749,12 +821,24 @@ func (s *Session) drive(prompt, runModel string) {
 		pcancel()
 	}()
 
+	// Planning pre-pass (planner.go): gated (LYON_PLANNER), bounded,
+	// fail-open. Started here so it overlaps the checkpoint bookkeeping;
+	// the harvest waits before the first API call so the drafted plan
+	// can ride the turn-boundary note into this very request.
+	planCh := s.startPlanner(pctx, prompt)
+
 	// Undo point: capture the pre-prompt state so /rollback can discard
 	// this prompt (and everything after) without touching turn stats.
 	s.captureCheckpoint(CheckpointPrompt, clipRunes(strings.TrimSpace(prompt), 64),
 		s.currentHistoryLocked())
 
-	hist := s.buildHistory(s.takePendingNote(), prompt)
+	plan := harvestPlan(planCh, pctx)
+	note := s.takePendingNote()
+	if plan != nil {
+		s.adoptPlan(plan)
+		note = joinNotes(planNoteText(plan), note)
+	}
+	hist := s.buildHistory(note, prompt)
 	if s.memEcho {
 		s.memEcho = false
 		// Renderers show this as "memory rides into this session" — the

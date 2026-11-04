@@ -64,6 +64,8 @@ func main() {
 		os.Exit(cmdTools(os.Args[2:]))
 	case "timer":
 		os.Exit(cmdTimer(os.Args[2:]))
+	case "doctor":
+		os.Exit(cmdDoctor(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -86,6 +88,7 @@ Usage:
   lyon tools [flags]            list registered tools
   lyon timer <sub>              manage timers: add/list/enable/disable/rm +
                                 OS scheduling: register/unregister/os-list
+  lyon doctor [flags]           one-shot health check — paste-able report
 
 Run 'lyon <command> -h' for command flags.
 `, `lyon — 高性能通用 AI Agent 命令行
@@ -100,6 +103,7 @@ Run 'lyon <command> -h' for command flags.
   lyon tools [flags]            列出已注册工具
   lyon timer <sub>              管理定时器：add/list/enable/disable/rm +
                                 系统级调度：register/unregister/os-list
+  lyon doctor [flags]           一键体检，报告可直接贴进 issue
 
 运行 'lyon <command> -h' 查看该命令的旗标。
 `))
@@ -716,6 +720,8 @@ func cmdChat(args []string) int {
 			case "/stats":
 				printStats(os.Stdout, sess.Stats(), metrics, sess.Hooks(),
 					newGauge(cfg, sess.Stats(), sess.SubUsage()))
+			case "/doctor":
+				cmdDoctor(strings.Fields(args))
 			case "/memory":
 				handlePlainMemory(os.Stdout, cfg.Workspace, args)
 			case "/remember":

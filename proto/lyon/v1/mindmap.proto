@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// MindmapService: the live conversation mind-map (docs/design/mindmap.md).
+// One map per session as SERVER state — unlike todo_write's stateless list,
+// a growing tree cannot be re-sent every round (design §1), so the map
+// lives in pkg/mindmap, the distiller mutates it on prompt_end, and humans
+// mutate it here. Both writers ride §4.1 authority rules (pinned/confirmed
+// nodes are the human's; tombstones never revive) and §5's revision
+// optimistic lock (human edits win a race).
+//
+// nodes_json / ops_json are JSON strings on purpose: the node shape (§3)
+// and the op set (§7.3 map_ops) are still settling, and a JSON sink avoids
+// churning proto field numbers while they do — the same forward-compat
+// sink Event.attrs already provides on the event wire.
+service MindmapService {
+  rpc GetMindmap(GetMindmapRequest) returns (GetMindmapResponse);
+  rpc UpdateMindmap(UpdateMindmapRequest) returns (UpdateMindmapResponse);
+}
+
+message GetMindmapRequest {
+  string session_id = 1;
+}
+
+// GetMindmap is the /resume rebuild path (design §2: the map is NOT part
+// of the session snapshot — opening a session pulls it here). nodes_json
+// is a JSON array of nodes carrying the §3 fields: id, parent_id, label,
+// source_turn, kind (branch|decision|fact|open_question), status
+// (active|parked), pinned, edited_by_user, tombstone, state
+// (proposed|confirmed). revision 0 with "[]" means no map yet — a valid
+// answer, not an error.
+message GetMindmapResponse {
+  int32 revision = 1;
+  string title = 2;
+  string subtitle = 3;
+  string nodes_json = 4;
+}
+
+message UpdateMindmapRequest {
+  string session_id = 1;
+  // The client's base revision — the §5 optimistic lock. A gap whose
+  // changes include a HUMAN edit → FailedPrecondition (人工优先); a gap
+  // that only contains distiller rounds applies on top.
+  int32 revision = 2;
+  // "user" = a human acting on the card (full authority: may modify
+  // pinned/confirmed nodes). Any other origin is treated as agent
+  // map_ops (§7.3): may never touch pinned/confirmed nodes, and new
+  // nodes land proposed.
+  string origin = 3;
+  // JSON array of map_ops (§7.3): merge / set_parent / rewrite / add /
+  // park / delete / confirm, each targeting a node id. The batch applies
+  // atomically — one invalid op rejects the whole request.
+  string ops_json = 4;
+}
+
+// UpdateMindmap applies the batch and returns the whole new map (the
+// client re-renders from nodes_json; it does not patch locally).
+// FailedPrecondition: stale revision with a human edit in the gap, or a
+// non-user origin reaching a pinned/confirmed node. InvalidArgument: an
+// op is malformed or structurally impossible (missing parent, cycle).
+message UpdateMindmapResponse {
+  int32 revision = 1;
+  string nodes_json = 2;
+}

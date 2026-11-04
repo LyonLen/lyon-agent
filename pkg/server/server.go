@@ -86,6 +86,10 @@ func New(eng *agent.Engine, store *Store) *Server {
 	// itself, so what the panel shows is what the next turn will use.
 	setPath, setHandler := lyonv1connect.NewSettingsServiceHandler(&settingsService{s: s})
 	s.mux.Handle(setPath, setHandler)
+	// Mindmap: the live conversation map (docs/design/mindmap.md) — state
+	// in pkg/mindmap, distill + human edits inject into the hub from here.
+	mmPath, mmHandler := lyonv1connect.NewMindmapServiceHandler(&mindmapService{s: s})
+	s.mux.Handle(mmPath, mmHandler)
 	return s
 }
 

@@ -26,6 +26,7 @@ import (
 
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/evolve"
+	"lyon-agent/pkg/mindmap"
 	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/server"
 	"lyon-agent/pkg/tools"
@@ -120,14 +121,22 @@ func main() {
 
 	eng := agent.NewEngine(cfg, nil)
 	store := server.NewStore(*maxSess, *ttl)
-	// The evolution loop rides every daemon prompt_end (BACKLOG §2.5):
-	// rounds booked, due exams kicked, failures post-mortemed — the same
-	// computation the TUI drives, one pkg/evolve implementation. The
-	// observer must be set before the first session registers; each
-	// leg honors its own gate (LYON_SCORE / LYON_EXAM / LYON_DIAGNOSE).
+	// Two observers share the prompt_end seam: the mind-map distiller
+	// always (its own §8 gate LYON_MINDMAP makes it a no-op when off),
+	// and the evolution loop when enabled (BACKLOG §2.5 — rounds booked,
+	// due exams kicked, failures post-mortemed). Both hooks return
+	// immediately — each spawns its own goroutine — so composing them
+	// here never delays the hub tap. Observer must be set before the
+	// first session registers; evolve's legs honor their own gates
+	// (LYON_SCORE / LYON_EXAM / LYON_DIAGNOSE).
+	obs := mindmap.Hook
 	if !strings.EqualFold(os.Getenv("LYON_EVOLVE"), "off") {
-		store.SetPromptEndObserver(evolve.Hook)
+		obs = func(sess *agent.Session, ev agent.Event) {
+			evolve.Hook(sess, ev)
+			mindmap.Hook(sess, ev)
+		}
 	}
+	store.SetPromptEndObserver(obs)
 	// The dump is the seat. A session mirrors itself to disk on every state
 	// change, and whatever a previous process left behind is indexed here —
 	// not swept into a handful of archive blobs. Each draft keeps its own id,
@@ -142,6 +151,10 @@ func main() {
 	srv := server.New(eng, store)
 	srv.SetApproval(appr)
 	srv.SetToken(*token)
+	// The distiller's wire seam: an applied diff becomes
+	// EVENT_MINDMAP_UPDATE on the seat's hub (pkg/server/mindmap.go).
+	// Nil-safe — LYON_MINDMAP=off never reaches the publisher anyway.
+	mindmap.Open().SetPublisher(srv.PublishMindmap)
 	// One shared Metrics collector feeds /metrics with per-tool latency for
 	// every session of this process.
 	metrics := tools.NewMetrics()

@@ -59,6 +59,11 @@ type hub struct {
 	sid    string
 	ws     string
 	writes *writeLog
+
+	// autoMu serializes the side-ref auto-commit (the filecards goroutine's
+	// tail, autocommit.go) against UndoLastRun: an /undo landing mid-commit
+	// must see a consistent chain tip, never an orphaned link.
+	autoMu sync.Mutex
 }
 
 // hubItem is one stamped event on the wire.

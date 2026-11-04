@@ -55,6 +55,7 @@ const (
 	EvSecurityBlock = "security_block"
 	EvHookError     = "hook_error"
 	EvMemorySave    = "memory_save"
+	EvMemoryDistill = "memory_distill" // one distill pass: attempt/result incl. skip reason
 	EvRollback      = "rollback"
 	EvMode          = "mode"           // plan/bypass/default switch (audit trail)
 	EvDiagnosis     = "diagnosis"      // failure post-mortem (错因归纳) writeback
@@ -68,7 +69,9 @@ const (
 type Record struct {
 	Time       time.Time `json:"time"`
 	Event      string    `json:"event"`
-	Session    string    `json:"session"` // workspace the events belong to
+	Session    string    `json:"session"`           // workspace the events belong to
+	SessionID  string    `json:"session_id,omitempty"` // seat id when known (session_start)
+	Source     string    `json:"source,omitempty"`     // session_start: startup|resume|clear
 	Tool       string    `json:"tool,omitempty"`
 	Input      string    `json:"input,omitempty"`  // truncated tool input
 	Output     string    `json:"output,omitempty"` // truncated detail text

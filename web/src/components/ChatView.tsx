@@ -6,14 +6,17 @@ import { ModeAction, type WatchPendingResponse } from "../gen/lyon/v1/approval_p
 import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { errText, fileClient, sessionClient } from "../api";
+import { errText, fileClient, mindmapClient, sessionClient } from "../api";
 import { FileIcon, gitBadge } from "../fileIcons";
 import { uploadPaste } from "../paste";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
+import { parseNodes } from "../mindmap";
+import type { MindmapSnap } from "../mindmap";
 import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
 import OutputDrawer from "./OutputDrawer";
+import MindMapCard from "./MindMapCard";
 import { KEY_TABLE } from "../keys";
 import { fmtDuration } from "../fmt";
 
@@ -32,6 +35,7 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/new", desc: "start a fresh session", kind: "session" },
   { cmd: "/resume", desc: "pick a saved session (N = restore slot N)", kind: "session" },
   { cmd: "/rollback", desc: "list checkpoints · N restore · save [text] marks one", kind: "session" },
+  { cmd: "/undo", desc: "revert last run's file changes (git side-ref)", kind: "session" },
   { cmd: "/clear", desc: "clear the transcript view (history kept)", kind: "session" },
   { cmd: "/mode", desc: "cycle default → plan → bypass", kind: "model" },
   { cmd: "/model", desc: "show the session's effective model", kind: "model" },
@@ -701,6 +705,10 @@ export default function ChatView(props: {
   }, [input]);
   // Phase D: plan corner / status line / slash panel local state.
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  // The chat-tail mindmap (§7.1): ONE revision-guarded snapshot, not a
+  // Block — every distill update would otherwise append another card.
+  // Null until GetMindmap or the first event lands; reset on switch.
+  const [mindmap, setMindmap] = useState<MindmapSnap | null>(null);
   const [thinkOpen, setThinkOpen] = useState(false);
   const [cmdNote, setCmdNote] = useState(""); // local command receipt, 3s
   const [slashSel, setSlashSel] = useState(0);
@@ -872,18 +880,55 @@ export default function ChatView(props: {
     setBlocks([]);
     setErr("");
     setTodos([]);
+    setMindmap(null);
     props.onCtx?.(0);
     props.onCost?.(undefined);
+    // mindmap snapshot apply (§7.1): one revision-guarded state, never a
+    // block. Stale revisions lose; equal rev is an idempotent re-delivery
+    // (same content — skip, no re-render churn). mindmap_update carries
+    // title/subtitle, mindmap_edit doesn't — empty keeps what's on hand.
+    const applyMindmap = (
+      rev: number,
+      title: string | undefined,
+      subtitle: string | undefined,
+      nodesJson: string | undefined,
+    ) => {
+      setMindmap((cur) => {
+        if (cur && rev <= cur.revision) return cur;
+        return {
+          revision: rev,
+          title: title || cur?.title || "",
+          subtitle: subtitle || cur?.subtitle || "",
+          nodes: parseNodes(nodesJson),
+        };
+      });
+    };
+    const applyMindmapEv = (ev: SessionEvent) => {
+      const upd = ev.typeName === "mindmap_update";
+      if (!upd && ev.typeName !== "mindmap_edit") return;
+      applyMindmap(
+        Number(ev.attrs["revision"] || 0),
+        upd ? ev.attrs["title"] : undefined,
+        upd ? ev.attrs["subtitle"] : undefined,
+        ev.attrs["nodes"],
+      );
+    };
     void (async () => {
-      // Both reads are unary (content-length) responses — they arrive
-      // even while a streaming socket would sit unread. Parallel:
+      // All three reads are unary (content-length) responses — they
+      // arrive even while a streaming socket would sit unread. Parallel:
       // independent RPCs, and each failure degrades on its own (no
-      // history → the stream's full replay below; no record → idle).
-      const [hist, sres] = await Promise.all([
+      // history → the stream's full replay below; no record → idle; no
+      // map → the card waits for its first event).
+      const [hist, sres, mm] = await Promise.all([
         sessionClient.getHistory({ sessionId: props.sessionId }).catch(() => null),
         sessionClient.getSession({ sessionId: props.sessionId }).catch(() => null),
+        mindmapClient.getMindmap({ sessionId: props.sessionId }).catch(() => null),
       ]);
       if (!live) return;
+      // The map is NOT in the session snapshot — /resume rebuilds it
+      // here; the history fold below reconciles either way through the
+      // same revision guard.
+      if (mm) applyMindmap(Number(mm.revision), mm.title, mm.subtitle, mm.nodesJson);
       // anchor = where the live tail starts. -1 (no usable batch: reaped
       // seat, empty ring) keeps the old full-replay path — replaying at
       // subscribe time also covers events stamped between an empty batch
@@ -908,6 +953,7 @@ export default function ChatView(props: {
             if (ev.ctxUsed) props.onCtx?.(Number(ev.ctxUsed));
             if (ev.costUsd !== undefined) props.onCost?.(Number(ev.costUsd));
           }
+          applyMindmapEv(ev); // reduce() ignores these types by design
           seeded = reduce(seeded, ev);
         }
         setBlocks(seeded);
@@ -1016,6 +1062,7 @@ export default function ChatView(props: {
               if (ev.ctxUsed) props.onCtx?.(Number(ev.ctxUsed));
               if (ev.costUsd !== undefined) props.onCost?.(Number(ev.costUsd));
             }
+            applyMindmapEv(ev); // reduce() ignores these types by design
             setBlocks((b) => reduce(b, ev));
             // Advance the retry anchor with every processed event: a
             // reopen replays seq > anchor, so blocks fold once per event
@@ -1403,6 +1450,27 @@ export default function ChatView(props: {
         }
         break;
       }
+      case "/undo": {
+        // Side-ref walk (blueprint §四): restore the last run's file
+        // changes and step refs/lyon/auto/<sid> down its chain; the
+        // flash list is the disclosure (post-commit user edits on the
+        // same file are overwritten — no 3-way merge at this scale).
+        try {
+          const res = await sessionClient.undoLastRun({
+            sessionId: props.sessionId,
+          });
+          const paths = res.restoredPaths;
+          note(
+            paths.length > 0
+              ? `reverted: ${paths.join(" · ")}${res.ref ? "" : " · chain exhausted"}`
+              : "nothing to revert",
+          );
+          props.onChanged(); // the files panel's diff rows are now stale
+        } catch (e) {
+          note(errText(e));
+        }
+        break;
+      }
       case "/remember":
         // The TUI extracts server-side (DistillWithReport); the web has no
         // distill RPC yet, so steer the model to the same save_memory seam.
@@ -1499,6 +1567,32 @@ export default function ChatView(props: {
     if (sid && !subOrd.has(sid)) subOrd.set(sid, subOrd.size + 1);
   }
 
+  // Click-jump (§7.1 core): the map's source_turn counts user turns, and
+  // the feed's children mirror blocks 1:1 — so the Nth user block is the
+  // target. A turn the ring no longer holds (compacted away) is a no-op.
+  const jumpToTurn = (turn: number) => {
+    const feed = feedRef.current;
+    if (!feed || turn < 1) return;
+    const kids = feed.children;
+    let count = 0;
+    let hit: Element | null = null;
+    const n = Math.min(blocks.length, kids.length);
+    for (let i = 0; i < n; i++) {
+      if (blocks[i].kind === "user" && ++count === turn) {
+        hit = kids[i];
+        break;
+      }
+    }
+    if (!hit) return;
+    const target = hit;
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    // re-trigger the flash even when a previous jump's class lingers
+    target.classList.remove("mm-jump");
+    void (target as HTMLElement).offsetWidth;
+    target.classList.add("mm-jump");
+    window.setTimeout(() => target.classList.remove("mm-jump"), 1600);
+  };
+
   return (
     <div className={"chat" + (busy ? " streaming" : "")}>
       <div className="chat-feed" ref={feedRef} onScroll={onFeedScroll}>
@@ -1536,11 +1630,12 @@ export default function ChatView(props: {
             onOpenDiff={props.onOpenDiff}
           />
         ))}
-        {blocks.length === 0 && (
+        {blocks.length === 0 && !mindmap && (
           <div className="placeholder">
             live events appear here — submit a prompt below
           </div>
         )}
+        {mindmap && <MindMapCard snap={mindmap} onJump={jumpToTurn} />}
       </div>
       {err && (
         <div className="chat-err-row">

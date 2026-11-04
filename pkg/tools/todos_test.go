@@ -30,6 +30,39 @@ func TestTodoWriteExecute(t *testing.T) {
 	}
 }
 
+// TestTodoWriteFanoutNudge: F2 — a plan with three or more pending items
+// nudges the model to dispatch them in one fan-out (at exactly the moment
+// the plan lands); shorter plans get no noise.
+func TestTodoWriteFanoutNudge(t *testing.T) {
+	tw := &TodoWrite{}
+	out, err := tw.Execute(context.Background(), []byte(`{"todos":[
+		{"content":"wire the parser","status":"in_progress"},
+		{"content":"add tests","status":"pending"},
+		{"content":"update docs","status":"pending"},
+		{"content":"ship it","status":"pending"}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := out[0].OfText.Text; !strings.Contains(text,
+		"3 pending — dispatch independent items in one run_subagents fan-out") {
+		t.Fatalf("ack = %q, want the fan-out nudge", text)
+	}
+
+	// Two pending is below the threshold — plain progress ack only.
+	out, err = tw.Execute(context.Background(), []byte(`{"todos":[
+		{"content":"wire the parser","status":"completed"},
+		{"content":"add tests","status":"in_progress"},
+		{"content":"update docs","status":"pending"}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := out[0].OfText.Text; strings.Contains(text, "fan-out") {
+		t.Fatalf("ack = %q, want no nudge below 3 pending", text)
+	}
+}
+
 // TestTodoWriteValidation: a malformed plan is a retryable error, never
 // half-accepted — the display would treat it as the truth.
 func TestTodoWriteValidation(t *testing.T) {

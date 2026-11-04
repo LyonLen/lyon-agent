@@ -4,6 +4,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -13,6 +14,17 @@ import (
 	"time"
 
 	"lyon-agent/pkg/agent"
+)
+
+const (
+	// distillBudget caps one seat's distill pass at teardown (unload /
+	// Delete): a model call must not hold a park, a reaper tick, or a
+	// delete hostage — the pass is best-effort memory, never a gate.
+	distillBudget = 10 * time.Second
+	// closeAllBudget is the shared envelope for CloseAll's distill passes:
+	// every seat in the loop draws from the same deadline, so process
+	// exit stays bounded no matter how many seats are live.
+	closeAllBudget = 15 * time.Second
 )
 
 var (
@@ -151,7 +163,13 @@ func (s *Store) LoadDrafts(workspace string) (int, error) {
 // everything that wants the stream (SSE pump, WatchEvents) subscribes to
 // the hub instead (web plan §2).
 func (s *Store) Create(sess *agent.Session) (string, error) {
-	return s.register(sess, newID())
+	id, err := s.register(sess, newID())
+	if err == nil {
+		// "startup" announced now, ahead of any first prompt — outside the
+		// store lock so the hook fire never nests inside s.mu.
+		sess.EnsureSessionStart()
+	}
+	return id, err
 }
 
 // Register adopts a session under a known id — a seat read back from disk
@@ -161,8 +179,13 @@ func (s *Store) Register(sess *agent.Session, id string) error {
 	if id == "" {
 		return ErrNotFound
 	}
-	_, err := s.register(sess, id)
-	return err
+	if _, err := s.register(sess, id); err != nil {
+		return err
+	}
+	// No-op when Restore already announced resume/clear — the latch makes
+	// NewSession → Restore → Register land exactly one session_start.
+	sess.EnsureSessionStart()
+	return nil
 }
 
 func (s *Store) register(sess *agent.Session, id string) (string, error) {
@@ -217,10 +240,11 @@ func (s *Store) register(sess *agent.Session, id string) (string, error) {
 	h := e.hub
 	e.hub.onPromptEnd = func(ev agent.Event) {
 		maybeIntervalTitle(sess)
-		// File-card diff rides the same tap (filecards.go): schedule only —
-		// the git pass runs in its own goroutine and injects files_changed
-		// after this prompt_end's seq, so the card lands under its reply.
-		h.scheduleFileCards(sess.Workspace())
+		// File-card diff + the run's side-ref auto-commit ride the same
+		// tap (filecards.go / autocommit.go): schedule only — the git
+		// passes run in their own goroutine, the card lands after this
+		// prompt_end's seq, the commit message carries this prompt.
+		h.scheduleFileCards(sess.Workspace(), sess.LastPrompt())
 		if obs != nil {
 			obs(sess, ev)
 		}
@@ -295,6 +319,15 @@ func (s *Store) Delete(id string) bool {
 		e.draft.Close() // no mirror may land after the removal
 		_ = os.Remove(e.draft.Path())
 	}
+	// Distill before Close: the conversation is about to vanish for good,
+	// so extract durable facts first — Close flushes hooks, and a Fire
+	// after Close is memory-only (the audit line would be lost). The count
+	// guard keeps an empty seat's delete silent.
+	if snap := e.sess.Export(); len(snap.Messages) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), distillBudget)
+		_, _ = e.sess.DistillAt(ctx, "delete")
+		cancel()
+	}
 	e.sess.Close()
 	return true
 }
@@ -304,7 +337,12 @@ func (s *Store) Delete(id string) bool {
 // is authoritative, so the metadata cached for listing is read from what was
 // just written — a parked seat lists exactly like the live one did, minus the
 // run state (it is idle by definition).
-func (s *Store) unload(id string, e *entry) {
+//
+// trigger labels the distill audit line (park|reap|shutdown); deadline is
+// the shared teardown envelope — distill draws min(distillBudget, time
+// until deadline) so a multi-seat CloseAll stays bounded overall.
+// MUST run without s.mu held: the model call can take the full budget.
+func (s *Store) unload(id string, e *entry, trigger string, deadline time.Time) {
 	// Order matters: Interrupt releases histMu (drive holds it for a whole
 	// prompt), and only then can a mirror's Export — and the Export below —
 	// return. Closing the draft first would block for the length of the run.
@@ -314,6 +352,16 @@ func (s *Store) unload(id string, e *entry) {
 	}
 	snap := e.sess.Export() // waits out the prompt's bookkeeping (histMu)
 	ws := e.sess.Workspace()
+	// Distill before Close — Close flushes hooks, so a Fire after Close is
+	// memory-only and the audit line would vanish. Only when there is
+	// history to distill (an empty seat's teardown stays silent).
+	if len(snap.Messages) > 0 {
+		if budget := min(distillBudget, time.Until(deadline)); budget > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), budget)
+			_, _ = e.sess.DistillAt(ctx, trigger)
+			cancel()
+		}
+	}
 	e.sess.Close()
 
 	if len(snap.Messages) == 0 {
@@ -365,7 +413,7 @@ func (s *Store) Park(id string) bool {
 	if !ok {
 		return false
 	}
-	s.unload(id, e)
+	s.unload(id, e, "park", time.Now().Add(distillBudget))
 	return true
 }
 
@@ -557,7 +605,7 @@ func (s *Store) Reap() int {
 	}
 	s.mu.Unlock()
 	for _, v := range doomed {
-		s.unload(v.id, v.e)
+		s.unload(v.id, v.e, "reap", time.Now().Add(distillBudget))
 	}
 	return len(doomed)
 }
@@ -576,8 +624,11 @@ func (s *Store) CloseAll() {
 	all := s.sessions
 	s.sessions = make(map[string]*entry)
 	s.mu.Unlock()
+	// One shared deadline for every seat's distill: exit stays bounded at
+	// closeAllBudget no matter how many conversations are live.
+	deadline := time.Now().Add(closeAllBudget)
 	for id, e := range all {
-		s.unload(id, e)
+		s.unload(id, e, "shutdown", deadline)
 	}
 }
 

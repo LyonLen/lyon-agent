@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +46,13 @@ type Engine struct {
 	// turnSem, when non-nil, bounds in-flight runner iterations across all
 	// sessions of this engine.
 	turnSem chan struct{}
+	// repoMap caches the workspace orientation note (repomap.go) for
+	// repoMapTTL so sibling sessions share one scan. The text carries no
+	// timestamp, so a warm hit is byte-identical and the cross-session
+	// system prefix stays shareable. Guarded by repoMapMu.
+	repoMapMu   sync.Mutex
+	repoMapText string
+	repoMapAt   time.Time // zero until the first scan
 }
 
 // modelTier is the mutable slice of the engine configuration.

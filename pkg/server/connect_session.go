@@ -11,6 +11,7 @@ import (
 	lyonv1 "lyon-agent/gen/go/lyon/v1"
 	"lyon-agent/gen/go/lyon/v1/lyonv1connect"
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/mindmap"
 	"lyon-agent/pkg/models"
 )
 
@@ -454,6 +455,10 @@ func protoEventType(t agent.EventType) lyonv1.EventType {
 		return lyonv1.EventType_EVENT_TYPE_PROMPT_END
 	case agent.EventError:
 		return lyonv1.EventType_EVENT_TYPE_ERROR
+	case mindmap.TypeUpdate:
+		return lyonv1.EventType_EVENT_TYPE_MINDMAP_UPDATE
+	case mindmap.TypeEdit:
+		return lyonv1.EventType_EVENT_TYPE_MINDMAP_EDIT
 	default:
 		return lyonv1.EventType_EVENT_TYPE_UNSPECIFIED
 	}

@@ -22,6 +22,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv("LYON_HOME", dir)
+	// The planner (pkg/agent/planner.go) would consume a scripted mock
+	// turn on any gate-passing prompt; tests opt in per-case.
+	os.Setenv("LYON_PLANNER", "off")
 	code := m.Run()
 	settleRemoveAll(dir)
 	os.Exit(code)

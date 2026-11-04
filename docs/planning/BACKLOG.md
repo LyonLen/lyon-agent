@@ -70,37 +70,64 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 
 ### 2.1 大规划 —— 先设计文档再动代码
 
-- [ ] **分屏多会话 + 规划 subagent + queue 碎片合并**（HANDOFF A-7）。欠账最久，
-  连设计文档都还没有；用户原话「要好好规划哦」。拆解：设计文档 → 分屏布局 →
-  规划 subagent → queue 合并优化（#2 间隙插队已先行落地 d7f3527，剩碎片合并）。
+- [ ] **分屏多会话 + queue 碎片合并**（HANDOFF A-7）。欠账最久，用户原话
+  「要好好规划哦」。拆解：设计文档 → 分屏布局 → queue 合并优化（#2 间隙插队
+  已先行落地 d7f3527，剩碎片合并）。
+  - [x] 规划 subagent + 子代理结果合并 —— 2026-11-04 落地 `pkg/agent/planner.go`
+    （方案A：并行 planner 换 plan，`LYON_PLANNER=off|auto|on` 默认 auto）+
+    `mergeSubresults`（dispatch.go：一次 cheap-tier Ask 收拢各子代理结果）。
+- [ ] **对话实时思维导图（mindmap）** —— 2026-11-03 用户口述新功能，
+  方案已写：`docs/design/mindmap.md`（13 节，含图→memory 抽象与 7 组测试用例），
+  视觉基线 `docs/design/mindmap-sample.png|html|js`（样图支持真圈选）。
+  要点：旁路蒸馏挂 `prompt_end` tap（不侵入内核）、图是「待你确认的理解」而非结论
+  （提案态虚线 / 确认态实线）、人工改动 `pinned` 权威、结构操作本地零 token /
+  语义操作走 chat 并以 `map_ops` 回作用图、只把 `confirmed` 抽成 memory。
+  分期：M1 见证 → M2 人工通道（核心）→ M2.5 沉淀 → M3 双向。
+  - **M1 已交付（2026-11-04）**：后端 `mindmap_update`/`mindmap_edit` 事件 +
+    Get/UpdateMindmap RPC（`pkg/mindmap`、`pkg/server/mindmap.go`，edit 事件
+    入 history，rev 守卫幂等）；web 卡片 `web/src/components/MindMapCard.tsx`
+    （对话流尾部、提案虚线/确认实线、点节点/t# 跳回原话、新节点 400ms 高亮、
+    折叠一行 `N 分支 · 最近 +k`）。
+  - 原「待确认」已拍板（2026-11-04）：蒸馏走 subagent 档便宜模型；
+    `LYON_MINDMAP_ASK` 默认开（M2 才实现，现零代码）；不写 hot 索引。
+  - 仍欠：M2 人工通道（edit→chat 800ms 合并窗 + 自动提问纪律 §4.4）、
+    M2.5 圈选沉淀、M3 双向。
 
 ### 2.2 产品硬要求收尾
 
-- [ ] **1.6 并发规划增强 F1/F2/F3**（memory: lyon-concurrency-disposition ——
-  Go 式最大化并发是产品硬要求，串行是缺陷）：
+- [x] **1.6 并发规划增强 F1/F2**（memory: lyon-concurrency-disposition ——
+  Go 式最大化并发是产品硬要求，串行是缺陷）—— 2026-11-04 落地：
   - F1 习惯回路进 prompt：todo 计划后提示「独立项用 run_subagents 一次派发」；
-  - F2 计划感知并发：≥3 独立项首条 todo 即派发，steps 面板显示「N 项并行中」；
-  - F3 度量闭环：stats 记 fan-out 计数，evolve 面板加「并发度」列。
-  - 验收：≥3 独立子项的任务模型首尝即扇出；stats 有 fan-out 计数；steps 可见并行指示。
-  - 现状：prompt 至今只有一句老话，三项全未动。
+  - F2 计划感知并发：≥3 独立项首条 todo 即派发，steps 面板显示「N 项并行中」。
+- [ ] **1.6 F3 度量闭环**：stats 记 fan-out 计数，evolve 面板加「并发度」列。
+  验收：stats 有 fan-out 计数；evolve 面板可见并发度。
 
-- [ ] **记忆自动蒸馏（治本）**：`61931c6` 只破了空仓死锁（引导注入），写入仍纯靠
-  模型自觉；turn 收尾自动检查本场结论并入库（或推提醒）需要机制级设计。
-  - 验收：长会话结束后不需用户点名，持久结论出现在记忆库；audit 可见蒸馏痕迹。
+- [x] **记忆自动蒸馏（治本）** —— 2026-11-04 落地 `pkg/agent/distill.go`：
+  `DistillAt(trigger)` + 触发点接线（teardown 的 park/reap/delete/shutdown、
+  TUI exit、`/remember` —— store.go / cmd/lyon；prompt_end 那一针是
+  mindmap 蒸馏的 seam，不是 memory 的，每轮一调太贵故不挂），`LYON_DISTILL=off`
+  静默，audit 留痕由 `distill_audit_test.go` 钉住。原欠账「写入纯靠模型自觉」
+  已治本。另修 reasoning 模型空转：Ask/蒸馏两路请求显式 `thinking: disabled`
+  （thinking 计入 max_tokens，曾吃满预算 → 空回复 / 10s teardown 超时）。
   - 参照：web `/remember` 手动兜底归 §2.5 漂移收敛。
 
 ### 2.3 ROADMAP 阶段 1 功能欠账
 
 - [ ] **0.3 GIF 进 README 第一屏**：`make demo-60s` 已 14/14 可跑（0268d8e），
   shot list 与 ffmpeg 两步 GIF 配方在 `demo/README-60s.md`，README 还没挂。
-- [ ] **1.1 首跑体验**：`lyon doctor` 一键体检（网关/MCP/记忆库/leaderboard 摘要，
-  输出可贴 issue）+ `/help` 分级（新手三问一屏：我在哪、能干什么、怎么退出）。
-- [ ] **1.4 repo-map 轻量上下文**（cttags/简单解析 → system note 注入「本仓库
-  地图」）。同项的 search_files 与 read_file offset/limit 已完成，只剩 repo-map 本体。
+- [x] **1.1 `lyon doctor` 一键体检** —— 2026-11-04 落地 `cmd/lyon/doctor.go`
+  + `pkg/doctor`（网关/MCP/记忆库/leaderboard 摘要，输出可贴 issue）。
+- [ ] **1.1 `/help` 分级**（新手三问一屏：我在哪、能干什么、怎么退出）。
+- [x] **1.4 repo-map 轻量上下文** —— 2026-11-04 落地 `pkg/agent/repomap.go`
+  （workspace 扫描缓存 → system note 注入「本仓库地图」，engine 启用）。
+  同项的 search_files 与 read_file offset/limit 此前已完成。
 - [ ] **1.2 安装一行命令 + GitHub Release**：brew tap / curl | sh / scoop，
   tag + 三平台产物 + checksum。依赖 1.2 的仓名拍板。
-- [ ] **1.3 git 即后悔药**：workspace 改动随 session 自动 commit
-  （message = session id + prompt 摘要）+ `/undo` 一键回滚。
+- [x] **1.3 git 即后悔药** —— 2026-11-04 落地：side ref `refs/lyon/auto/<sid>`
+  自动 commit（不碰 HEAD/分支/用户 index，`pkg/server/autocommit.go`）+
+  `UndoLastRun` RPC 与 web `/undo`（链走到根删 ref，NotFound 收口；
+  autocrlf 幻影脏已修——index 与 parent 同 blob 时走 index 恢复刷 stat）。
+  TUI `/undo` 按「tui.go 只减不增」红线押后到 §2.4 拆分。
 - [ ] **1.7 仓库卫生收尾**：README badge slug 确认、docs/screens 截图换新、
   README 双语结构统一（LICENSE、CI workflow、exe 出 git 三项已落地）。
 
@@ -118,7 +145,17 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 - [x] **C-4 pkg/eval TempDir `001` 空目录 RemoveAll 竞态** —— 2026-10-19 核实
   已被现行覆盖：`scratchHome` 带 40×50ms 重试 RemoveAll + 扫描器 `001` marker
   注释，`go test ./pkg/eval -count=3` 连绿，无需再修。
-- [ ] **hooks SessionStart 触发点**（EVOLUTION-GAPS 遗留的接入点问题）。
+- [x] **hooks SessionStart 触发点** —— 2026-11-04 落地：`EnsureSessionStart`
+  每会话恰好一发（session.go latch），NewSession→Restore→Register 三路归一
+  （store.go），`Source=startup|resume|clear`。
+- [ ] **热层已超预算 2 倍**（2026-11-03 核实，独立于 mindmap 方案）：
+  `memoryHotBytes = 4096`（`pkg/tools/memory.go:21`），而项目热层现有 4 条共
+  **8226 字节**，其中 `26-27年汇报-sdas-skill-与软件团队定位口径.md` 单条 4722 字节
+  ——自己一条就吃穿预算。溢出行为是**整条丢弃**（`pkg/memory/store.go:424`
+  `if used+len(entry) > maxBytes && any { return }`），所以至少 1 条 hot fact
+  每次会话都**没进上下文**，而且当事人不自知。
+  - 修法二选一：清理热层（把长条目降冷，只留 description + 索引）/ 改双限（条数+字节）
+    + 超限时 audit 告警而不是静默丢弃。
 - [ ] **background_end 的 TUI 转录尾巴**（2026-10-30 run_shell 改造的遗留）：
   超时/后台模式已通到 web（chat 事件 + 系统注记 + 间隙注入 + 生命周期），
   TUI 转录 case 在 tui.go（只减不增红线），等 §2.4 拆分后补或改挂 steps.go

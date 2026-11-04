@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/toolrunner"
@@ -17,6 +18,32 @@ import (
 // few enough that a single tool call cannot open an unbounded storm of
 // API loops (the turn semaphore still bounds in-flight work within it).
 const maxDispatchTasks = 6
+
+// mergeMinBytes gates the consolidation pass: below this the concat is
+// already small enough to read as-is, and an extra cheap-tier call would
+// cost more than the context it saves.
+const mergeMinBytes = 8 << 10
+
+// mergeMaxTokens bounds the consolidated reply — a tight digest of the
+// findings, not a second copy of them.
+const mergeMaxTokens = 4000
+
+// mergeBudget bounds the consolidation call end to end; a var (not const)
+// so tests can shrink it onto the fail-open path.
+var mergeBudget = 30 * time.Second
+
+// mergeSystemPrompt instructs the consolidation pass: keep every fact,
+// cite the source section, never hide a failure.
+const mergeSystemPrompt = `You consolidate concurrent subagent reports into one answer for the driving agent.
+
+Input: sections headed "## i/N <task>", each holding that subtask's report (or a "failed: …" line).
+
+Write the consolidated result:
+- Preserve every factual finding VERBATIM — numbers, names, quotes, paths, code. Do not paraphrase detail away.
+- Attribute claims with their source section number in brackets, e.g. [1], [2].
+- Keep every "failed:" line visible — failures are data the caller needs.
+- Where sections conflict, present both readings with their [i] citations; do not silently pick one.
+- No preamble about merging or summarizing; start directly with the findings.`
 
 // dispatchTask is one subtask of a leader's decomposition.
 type dispatchTask struct {
@@ -147,6 +174,8 @@ func (s *Session) dispatch(ctx context.Context, input json.RawMessage) ([]anthro
 	wg.Wait()
 
 	fails := 0
+	okResults := 0
+	seenBody := make(map[string]int, len(results)) // body → first task (1-based)
 	var b strings.Builder
 	for i, r := range results {
 		t := args.Tasks[i]
@@ -157,7 +186,22 @@ func (s *Session) dispatch(ctx context.Context, input json.RawMessage) ([]anthro
 			fails++
 			fmt.Fprintf(&b, "failed: %v\n", r.err)
 		default:
-			b.WriteString(r.text)
+			okResults++
+			// Rules-layer dedupe: subtasks handed the same context often
+			// answer with byte-identical text — the second copy only
+			// burns context, so it becomes a pointer back to the first.
+			body := strings.TrimRight(r.text, "\n")
+			switch {
+			case body == "":
+				b.WriteString("(no output)")
+			default:
+				if first, dup := seenBody[body]; dup {
+					fmt.Fprintf(&b, "(identical to task %d)", first)
+				} else {
+					seenBody[body] = i + 1
+					b.WriteString(body)
+				}
+			}
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -174,5 +218,33 @@ func (s *Session) dispatch(ctx context.Context, input json.RawMessage) ([]anthro
 		return nil, fmt.Errorf("run_subagents: all %d subtasks failed: %s",
 			len(results), strings.Join(causes, " | "))
 	}
-	return tools.TextResult(strings.TrimRight(b.String(), "\n")), nil
+	raw := strings.TrimRight(b.String(), "\n")
+	// Consolidation pass (⑧): a wide fan-out of verbose reports reads
+	// better as one cited digest — gated, bounded, fail-open. Any miss
+	// (too few ok results, small concat, API error, useless reply) keeps
+	// the raw concat, which was the status quo anyway.
+	if merged := s.mergeSubresults(ctx, raw, okResults); merged != "" {
+		return tools.TextResult(merged), nil
+	}
+	return tools.TextResult(raw), nil
+}
+
+// mergeSubresults is the consolidation pass: one cheap-tier Ask over the
+// raw concat. Fail-open at every gate — the caller can never be blocked
+// or broken by a merge that does not clearly beat the concat.
+func (s *Session) mergeSubresults(ctx context.Context, raw string, okResults int) string {
+	if okResults < 3 || len(raw) < mergeMinBytes {
+		return "" // the concat is already small enough to read as-is
+	}
+	mctx, cancel := context.WithTimeout(ctx, mergeBudget)
+	defer cancel()
+	merged, err := s.Ask(mctx, mergeSystemPrompt, raw, mergeMaxTokens)
+	merged = strings.TrimSpace(merged)
+	// Only a reply that actually beats the concat wins: an error, an
+	// empty reply, or a "digest" not shorter than the original all keep
+	// the original — paying for a copy that saves nothing is the defect.
+	if err != nil || merged == "" || len(merged) >= len(raw) {
+		return ""
+	}
+	return merged
 }

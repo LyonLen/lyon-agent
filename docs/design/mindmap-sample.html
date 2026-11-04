@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>思维导图卡片 · 视觉基线</title>
+<style>
+  :root{
+    --paper:#f2efe7;
+    --card:#fffdf9;
+    --ink:#1c1a17;
+    --ink-2:#57534b;
+    --ink-3:#8d877c;
+    --rule:#ddd7c9;
+    --proposed:#8d877c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 12% -10%, #fffdf8 0%, rgba(255,253,248,0) 60%),
+      var(--paper);
+    color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:44px 44px 210px;
+  }
+  .sheet{
+    max-width:1560px;margin:0 auto;
+    background:var(--card);
+    border:1px solid var(--rule);
+    border-radius:18px;
+    box-shadow:0 1px 0 rgba(28,26,23,.04), 0 18px 50px -28px rgba(28,26,23,.32);
+    padding:32px 34px 30px;
+  }
+
+  /* ---------- header ---------- */
+  header{display:flex;align-items:flex-start;gap:22px;border-bottom:1px solid var(--rule);padding-bottom:20px}
+  .glyph{
+    flex:0 0 auto;width:46px;height:46px;border-radius:13px;
+    background:var(--ink);color:#f7f3e8;
+    display:grid;place-items:center;font-size:22px;line-height:1;
+    box-shadow:0 6px 16px -8px rgba(28,26,23,.8);
+  }
+  .h1{font-size:26px;font-weight:650;letter-spacing:.2px;margin:0 0 5px}
+  .sub{color:var(--ink-2);font-size:13.5px;margin:0}
+  .sub b{color:var(--ink);font-weight:600}
+  .chips{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:420px}
+  .chip{
+    border:1px solid var(--rule);border-radius:999px;padding:4px 11px;
+    font-size:11.5px;color:var(--ink-2);background:#fbf8f1;white-space:nowrap;
+  }
+  .chip b{color:var(--ink);font-weight:650;font-variant-numeric:tabular-nums}
+  .chip.warn{border-color:#e2c9a4;background:#fdf6e9;color:#8a5a18}
+
+  /* ---------- legend ---------- */
+  .legend{display:flex;gap:26px;align-items:center;flex-wrap:wrap;margin:16px 0 4px;font-size:12px;color:var(--ink-2)}
+  .lg{display:flex;align-items:center;gap:8px}
+  .sw{width:30px;height:17px;border-radius:5px;background:#fff}
+  .sw.conf{border:1.5px solid var(--ink)}
+  .sw.prop{border:1.5px dashed var(--proposed)}
+  .kinds{display:flex;gap:14px;align-items:center;margin-left:auto;color:var(--ink-3)}
+  .kinds span{white-space:nowrap}
+  .k{font-size:10px}
+
+  /* ---------- spine: root → 主干 → 分支 ---------- */
+  .spine{position:relative;margin:22px 0 0;height:34px;display:flex;align-items:flex-start;gap:0}
+  .root{
+    position:relative;z-index:2;flex:0 0 auto;
+    background:var(--ink);color:#f8f4e9;
+    border-radius:11px;padding:9px 16px;font-size:13.5px;font-weight:600;letter-spacing:.2px;
+    box-shadow:0 8px 20px -12px rgba(28,26,23,.9);
+    display:flex;align-items:center;gap:9px;
+  }
+  .root .rt{font-size:10px;opacity:.62;font-weight:400;font-variant-numeric:tabular-nums}
+  .trunk{
+    position:absolute;left:0;right:0;bottom:0;height:1.5px;
+    background:linear-gradient(90deg,var(--ink) 0%,var(--rule) 22%,var(--rule) 100%);
+  }
+  .cols{display:flex;gap:16px;align-items:flex-start;margin-top:18px;flex-wrap:wrap}
+  .col{
+    flex:1 1 168px;min-width:168px;max-width:230px;
+    display:flex;flex-direction:column;gap:9px;
+    position:relative;
+  }
+  .col::before{                                  /* 主干下来的引线 */
+    content:"";position:absolute;left:50%;top:-18px;width:1.5px;height:18px;
+    background:var(--rule);
+  }
+  .col-head{
+    border-radius:10px;padding:9px 11px;color:#fff;
+    font-size:13.5px;font-weight:600;letter-spacing:.3px;
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    position:relative;
+  }
+  .col-head::before{                             /* 引线落点圆点 */
+    content:"";position:absolute;left:50%;top:-21px;width:7px;height:7px;
+    margin-left:-3.5px;border-radius:50%;background:currentColor;
+    background:var(--dot);opacity:.85;
+  }
+  .col-head .n{font-size:11px;opacity:.75;font-variant-numeric:tabular-nums;font-weight:500}
+
+  .node{
+    position:relative;
+    background:#fff;
+    border-radius:9px;
+    padding:9px 11px 9px 13px;
+    font-size:12.6px;line-height:1.5;
+    color:var(--ink);
+    border:1.4px dashed var(--proposed);       /* proposed：模型猜的 */
+  }
+  .node.confirmed{
+    border:1.4px solid var(--b);               /* confirmed：你认定的 */
+    border-left-width:4px;
+    box-shadow:0 1px 2px rgba(28,26,23,.05);
+  }
+  .node .t{
+    display:inline-block;margin-left:6px;vertical-align:2px;
+    font-size:9.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;
+    font-family:ui-monospace,Consolas,monospace;
+  }
+  .node.confirmed .t{color:var(--b);opacity:.75}
+  .node .i{font-size:9px;margin-right:5px;vertical-align:1.5px;opacity:.7}
+  .node.open_question{background:#fffaf0;border-style:dashed;border-color:#d9b26a}
+  .node.leaf-pin::after{
+    content:"已确认";position:absolute;top:-7px;right:7px;
+    background:var(--b);color:#fff;font-size:8.5px;letter-spacing:.4px;
+    padding:1.5px 5px;border-radius:999px;
+  }
+  .col-empty{font-size:11.5px;color:var(--ink-3);padding:6px 2px}
+  footer{
+    margin-top:22px;border-top:1px solid var(--rule);padding-top:14px;
+    display:flex;gap:18px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-3);
+  }
+  footer b{color:var(--ink-2);font-weight:600}
+/* ---------- 圈选与选区浮条 ---------- */
+  .sheet{position:relative}
+  .node.is-sel{
+    outline:2px solid #1d4ed8;outline-offset:2px;
+    box-shadow:0 0 0 5px rgba(29,78,216,.10), 0 2px 6px rgba(28,26,23,.10);
+  }
+  .band{
+    position:absolute;z-index:9;pointer-events:none;
+    border:1.5px solid #1d4ed8;background:rgba(29,78,216,.08);
+    border-radius:3px;
+  }
+  .askbar{
+    position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(14px);
+    width:min(940px,calc(100% - 80px));
+    background:#22201c;color:#f6f2e6;border-radius:14px;
+    padding:13px 16px 12px;
+    box-shadow:0 20px 50px -20px rgba(0,0,0,.7);
+    opacity:0;pointer-events:none;transition:.16s ease;
+    z-index:50;
+  }
+  .askbar.on{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+  .ask-h{font-size:12px;letter-spacing:.3px;color:#cfc7b4;margin-bottom:9px}
+  .ask-h b{color:#fff;font-variant-numeric:tabular-nums}
+  .ask-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .verb{
+    border:1px solid #4a453c;background:#2c2925;color:#e8e1d1;
+    border-radius:999px;padding:5px 11px;font-size:11.5px;cursor:pointer;
+  }
+  .verb:hover{background:#3a352e;border-color:#6b6459}
+  #askq{
+    flex:1 1 260px;min-width:200px;
+    background:#151311;border:1px solid #3a352e;border-radius:9px;
+    color:#f6f2e6;font-size:12.5px;padding:9px 11px;font-family:inherit;
+  }
+  #askq::placeholder{color:#7d766a}
+  #askgo{
+    background:#f6f2e6;color:#22201c;border:0;border-radius:9px;
+    padding:9px 15px;font-size:12.5px;font-weight:650;cursor:pointer;
+  }
+  .ask-foot{margin-top:9px;font-size:10.5px;color:#8f8776}
+  .ask-foot b{color:#cfc7b4;font-weight:600}
+  .toast{
+    position:fixed;left:50%;bottom:190px;transform:translateX(-50%);
+    background:#1d4ed8;color:#fff;font-size:12px;padding:8px 14px;border-radius:999px;
+    opacity:0;transition:.2s;z-index:60;pointer-events:none;
+  }
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <div class="glyph">🧠</div>
+    <div>
+      <h1 id="h1">对话实时思维导图</h1>
+      <p class="sub" id="sub">lyon 目前对这次讨论的理解 · <b>有错请你改</b></p>
+    </div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <div class="legend">
+    <div class="lg"><span class="sw conf"></span>确认态 — 你认定的 / 你亲手改过的</div>
+    <div class="lg"><span class="sw prop"></span>提案态 — 模型猜的，待你确认</div>
+    <div class="kinds">
+      <span><span class="k">▸</span> 分支</span>
+      <span><span class="k">◆</span> 决策</span>
+      <span><span class="k">●</span> 事实</span>
+      <span><span class="k">○</span> 未决</span>
+      <span>t# = 出自第几轮</span>
+    </div>
+  </div>
+
+  <div class="spine">
+    <div class="root"><span id="rootlabel">对话实时思维导图</span><span class="rt" id="rootturn"></span></div>
+    <div class="trunk"></div>
+  </div>
+
+  <div class="cols" id="cols"></div>
+
+  <footer>
+    <span><b>读法</b>：这不是结论，是 lyon 对你这句话的理解。可怀疑是它的本分。</span>
+    <span><b>生成</b>：旁路蒸馏 · 挂 prompt_end tap · 关掉无痕</span>
+    <span><b>点等宽 t#</b> 可跳回原话（生产版）</span>
+  </footer>
+</div>
+
+<script src="./mindmap-sample.js"></script>
+<script>
+const PALETTE = {
+  "需求":"#2d6a4f", "机制选型":"#3a5a8c", "三条硬规则":"#9c4221",
+  "已拍板":"#5b4b8a", "风险":"#a4262c", "亮点补充":"#0f766e",
+  "未决":"#b45309", "下一步":"#475569"
+};
+const ICON = {branch:"▸", decision:"◆", fact:"●", open_question:"○"};
+
+const byParent = new Map();
+for (const n of MAP.nodes) {
+  if (!byParent.has(n.parent)) byParent.set(n.parent, []);
+  byParent.get(n.parent).push(n);
+}
+const root = MAP.nodes.find(n => n.parent === null);
+const branches = byParent.get(root.id) || [];
+
+// stats
+const nodes = MAP.nodes;
+const confirmed = nodes.filter(n => n.state === "confirmed").length;
+const opened = nodes.filter(n => n.kind === "open_question").length;
+document.getElementById("h1").textContent = MAP.title;
+document.getElementById("sub").innerHTML =
+  "lyon 目前对这次讨论的理解 · <b>有错请你改</b>";
+
+const chips = [
+  `<span class="chip"><b>${nodes.length}</b> 节点</span>`,
+  `<span class="chip"><b>${branches.length}</b> 分支</span>`,
+  `<span class="chip"><b>${confirmed}</b> 已确认</span>`,
+  `<span class="chip warn"><b>${nodes.length - confirmed}</b> 待你确认</span>`,
+  opened ? `<span class="chip warn"><b>${opened}</b> 未决</span>` : "",
+  `<span class="chip">rev <b>${MAP.revision}</b></span>`
+].join("");
+document.getElementById("chips").innerHTML = chips;
+document.getElementById("rootlabel").textContent = root.label;
+document.getElementById("rootturn").textContent = `t${root.turn} · ${MAP.nodes.length} 节点`;
+
+const cols = document.getElementById("cols");
+for (const b of branches) {
+  const color = PALETTE[b.label] || "#57534b";
+  const kids = byParent.get(b.id) || [];
+  const col = document.createElement("div");
+  col.className = "col";
+  col.innerHTML = `
+    <div class="col-head" style="background:${color};--dot:${color}">
+      <span>${b.label}</span><span class="n">${kids.length}</span>
+    </div>
+  `;
+  if (kids.length === 0) {
+    col.insertAdjacentHTML("beforeend", `<div class="col-empty">—</div>`);
+  }
+  for (const k of kids) {
+    const conf = k.state === "confirmed";
+    const pin = k.id === "settled-prop"; // 用户亲口拍板那一条
+    const el = document.createElement("div");
+    el.className = `node ${k.kind} ${conf ? "confirmed" : ""} ${pin ? "leaf-pin" : ""}`;
+    el.style.setProperty("--b", color);
+    el.style.setProperty("--proposed", "#8d877c");
+    el.innerHTML = `<span class="i">${ICON[k.kind] || "·"}</span>${k.label}<span class="t">t${k.turn}</span>`;
+    el.title = `${k.kind} · 出自第 ${k.turn} 轮 · ${conf ? "已确认" : "待你确认"}`;
+    el.dataset.id = k.id;
+    col.appendChild(el);
+  }
+  cols.appendChild(col);
+}
+</script>
+<div class="askbar" id="askbar">
+  <div class="ask-h">对 <b id="seln">0</b> 个节点提问 · 选区跨分支也算数</div>
+  <div class="ask-row">
+    <button class="verb" data-v="合并成一条，措辞我稍后调">合并</button>
+    <button class="verb" data-v="归类到「」下">归类到…</button>
+    <button class="verb" data-v="改写这几条，统一措辞">改写</button>
+    <button class="verb" data-v="这几条互相矛盾吗？">它们矛盾吗</button>
+    <button class="verb" data-v="解释这几条之间的关系">解释</button>
+    <input id="askq" placeholder="或者自己说一句——语义类才投入 chat">
+    <button id="askgo">投入 chat</button>
+  </div>
+  <div class="ask-foot">
+    <b>结构操作</b>（合并 · 改父 · 删除 · 排序）本地即时、零 token ·
+    <b>语义操作</b>（改写 · 判断 · 生成）才走 chat 一轮，结果以虚线 <b>提案态</b> 落图、待你确认
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- 圈选：拖框 / Shift 加选 / Ctrl 切换 / Esc 清空 ---------- */
+const SEL = new Set();
+const sheet = document.querySelector(".sheet");
+const askbar = document.getElementById("askbar");
+const askq = document.getElementById("askq");
+const toast = document.getElementById("toast");
+
+function allNodes(){ return [...document.querySelectorAll(".node")]; }
+function paint(){
+  for (const el of allNodes()) el.classList.toggle("is-sel", SEL.has(el.dataset.id));
+  document.getElementById("seln").textContent = SEL.size;
+  askbar.classList.toggle("on", SEL.size > 0);
+}
+function toastMsg(t){
+  toast.textContent = t; toast.classList.add("on");
+  clearTimeout(toastMsg._t);
+  toastMsg._t = setTimeout(() => toast.classList.remove("on"), 1600);
+}
+
+let dragging = false, moved = false, sx = 0, sy = 0, band = null;
+
+sheet.addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || e.target.closest(".node")) return;
+  dragged = false; moved = false; dragging = true;
+  const r = sheet.getBoundingClientRect();
+  sx = e.clientX - r.left; sy = e.clientY - r.top;
+  band = document.createElement("div");
+  band.className = "band";
+  band.style.cssText = `left:${sx}px;top:${sy}px;width:0;height:0`;
+  sheet.appendChild(band);
+});
+
+let dragged = false;
+document.addEventListener("mousemove", (e) => {
+  if (!dragging || !band) return;
+  const r = sheet.getBoundingClientRect();
+  const cx = e.clientX - r.left, cy = e.clientY - r.top;
+  if (Math.abs(cx - sx) > 4 || Math.abs(cy - sy) > 4) moved = true;
+  const l = Math.min(sx, cx), t = Math.min(sy, cy);
+  band.style.left = l + "px"; band.style.top = t + "px";
+  band.style.width = Math.abs(cx - sx) + "px";
+  band.style.height = Math.abs(cy - sy) + "px";
+});
+
+document.addEventListener("mouseup", (e) => {
+  if (!dragging) return;
+  dragging = false; dragged = moved;
+  if (band) { band.remove(); band = null; }
+  if (!moved) { if (!e.shiftKey) SEL.clear(); paint(); return; }
+
+  // 与框相交即选中
+  const r = sheet.getBoundingClientRect();
+  const cx = e.clientX - r.left, cy = e.clientY - r.top;
+  const l = Math.min(sx, cx), t = Math.min(sy, cy);
+  const w = Math.abs(cx - sx), h = Math.abs(cy - sy);
+  if (!e.shiftKey) SEL.clear();
+  for (const el of allNodes()) {
+    const b = el.getBoundingClientRect();
+    const nx = b.left - r.left, ny = b.top - r.top;
+    if (nx < l + w && nx + b.width > l && ny < t + h && ny + b.height > t) SEL.add(el.dataset.id);
+  }
+  paint();
+});
+
+sheet.addEventListener("click", (e) => {
+  if (dragged) { dragged = false; return; }
+  const node = e.target.closest(".node");
+  if (!node) return;
+  const id = node.dataset.id;
+  if (e.ctrlKey || e.metaKey || e.shiftKey) SEL.has(id) ? SEL.delete(id) : SEL.add(id);
+  else { SEL.clear(); SEL.add(id); }
+  paint();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { SEL.clear(); paint(); }
+});
+
+document.querySelectorAll(".verb").forEach(b => b.addEventListener("click", () => {
+  askq.value = b.dataset.v; askq.focus();
+}));
+
+document.getElementById("askgo").addEventListener("click", () => {
+  const q = askq.value.trim();
+  if (!q) { askq.focus(); return; }
+  const ids = [...SEL];
+  toastMsg(`已投入 chat：${ids.length} 个节点 · ${q.slice(0, 18)}`);
+  // 生产版：POST /mindmap/ask {node_ids, question, revision} → map_ops 回作用图
+  askq.value = "";
+});
+
+/* 截图用：?sel=id1,id2 预选 */
+const pre = new URLSearchParams(location.search).get("sel");
+if (pre) { pre.split(",").forEach(id => SEL.add(id)); paint(); }
+</script>
+</body>
+</html>

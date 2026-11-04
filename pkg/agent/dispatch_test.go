@@ -259,6 +259,131 @@ func TestDispatchAllFailedCarriesDiagnosis(t *testing.T) {
 	}
 }
 
+// bigReport builds a distinct verbose subtask report — large enough that
+// three of them trip the merge gate (mergeMinBytes) without being
+// byte-identical (the dedupe layer would collapse twins).
+func bigReport(tag string) string {
+	return "Report " + tag + "\n" +
+		strings.Repeat("finding "+tag+": the survey lists another datum worth keeping. ", 160)
+}
+
+// TestDispatchMergePass: three verbose distinct reports trip the
+// consolidation gate — one cheap-tier Ask replaces the ~30KB concat with
+// the digest, and that digest is exactly what the leader reads.
+func TestDispatchMergePass(t *testing.T) {
+	bigA, bigB, bigC := bigReport("alpha"), bigReport("beta"), bigReport("gamma")
+	mock := newCompactMock(t, []mockapi.Turn{
+		{Text: []string{bigA}},
+		{Text: []string{bigB}},
+		{Text: []string{bigC}},
+		{Text: []string{"merged digest [1] [2] [3]"}},
+	})
+
+	eng := NewEngine(Config{EventBuffer: 64, Workspace: tempDir(t)}, nil)
+	sess := eng.NewSession(nil)
+	defer sess.Close()
+
+	res, err := sess.dispatch(context.Background(), json.RawMessage(`{"tasks":[
+		{"task":"survey topic alpha"},
+		{"task":"survey topic beta"},
+		{"task":"survey topic gamma"}]}`))
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	var out string
+	for _, b := range res {
+		if b.OfText != nil {
+			out = b.OfText.Text
+		}
+	}
+	if out != "merged digest [1] [2] [3]" {
+		t.Fatalf("merged result = %.200q, want the digest", out)
+	}
+	// 3 nested calls + 1 consolidation Ask.
+	if n := mock.Calls(); n != 4 {
+		t.Fatalf("API calls = %d, want 4 (3 subtasks + merge)", n)
+	}
+}
+
+// TestDispatchDedupeIdenticalBodies: subtasks handed the same context can
+// answer byte-for-byte identically — the second copy collapses to a
+// pointer instead of burning context twice. Two ok results stay under the
+// merge gate, so no Ask fires either.
+func TestDispatchDedupeIdenticalBodies(t *testing.T) {
+	mock := newCompactMock(t, []mockapi.Turn{{Text: []string{"worker answer"}}})
+
+	eng := NewEngine(Config{EventBuffer: 64, Workspace: tempDir(t)}, nil)
+	sess := eng.NewSession(nil)
+	defer sess.Close()
+
+	res, err := sess.dispatch(context.Background(), json.RawMessage(`{"tasks":[
+		{"task":"first lookup"},
+		{"task":"second lookup"}]}`))
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	var out string
+	for _, b := range res {
+		if b.OfText != nil {
+			out = b.OfText.Text
+		}
+	}
+	for _, want := range []string{"## 1/2 first lookup", "worker answer",
+		"## 2/2 second lookup", "(identical to task 1)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("deduped result missing %q:\n%s", want, out)
+		}
+	}
+	// okResults=2 < 3: the consolidation gate stays closed.
+	if n := mock.Calls(); n != 2 {
+		t.Fatalf("API calls = %d, want 2 (no merge below the gate)", n)
+	}
+}
+
+// TestDispatchMergeFailOpen: a merge that cannot beat the concat loses —
+// here the budget is already expired, so the raw concat survives with
+// every section intact. The fan-out never fails because consolidation did.
+func TestDispatchMergeFailOpen(t *testing.T) {
+	old := mergeBudget
+	mergeBudget = time.Nanosecond
+	defer func() { mergeBudget = old }()
+
+	mock := newCompactMock(t, []mockapi.Turn{
+		{Text: []string{bigReport("alpha")}},
+		{Text: []string{bigReport("beta")}},
+		{Text: []string{bigReport("gamma")}},
+	})
+
+	eng := NewEngine(Config{EventBuffer: 64, Workspace: tempDir(t)}, nil)
+	sess := eng.NewSession(nil)
+	defer sess.Close()
+
+	res, err := sess.dispatch(context.Background(), json.RawMessage(`{"tasks":[
+		{"task":"survey topic alpha"},
+		{"task":"survey topic beta"},
+		{"task":"survey topic gamma"}]}`))
+	if err != nil {
+		t.Fatalf("dispatch must not fail when the merge does: %v", err)
+	}
+	var out string
+	for _, b := range res {
+		if b.OfText != nil {
+			out = b.OfText.Text
+		}
+	}
+	for _, want := range []string{"## 1/3 survey topic alpha", "## 2/3", "## 3/3"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("fail-open result missing %q:\n%.300s", want, out)
+		}
+	}
+	// The three subtasks billed; the expired merge context must not have
+	// produced a digest to replace the concat (best-effort wire count —
+	// an already-expired ctx can still race one request out).
+	if n := mock.Calls(); n < 3 {
+		t.Fatalf("API calls = %d, want ≥3 (the subtasks)", n)
+	}
+}
+
 // TestAskModelRidesRequestedModel: the contest grades every candidate on
 // ITS model — AskModel must put that model on the wire, and Ask keeps
 // defaulting to the subagent tier.

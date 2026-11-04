@@ -11,6 +11,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -40,8 +41,18 @@ var _ lyonv1connect.GitServiceHandler = (*gitService)(nil)
 // opened from such a row hands the escaped string to the OS, which
 // cannot open it. Raw UTF-8 on the wire instead.
 func gitRun(ctx context.Context, ws string, args ...string) (string, error) {
+	return gitRunEnv(ctx, ws, nil, args...)
+}
+
+// gitRunEnv is gitRun with extra process environment — the auto-commit's
+// GIT_INDEX_FILE temp-index passes (autocommit.go). Same argv-only
+// contract; nil env keeps the inherited environment exactly as gitRun's.
+func gitRunEnv(ctx context.Context, ws string, env []string, args ...string) (string, error) {
 	argv := append([]string{"-C", ws, "-c", "core.quotepath=false"}, args...)
 	cmd := exec.CommandContext(ctx, "git", argv...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var out, errBuf strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf

@@ -16,14 +16,17 @@ import (
 )
 
 // Session self-evolution: distill durable facts from the conversation
-// into the layered memory store using the cheap subagent tier. Two
-// triggers: /remember (explicit, result shown) and exit — both gated by
-// LYON_DISTILL=off. The call deliberately does NOT emit on the session's
-// event channel: at exit the TUI pump may already be gone, and a blocked
-// emit would hang the process. Audit goes straight through hooks.Fire
-// (non-blocking by design); the user-visible channel is the one-line
-// echo: stdout for the exit and plain-REPL paths (Distill), the command
-// panel for the TUI (DistillWithReport → pushCmd). See DistillReport.
+// into the layered memory store using the cheap subagent tier. Triggers:
+// /remember (explicit, result shown), exit, and the server's session
+// teardown (unload/Delete → DistillAt with a trigger label) — all gated
+// by LYON_DISTILL=off. The call deliberately does NOT emit on the
+// session's event channel: at exit the TUI pump may already be gone, and
+// a blocked emit would hang the process. Audit goes straight through
+// hooks.Fire (non-blocking by design) — one memory_distill line per
+// non-off pass, carrying trigger + result; the user-visible channel is
+// the one-line echo: stdout for the exit and plain-REPL paths (Distill),
+// the command panel for the TUI (DistillWithReport → pushCmd). See
+// DistillReport.
 const (
 	// distillMaxTokens bounds one extraction pass: facts are short.
 	distillMaxTokens = 1500
@@ -152,7 +155,7 @@ func distillEchoLine(r DistillReport) string {
 // still be settling, and an unbounded lock wait would hang the process
 // (see lockHistForDistill).
 func (s *Session) Distill(ctx context.Context) (int, error) {
-	rep, err := s.DistillWithReport(ctx)
+	rep, err := s.distill(ctx, "exit")
 	if err == nil && rep.Saved > 0 {
 		fmt.Println(distillEchoLine(rep))
 	}
@@ -164,10 +167,28 @@ func (s *Session) Distill(ctx context.Context) (int, error) {
 // its own echo and stdout stays clean (UI layers route the report
 // through their channels instead of a raw write).
 func (s *Session) DistillWithReport(ctx context.Context) (DistillReport, error) {
+	return s.distill(ctx, "remember")
+}
+
+// DistillAt is the server-side seam (store unload/Delete): the same pass
+// with an explicit trigger label for the audit — and no stdout write, which
+// would garble nothing here but keeps server teardown output-free.
+func (s *Session) DistillAt(ctx context.Context, trigger string) (DistillReport, error) {
+	return s.distill(ctx, trigger)
+}
+
+// distill is the single implementation behind Distill/DistillWithReport/
+// DistillAt. Every non-off exit point writes one memory_distill audit line
+// (trigger + result) so "did distillation even run?" is answerable from
+// the audit log alone — the gap the backlog called "audit 里没有蒸馏痕迹".
+// LYON_DISTILL=off stays silent: the gate is a silence switch, not a
+// failure worth recording.
+func (s *Session) distill(ctx context.Context, trigger string) (DistillReport, error) {
 	if strings.EqualFold(os.Getenv("LYON_DISTILL"), "off") {
 		return DistillReport{}, nil
 	}
 	if !s.lockHistForDistill(distillLockWait) {
+		s.fireDistill(trigger, "locked", nil)
 		return DistillReport{}, nil // drive still busy — skip this round, never hang exit
 	}
 	msgs := s.seed
@@ -178,6 +199,7 @@ func (s *Session) DistillWithReport(ctx context.Context) (DistillReport, error) 
 
 	rendered := renderHistory(msgs)
 	if r := []rune(rendered); len(r) < distillMinHistory {
+		s.fireDistill(trigger, "short", nil)
 		return DistillReport{}, nil
 	} else if len(r) > distillHistoryCap {
 		rendered = "(earlier history elided)\n" + string(r[len(r)-distillHistoryCap:])
@@ -190,6 +212,7 @@ func (s *Session) DistillWithReport(ctx context.Context) (DistillReport, error) 
 	prev := s.distillHash
 	s.mu.Unlock()
 	if key == prev {
+		s.fireDistill(trigger, "unchanged", nil)
 		return DistillReport{}, nil
 	}
 
@@ -199,9 +222,17 @@ func (s *Session) DistillWithReport(ctx context.Context) (DistillReport, error) 
 		System:    []anthropic.BetaTextBlockParam{{Text: distillSystemPrompt}},
 		Messages: []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(
 			anthropic.NewBetaTextBlock("Conversation history (role-tagged):\n" + rendered))},
+		// Same reason as AskModel: the teardown envelope is 10s and the
+		// budget is text-sized — a reasoning model's thinking used to
+		// burn both (reap audit: "context deadline exceeded"). Facts are
+		// extraction, not deliberation.
+		Thinking: anthropic.BetaThinkingConfigParamUnion{
+			OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
+		},
 	}
 	resp, err := s.eng.client.Beta.Messages.New(ctx, params)
 	if err != nil {
+		s.fireDistill(trigger, "err", err)
 		return DistillReport{}, err
 	}
 	s.mu.Lock()
@@ -215,9 +246,28 @@ func (s *Session) DistillWithReport(ctx context.Context) (DistillReport, error) 
 	}
 	facts := parseDistillFacts(strings.Join(parts, "\n"))
 	if len(facts) == 0 {
+		s.fireDistill(trigger, "no-facts", nil)
 		return DistillReport{}, nil
 	}
-	return s.applyDistill(memory.Open(s.eng.cfg.Workspace), facts), nil
+	rep := s.applyDistill(memory.Open(s.eng.cfg.Workspace), facts)
+	s.fireDistill(trigger, fmt.Sprintf("saved=%d", rep.Saved), nil)
+	return rep, nil
+}
+
+// fireDistill writes the one-line distill audit record. Best-effort: a nil
+// hooks manager (bare test sessions) must not panic the pass.
+func (s *Session) fireDistill(trigger, reason string, err error) {
+	if s.eng == nil || s.eng.hooks == nil {
+		return
+	}
+	rec := hooks.Record{
+		Event:  hooks.EvMemoryDistill,
+		Detail: fmt.Sprintf("trigger=%s result=%s", trigger, reason),
+	}
+	if err != nil {
+		rec.Err = err.Error()
+	}
+	s.eng.hooks.Fire(rec)
 }
 
 // parseDistillFacts pulls the JSON array out of the model's reply,

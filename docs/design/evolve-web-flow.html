@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>lyon-agent · Web 版进化环路</title>
+<style>
+  :root{
+    --ink:#141a22; --paper:#f6f5f1; --card:#ffffff; --line:#d7d4cc;
+    --teal:#0d6b63; --tealbg:#e6f2f0;
+    --amber:#9a5b12; --amberbg:#fbf0df;
+    --green:#2c6b33; --greenbg:#e9f3e9;
+    --purple:#4b3f8f; --purplebg:#eeecf8;
+    --slate:#455062; --slatebg:#eceef2;
+    --blue:#1d558f; --bluebg:#e6eefa;
+    --red:#97302f;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:34px 40px 44px; background:var(--paper); color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    font-size:14px; line-height:1.5; width:1480px;
+  }
+  code,.mono{font-family:"Cascadia Mono",Consolas,"Courier New",monospace; font-size:12.5px}
+  h1{font-size:26px; margin:0 0 4px; letter-spacing:.5px}
+  .sub{color:#5c6675; font-size:13px; margin-bottom:26px}
+  .sub b{color:var(--ink)}
+
+  .band{margin-bottom:6px}
+  .bandhead{
+    display:flex; align-items:baseline; gap:10px; margin:26px 0 10px;
+    padding-bottom:6px; border-bottom:2px solid var(--line);
+  }
+  .bandhead .idx{
+    font:600 11px/1 "Cascadia Mono",monospace; letter-spacing:1px;
+    background:var(--ink); color:#fff; padding:5px 7px; border-radius:3px;
+  }
+  .bandhead .t{font-size:16px; font-weight:700}
+  .bandhead .n{font-size:12.5px; color:#5c6675}
+
+  /* vertical chain */
+  .chain{display:flex; flex-direction:column; align-items:center}
+  .arrow{color:#8d94a0; font-size:15px; line-height:1; margin:5px 0}
+  .arrow.lbl{
+    display:flex; align-items:center; gap:8px; color:#5c6675; font-size:11.5px;
+    font-family:"Cascadia Mono",monospace;
+  }
+
+  .card{
+    background:var(--card); border:1px solid var(--line); border-left:4px solid var(--slate);
+    border-radius:5px; padding:9px 13px; width:100%;
+    box-shadow:0 1px 0 rgba(20,26,34,.04);
+  }
+  .card .hd{font-weight:700; font-size:13.5px; margin-bottom:2px}
+  .card .bd{font-size:12.5px; color:#3d4656}
+  .card .ref{font-family:"Cascadia Mono",monospace; font-size:11px; color:#7b8494; margin-top:3px}
+  .teal{border-left-color:var(--teal)} .tealbg{background:var(--tealbg)}
+  .amber{border-left-color:var(--amber)} .amberbg{background:var(--amberbg)}
+  .green{border-left-color:var(--green)} .greenbg{background:var(--greenbg)}
+  .purple{border-left-color:var(--purple)} .purplebg{background:var(--purplebg)}
+  .slate{border-left-color:var(--slate)} .slatebg{background:var(--slatebg)}
+  .blue{border-left-color:var(--blue)} .bluebg{background:var(--bluebg)}
+
+  .w620{max-width:620px} .w520{max-width:520px}
+
+  /* three branches */
+  .cols{display:grid; grid-template-columns:1fr 1fr 1fr; gap:26px; margin-top:4px}
+  .colhd{
+    font-size:12px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;
+    padding:5px 0 6px; margin-bottom:9px; border-bottom:1px dashed var(--line);
+    display:flex; justify-content:space-between; align-items:baseline;
+  }
+  .colhd .p{font:400 11px/1 "Cascadia Mono",monospace; color:#7b8494; text-transform:none}
+  .col{display:flex; flex-direction:column; align-items:center}
+  .col .arrow{font-size:14px; margin:4px 0}
+
+  /* ledger chips */
+  .chips{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+  .chip{
+    background:var(--card); border:1px solid var(--line); border-top:3px solid var(--slate);
+    border-radius:4px; padding:7px 10px;
+  }
+  .chip .f{font-family:"Cascadia Mono",monospace; font-size:12px; font-weight:600}
+  .chip .d{font-size:11.5px; color:#5c6675; margin-top:1px}
+
+  .note{
+    margin-top:14px; padding:10px 14px; border-radius:5px; font-size:12.5px;
+    background:#fdf6e8; border:1px solid #e8d9b8; border-left:4px solid var(--amber); color:#5c4a24;
+  }
+  .note b{color:#7a4d0c}
+  .warn{background:#fbeceb; border-color:#e9c6c4; border-left-color:var(--red); color:#5e2726}
+  .warn b{color:var(--red)}
+
+  .gates{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:6px}
+  .gate{background:var(--card); border:1px solid var(--line); border-radius:4px; padding:7px 11px; font-size:12px}
+  .gate .k{font-family:"Cascadia Mono",monospace; font-weight:600; font-size:12px}
+  .gate .v{color:#5c6675; margin-top:1px}
+
+  .legend{display:flex; gap:18px; flex-wrap:wrap; font-size:11.5px; color:#5c6675; margin-top:10px}
+  .legend i{display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px}
+  .foot{margin-top:22px; font-size:11.5px; color:#8a919c; border-top:1px solid var(--line); padding-top:8px}
+</style>
+</head>
+<body>
+
+<h1>lyon-agent · Web 版进化环路</h1>
+<div class="sub">
+  浏览器里的一次 prompt，如何一路走到「打分 → 考核 → 换代 → 账本」，再被 <b>/evolve</b> 面板只读地看回来。
+  实线＝写路径（lyond 进程后台协程），虚线框＝只读回看。所有箭头都对应仓库里真实存在的调用。
+</div>
+
+<!-- ─────────── 1 触发 ─────────── -->
+<div class="band">
+  <div class="bandhead">
+    <span class="idx">1</span><span class="t">触发</span>
+    <span class="n">浏览器 → ConnectRPC → 引擎 turn 循环 → prompt_end</span>
+  </div>
+
+  <div class="chain">
+    <div class="card teal tealbg w620">
+      <div class="hd">Web ChatView 发送 prompt</div>
+      <div class="bd">输入框 / 斜杠命令 → <code>sessionClient.submitPrompt()</code>；<code>model</code> 可逐 prompt 钉（web v1 不允许逐会话换模型）</div>
+      <div class="ref">web/src/components/ChatView.tsx</div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="card teal tealbg w620">
+      <div class="hd">sessionService.SubmitPrompt</div>
+      <div class="bd">acquire 座位（磁盘座位会被复活）→ 预检 <code>Busy()</code> → hub 注入 user_message 回声 + 起文件卡基线</div>
+      <div class="ref">pkg/server/connect_session.go:178 · sess.SubmitOn(prompt, model)</div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="card teal tealbg w620">
+      <div class="hd">agent.Session 驱动一个 goroutine 跑完整 ReAct 循环</div>
+      <div class="bd">流式 text_delta → 工具调用 → turn_end → …→ 收尾发 <code>prompt_end</code>（带 DurationMS / Iterations / Err）</div>
+      <div class="ref">pkg/agent/session.go · pkg/agent/events.go</div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="card teal tealbg w620">
+      <div class="hd">Store 的 prompt_end tap（hub 消费协程）</div>
+      <div class="bd">观察者必须立刻返回；进化腿全是模型调用，各自另起 goroutine 扇出</div>
+      <div class="ref">cmd/lyond/main.go:125 · store.SetPromptEndObserver(evolve.Hook)</div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="card teal tealbg w620">
+      <div class="hd">evolve.Hook —— 与 TUI 完全同一套环路</div>
+      <div class="bd">BACKLOG §2.5：lyond/web 会话必须像 TUI 会话一样记账、打分、应考、换代。TUI 只保留面板那一半</div>
+      <div class="ref">pkg/evolve/loop.go:525</div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="card slate slatebg w620">
+      <div class="hd">先无条件记账：market.Record</div>
+      <div class="bd"><code>DurationMS &gt; 0</code> 就按 <code>routing.Classify(prompt)</code> 归类的工时写入台账；失败行保留 Err 但<span style="color:var(--red)">不参与定价</span></div>
+      <div class="ref">pkg/market/market.go → $LYON_HOME/market.json</div>
+    </div>
+    <div class="arrow lbl">▼ &nbsp;err 分支 —— 成功/失败走向两套完全不同的算账</div>
+  </div>
+</div>
+
+<!-- ─────────── 2 三条支路 ─────────── -->
+<div class="band" style="margin-top:18px">
+  <div class="bandhead">
+    <span class="idx">2</span><span class="t">三腿扇出</span>
+    <span class="n">evolve.Hook 内部：err → 诊断；成功 → 盲评 ‖ 考核时钟（并发 goroutine）</span>
+  </div>
+
+  <div class="cols">
+
+    <!-- 左：错因归纳 -->
+    <div class="col">
+      <div class="colhd" style="color:var(--amber)">A · 失败 / 错因归纳 <span class="p">err != ""</span></div>
+      <div class="card amber amberbg">
+        <div class="hd">闸门</div>
+        <div class="bd"><code>LYON_DIAGNOSE=off</code> 则整条支路跳过，记账已完成</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card amber amberbg">
+        <div class="hd">DiagnoseWithFallback</div>
+        <div class="bd">最多 2 次模型 post-mortem（各 60s），超时/400/空回复都落到本地兜底——从 run 自己的错误行与失败步骤里挖条件，<b>必定带出可核对条件</b></div>
+        <div class="ref">loop.go:375 · localDiagnosis()</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card amber amberbg">
+        <div class="hd">三处落盘（best-effort）</div>
+        <div class="bd">
+          ① <b>project 记忆热层</b> — RememberDiagnosis<br>
+          ② <b>agent 专家空间</b> — RememberDiagnosisSpace 写「失败条件 + patch」<br>
+          ③ <b>下一代</b> — EvolveFromDiagnosis 换代
+        </div>
+        <div class="ref">loop.go:468 / :490 / :331</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card amber amberbg">
+        <div class="hd">换代 spawn（§7.3）</div>
+        <div class="bd">子代继承父空间，并把这次失败写成自己的第一课；<b>gen 上限 3</b>（链条深度与同父兄弟数取大，都封 3）</div>
+        <div class="ref">pkg/eval/evolve.go:24 MaxEvolveGen = 3</div>
+      </div>
+    </div>
+
+    <!-- 中：生产评分 -->
+    <div class="col">
+      <div class="colhd" style="color:var(--green)">B · 成功 / 生产盲评 <span class="p">LYON_SCORE ≠ off</span></div>
+      <div class="card green greenbg">
+        <div class="hd">go 协程 · 240s 超时</div>
+        <div class="bd">240s 而非 60s：thinking 模型的网关延迟会把旧 deadline 打穿，导致一张卡都没入榜</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card green greenbg">
+        <div class="hd">BookPlainRun</div>
+        <div class="bd">LastAssistantText 回溯取最新一段助手散文（全是工具轮则给 ""，如实告诉判官）；无标准答案 → 判官盲评</div>
+        <div class="ref">loop.go:123 · pkg/eval/judge.go</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card green greenbg">
+        <div class="hd">eval.Score 四维 → Total</div>
+        <div class="bd">correctness（判官）+ 步数等维度合成 <code>Scorecard</code>；判官失败则<b>一张卡都不写</b>——凑出来的分数比没有分数更糟</div>
+        <div class="ref">pkg/eval/score.go:116</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card green greenbg">
+        <div class="hd">两本账同时更新</div>
+        <div class="bd">
+          ① <b>leaderboard.Record</b>：卡进历史（每人封 50 张）→ <code>pickLocked</code> 用近 10 张均值<b>重新选举在岗</b>（只有最近一次生产/考核通过者才有资格）<br>
+          ② <b>routing.Record</b>：滚动均值 + 置信度 = 均值 × n/(n+3)
+        </div>
+        <div class="ref">pkg/eval/leaderboard.go:117 · pkg/routing/routing.go</div>
+      </div>
+    </div>
+
+    <!-- 右：考核时钟 -->
+    <div class="col">
+      <div class="colhd" style="color:var(--purple)">C · 考核时钟（并发，不等判官） <span class="p">每轮都计</span></div>
+      <div class="card purple purplebg">
+        <div class="hd">BookRound(prompt)</div>
+        <div class="bd">同时给<b>任务类</b>和<b>project 类</b>各记一轮；project 类是动态题库，不属于任何任务类但要照常上钟</div>
+        <div class="ref">loop.go:154 · leaderboard.CountRound</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card purple purplebg">
+        <div class="hd">due ?</div>
+        <div class="bd"><code>Rounds % 10 == 0 &amp;&amp; OnDuty != ""</code>；空座位永不上钟。每 10 轮闭卷重考一次（§1.4）<br><code>LYON_EXAM=off</code> 只关触发，轮次照计</div>
+        <div class="ref">ExamInterval = 10 · examFailsLimit = 2</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card purple purplebg">
+        <div class="hd">LoadExam → RunExam（3 分钟）</div>
+        <div class="bd">闭卷、无工具、只凭权重作答。project 类的题从 go.mod / README / cmd/ / 项目记忆动态生成，其他类用冻结 seed 题库</div>
+        <div class="ref">loop.go:67 / :77 · pkg/eval/exam.go:149</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card purple purplebg">
+        <div class="hd">FinishExam → SubmitExam</div>
+        <div class="bd">
+          Rounds 归零；<b>只有坐在座位上的人自己的失败才推撤职时钟</b>（挑战者挂科不算）<br>
+          通过 → ExamFails=0；<b>连挂 2 次 → 撤职</b>，座位清空回给擂台，靠生产分重新竞选
+        </div>
+        <div class="ref">leaderboard.go:176</div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="card purple purplebg">
+        <div class="hd">挂了 → 换代</div>
+        <div class="bd">EvolveFromExamFail：考卷里<b>没答出来的题就是课题</b>，写成子代的第一课</div>
+        <div class="ref">loop.go:345</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── 3 账本 ─────────── -->
+<div class="band" style="margin-top:20px">
+  <div class="bandhead">
+    <span class="idx">3</span><span class="t">账本（全部落盘，重启原样恢复）</span>
+    <span class="n">$LYON_HOME 默认 ~/.lyon · 原子写（tmp + rename）</span>
+  </div>
+  <div class="chips">
+    <div class="chip"><div class="f">leaderboard.json</div><div class="d">每类的在岗人、已服务轮数、连挂次数、卡堆</div></div>
+    <div class="chip"><div class="f">routing.json</div><div class="d">每类的推荐 agent/model + 置信度 + 样本数</div></div>
+    <div class="chip"><div class="f">agents/&lt;id&gt;.json</div><div class="d">候选谱系：gen / parent / model / note</div></div>
+    <div class="chip"><div class="f">agents/&lt;id&gt;/</div><div class="d">专家空间：knowledge + skills（含失败教训）</div></div>
+    <div class="chip"><div class="f">exams/&lt;class&gt;.json</div><div class="d">冻结的闭卷题库；project 类不落盘、现生成</div></div>
+    <div class="chip"><div class="f">market.json</div><div class="d">工时台账：每类样本数、均值、最近一次耗时</div></div>
+    <div class="chip"><div class="f">flow-streak.json</div><div class="d">workflow 连绿计数（3 次自动固化成工件）</div></div>
+    <div class="chip"><div class="f">memory/ + commons/</div><div class="d">三层记忆与共享共识层（web 只读展示）</div></div>
+  </div>
+</div>
+
+<!-- ─────────── 4 只读回看 ─────────── -->
+<div class="band" style="margin-top:22px">
+  <div class="bandhead">
+    <span class="idx">4</span><span class="t">只读回看（Web 面板）</span>
+    <span class="n">两个 RPC 各管自己的数据集，面板负责拼装 —— 同一个数据集绝不重复读</span>
+  </div>
+
+  <div class="chain">
+    <div class="card blue bluebg w620" style="border-style:dashed">
+      <div class="hd">EvolveService.GetEvolveState <span style="font-weight:400;color:#5c6675">— 进化自有数据</span></div>
+      <div class="bd">一次往返装齐面板：<b>6 路 goroutine 并行读盘</b>（候选谱系 · 各 agent 空间 · 冻结流程 · 题库存量 · 工时价格 · 最近任务）</div>
+      <div class="ref">pkg/server/connect_evolve.go · proto/lyon/v1/evolve.proto · 刻意不缓存：面板必须看到 TUI 看到的东西</div>
+    </div>
+    <div class="arrow">＋</div>
+    <div class="card blue bluebg w620" style="border-style:dashed">
+      <div class="hd">DashboardService.GetOverview <span style="font-weight:400;color:#5c6675">— 路由表与在岗榜单</span></div>
+      <div class="bd">routing.All() + leaderboard.Views(固定类序)；<b>在岗/轮数/连挂/均值/最新卡</b>由这里出，进化服务不重复提供</div>
+      <div class="ref">pkg/server/connect_dashboard.go · proto/lyon/v1/dashboard.proto</div>
+    </div>
+    <div class="arrow">▼&nbsp;<span style="font-size:11.5px;font-family:'Cascadia Mono',monospace;color:#5c6675">Promise.all([...]) · mount 时拉一次，之后 15s 轮询</span></div>
+    <div class="card blue bluebg w620">
+      <div class="hd">EvolvePanel — 6 张概览卡 + 4 张表</div>
+      <div class="bd">
+        概览：incumbent · lineage · seats held · exam banks · flows · classes<br>
+        表① lineage（id/gen/model/effort/parent/seats/created/note）<br>
+        表② seats &amp; routing（在岗人 · rounds · exam fails · cards · mean · newest ＋ route class/agent/model/conf/samples/mean/<b>steers</b>）<br>
+        表③ exam banks（on disk · questions）<br>
+        表④ market（每类价格 + 最近任务，失败行带 err）
+      </div>
+      <div class="ref">web/src/components/EvolvePanel.tsx · App.tsx 里挂成 “evolve — lineage &amp; exams” 面板，/evolve /exam /contest /route /agents /flow 都指向它</div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="card slate slatebg w620">
+      <div class="hd">面板上的两处门槛提示（不是装饰，是真实算据）</div>
+      <div class="bd">
+        · <code>rounds % 10 === 0</code> 行尾标 <b>(due)</b> → 这一轮该考了<br>
+        · routing 行 <code>samples ≥ 3 &amp;&amp; confidence ≥ 0.35</code> 才标 <b>steers=yes</b> → 一次侥幸绝不改道
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── 5 边界 ─────────── -->
+<div class="band" style="margin-top:22px">
+  <div class="bandhead">
+    <span class="idx">5</span><span class="t">v1 的边界（图上没画的就是没有）</span>
+  </div>
+  <div class="note warn">
+    <b>Web 侧只读，动作留在 TUI。</b>跑考核（/exam）、开擂台（/contest）、保存与运行 workflow（/flow）在 web v1 里没有入口——
+    面板会直说这一点，而不是假装能点。
+  </div>
+  <div class="note">
+    <b>路由换将的消费端在 TUI/CLI，web 没接。</b><code>RoutingSwap</code> / <code>AdoptAgent</code> 只被 <code>cmd/lyon</code> 调用；
+    web 的 SubmitPrompt 走 <code>sess.SubmitOn(prompt, model)</code>，未钉 model 时用进程默认模型——也就是说
+    <span class="mono">routing.json</span> 在 web 上目前是<b>纯展示</b>。这是面板里那列 <code>steers</code> 与实际行为的真实落差。
+  </div>
+  <div class="note">
+    <b>知识覆盖率门禁（近日 §2.2 / CoverageThreshold=0.6）与 workflow 自动固化（连绿 3 次）也只在 TUI/CLI 侧驱动</b>，
+    <code>flow.BumpStreak</code> 由 cmd/lyon 的流程提示器投票；web 面板读得到 <span class="mono">flow-streak.json</span> 的结果，不产生它。
+  </div>
+</div>
+
+<!-- ─────────── 门槛速查 ─────────── -->
+<div class="band" style="margin-top:22px">
+  <div class="bandhead">
+    <span class="idx">6</span><span class="t">门槛速查</span>
+    <span class="n">全部写在代码常量与闸门里</span>
+  </div>
+  <div class="gates">
+    <div class="gate"><div class="k">ExamInterval = 10</div><div class="v">每类在岗者每 10 轮闭卷重考</div></div>
+    <div class="gate"><div class="k">examFailsLimit = 2</div><div class="v">连挂 2 次撤职，座位开放重竞</div></div>
+    <div class="gate"><div class="k">MaxEvolveGen = 3</div><div class="v">谱系最深 3 代，到顶就认这线用完了机会</div></div>
+    <div class="gate"><div class="k">samples ≥ 3 且 conf ≥ 0.35</div><div class="v">路由建议的生效门槛</div></div>
+    <div class="gate"><div class="k">confidence = mean × n/(n+3)</div><div class="v">样本斜坡：一次侥幸仍不确定</div></div>
+    <div class="gate"><div class="k">historyCap = 50</div><div class="v">每人每类卡堆上限（近 10 张定选举）</div></div>
+    <div class="gate"><div class="k">judge 240s · exam 3min</div><div class="v">两条模型腿各自的超时预算</div></div>
+    <div class="gate"><div class="k">diagnose 2 次 × 60s</div><div class="v">之后本地兜底，post-mortem 必定完成</div></div>
+    <div class="gate"><div class="k">LYON_SCORE / EXAM / DIAGNOSE</div><div class="v">三个环境开关，闸门跟着单元走</div></div>
+  </div>
+  <div class="legend">
+    <span><i style="background:var(--teal)"></i>触发链</span>
+    <span><i style="background:var(--amber)"></i>失败 / 错因归纳</span>
+    <span><i style="background:var(--green)"></i>生产盲评</span>
+    <span><i style="background:var(--purple)"></i>考核时钟</span>
+    <span><i style="background:var(--slate)"></i>账本与记账</span>
+    <span><i style="background:var(--blue)"></i>只读回看</span>
+  </div>
+  <div class="foot">
+    依据仓库当前 HEAD（baa21fa）源码绘制：pkg/evolve/loop.go · pkg/eval/{leaderboard,score,judge,exam,evolve,coverage}.go ·
+    pkg/routing/routing.go · pkg/market/market.go · pkg/flow/streak.go · pkg/server/{connect_evolve,connect_dashboard,connect_session,store}.go ·
+    cmd/lyond/main.go · web/src/components/EvolvePanel.tsx · proto/lyon/v1/*.proto
+  </div>
+</div>
+
+</body>
+</html>

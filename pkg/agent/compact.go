@@ -160,6 +160,11 @@ func (s *Session) compactNow(pctx context.Context, prompt string, trigger Usage,
 			anthropic.NewBetaTextBlock(
 				"Current user prompt (verbatim):\n" + prompt +
 					"\n\nRendered conversation history (role-tagged):\n" + rendered))},
+		// Summarization is extraction: a reasoning model's thinking
+		// would burn compactMaxTokens and leave an empty summary.
+		Thinking: anthropic.BetaThinkingConfigParamUnion{
+			OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
+		},
 	}
 	stream := s.eng.client.Beta.Messages.NewStreaming(pctx, params)
 	var resp anthropic.BetaMessage

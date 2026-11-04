@@ -313,6 +313,15 @@ func (s *Session) Restore(snap Snapshot) {
 			s.mode.Store(&m)
 		}
 	}
+	// session_start (hooks): content or a known seat id means a resume; an
+	// empty snapshot (Reset // /new) is a clear. No-op when the session
+	// already announced itself — server create fires at register time, so
+	// the NewSession → Restore → Register chain lands exactly one line.
+	if len(msgs) > 0 || snap.ID != "" {
+		s.fireSessionStart("resume", fmt.Sprintf("%d messages restored", len(msgs)))
+	} else {
+		s.fireSessionStart("clear", "")
+	}
 }
 
 // Reset clears the conversation back to fresh-session state — history,

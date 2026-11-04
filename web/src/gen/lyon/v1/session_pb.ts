@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/session.proto.
  */
 export const file_lyon_v1_session: GenFile = /*@__PURE__*/
-  fileDesc("ChVseW9uL3YxL3Nlc3Npb24ucHJvdG8SB2x5b24udjEibwoKQ2hlY2twb2ludBIKCgJpZBgBIAEoBRIMCgRraW5kGAIgASgJEg0KBWxhYmVsGAMgASgJEhAKCG1lc3NhZ2VzGAQgASgFEiYKAmF0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIsChZMaXN0Q2hlY2twb2ludHNSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiQwoXTGlzdENoZWNrcG9pbnRzUmVzcG9uc2USKAoLY2hlY2twb2ludHMYASADKAsyEy5seW9uLnYxLkNoZWNrcG9pbnQiOAoWUm9sbGJhY2tTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgoKAmlkGAIgASgFIkIKF1JvbGxiYWNrU2Vzc2lvblJlc3BvbnNlEicKCmNoZWNrcG9pbnQYASABKAsyEy5seW9uLnYxLkNoZWNrcG9pbnQiOgoVU2F2ZUNoZWNrcG9pbnRSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDQoFbGFiZWwYAiABKAkiQQoWU2F2ZUNoZWNrcG9pbnRSZXNwb25zZRInCgpjaGVja3BvaW50GAEgASgLMhMubHlvbi52MS5DaGVja3BvaW50IsMCCgdTZXNzaW9uEgoKAmlkGAEgASgJEhEKCXdvcmtzcGFjZRgCIAEoCRINCgVtb2RlbBgDIAEoCRINCgV0aXRsZRgEIAEoCRIMCgRtb2RlGAUgASgJEgwKBGJ1c3kYBiABKAgSEQoJcXVldWVfbGVuGAcgASgFEg0KBXR1cm5zGAggASgFEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2xhc3RfYWN0aXZlGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCg5jb250ZXh0X3dpbmRvdxgLIAEoAxIQCghjdHhfdXNlZBgMIAEoAxIVCghjb3N0X3VzZBgNIAEoAUgAiAEBEg4KBnZpc2lvbhgOIAEoCEILCglfY29zdF91c2QiMwoUQ3JlYXRlU2Vzc2lvblJlcXVlc3QSDQoFbW9kZWwYASABKAkSDAoEbW9kZRgCIAEoCSI6ChVDcmVhdGVTZXNzaW9uUmVzcG9uc2USIQoHc2Vzc2lvbhgBIAEoCzIQLmx5b24udjEuU2Vzc2lvbiIVChNMaXN0U2Vzc2lvbnNSZXF1ZXN0IjoKFExpc3RTZXNzaW9uc1Jlc3BvbnNlEiIKCHNlc3Npb25zGAEgAygLMhAubHlvbi52MS5TZXNzaW9uIicKEUdldFNlc3Npb25SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiNwoSR2V0U2Vzc2lvblJlc3BvbnNlEiEKB3Nlc3Npb24YASABKAsyEC5seW9uLnYxLlNlc3Npb24iKgoURGVsZXRlU2Vzc2lvblJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSIXChVEZWxldGVTZXNzaW9uUmVzcG9uc2UiSAoTU3VibWl0UHJvbXB0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg4KBnByb21wdBgCIAEoCRINCgVtb2RlbBgDIAEoCSInChRTdWJtaXRQcm9tcHRSZXNwb25zZRIPCgdzdGFydGVkGAEgASgIIjoKFEVucXVldWVQcm9tcHRSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDgoGcHJvbXB0GAIgASgJIioKFUVucXVldWVQcm9tcHRSZXNwb25zZRIRCglxdWV1ZV9sZW4YASABKAUiJgoQSW50ZXJydXB0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIigKEUludGVycnVwdFJlc3BvbnNlEhMKC2ludGVycnVwdGVkGAEgASgIIiUKD0dldFN0YXRzUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIokBCghUdXJuU3RhdBIMCgR0dXJuGAEgASgFEhMKC3N0b3BfcmVhc29uGAIgASgJEh0KBXVzYWdlGAMgASgLMg4ubHlvbi52MS5Vc2FnZRITCgtkdXJhdGlvbl9tcxgEIAEoAxImCgJhdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiNAoQR2V0U3RhdHNSZXNwb25zZRIgCgV0dXJucxgBIAMoCzIRLmx5b24udjEuVHVyblN0YXQiMgoOU2V0TW9kZVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRtb2RlGAIgASgJIh8KD1NldE1vZGVSZXNwb25zZRIMCgRtb2RlGAEgASgJIjsKE1dhdGNoRXZlbnRzUmVzcG9uc2USJAoFZXZlbnQYASABKAsyFS5seW9uLnYxLlNlc3Npb25FdmVudCI6ChJXYXRjaEV2ZW50c1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIQCghmcm9tX3NlcRgCIAEoAyInChFHZXRIaXN0b3J5UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIk0KEkdldEhpc3RvcnlSZXNwb25zZRIlCgZldmVudHMYASADKAsyFS5seW9uLnYxLlNlc3Npb25FdmVudBIQCghsYXN0X3NlcRgCIAEoAyIlChVSZXN0b3JlU2Vzc2lvblJlcXVlc3QSDAoEcGF0aBgBIAEoCSJWChZSZXN0b3JlU2Vzc2lvblJlc3BvbnNlEiEKB3Nlc3Npb24YASABKAsyEC5seW9uLnYxLlNlc3Npb24SGQoRcmVzdG9yZWRfbWVzc2FnZXMYAiABKAUyiQkKDlNlc3Npb25TZXJ2aWNlEk4KDUNyZWF0ZVNlc3Npb24SHS5seW9uLnYxLkNyZWF0ZVNlc3Npb25SZXF1ZXN0Gh4ubHlvbi52MS5DcmVhdGVTZXNzaW9uUmVzcG9uc2USSwoMTGlzdFNlc3Npb25zEhwubHlvbi52MS5MaXN0U2Vzc2lvbnNSZXF1ZXN0Gh0ubHlvbi52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJFCgpHZXRTZXNzaW9uEhoubHlvbi52MS5HZXRTZXNzaW9uUmVxdWVzdBobLmx5b24udjEuR2V0U2Vzc2lvblJlc3BvbnNlEk4KDURlbGV0ZVNlc3Npb24SHS5seW9uLnYxLkRlbGV0ZVNlc3Npb25SZXF1ZXN0Gh4ubHlvbi52MS5EZWxldGVTZXNzaW9uUmVzcG9uc2USSwoMU3VibWl0UHJvbXB0EhwubHlvbi52MS5TdWJtaXRQcm9tcHRSZXF1ZXN0Gh0ubHlvbi52MS5TdWJtaXRQcm9tcHRSZXNwb25zZRJOCg1FbnF1ZXVlUHJvbXB0Eh0ubHlvbi52MS5FbnF1ZXVlUHJvbXB0UmVxdWVzdBoeLmx5b24udjEuRW5xdWV1ZVByb21wdFJlc3BvbnNlEkIKCUludGVycnVwdBIZLmx5b24udjEuSW50ZXJydXB0UmVxdWVzdBoaLmx5b24udjEuSW50ZXJydXB0UmVzcG9uc2USPwoIR2V0U3RhdHMSGC5seW9uLnYxLkdldFN0YXRzUmVxdWVzdBoZLmx5b24udjEuR2V0U3RhdHNSZXNwb25zZRI8CgdTZXRNb2RlEhcubHlvbi52MS5TZXRNb2RlUmVxdWVzdBoYLmx5b24udjEuU2V0TW9kZVJlc3BvbnNlEkoKC1dhdGNoRXZlbnRzEhsubHlvbi52MS5XYXRjaEV2ZW50c1JlcXVlc3QaHC5seW9uLnYxLldhdGNoRXZlbnRzUmVzcG9uc2UwARJFCgpHZXRIaXN0b3J5EhoubHlvbi52MS5HZXRIaXN0b3J5UmVxdWVzdBobLmx5b24udjEuR2V0SGlzdG9yeVJlc3BvbnNlElEKDlJlc3RvcmVTZXNzaW9uEh4ubHlvbi52MS5SZXN0b3JlU2Vzc2lvblJlcXVlc3QaHy5seW9uLnYxLlJlc3RvcmVTZXNzaW9uUmVzcG9uc2USVAoPTGlzdENoZWNrcG9pbnRzEh8ubHlvbi52MS5MaXN0Q2hlY2twb2ludHNSZXF1ZXN0GiAubHlvbi52MS5MaXN0Q2hlY2twb2ludHNSZXNwb25zZRJUCg9Sb2xsYmFja1Nlc3Npb24SHy5seW9uLnYxLlJvbGxiYWNrU2Vzc2lvblJlcXVlc3QaIC5seW9uLnYxLlJvbGxiYWNrU2Vzc2lvblJlc3BvbnNlElEKDlNhdmVDaGVja3BvaW50Eh4ubHlvbi52MS5TYXZlQ2hlY2twb2ludFJlcXVlc3QaHy5seW9uLnYxLlNhdmVDaGVja3BvaW50UmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_lyon_v1_event]);
+  fileDesc("ChVseW9uL3YxL3Nlc3Npb24ucHJvdG8SB2x5b24udjEibwoKQ2hlY2twb2ludBIKCgJpZBgBIAEoBRIMCgRraW5kGAIgASgJEg0KBWxhYmVsGAMgASgJEhAKCG1lc3NhZ2VzGAQgASgFEiYKAmF0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIsChZMaXN0Q2hlY2twb2ludHNSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiQwoXTGlzdENoZWNrcG9pbnRzUmVzcG9uc2USKAoLY2hlY2twb2ludHMYASADKAsyEy5seW9uLnYxLkNoZWNrcG9pbnQiOAoWUm9sbGJhY2tTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgoKAmlkGAIgASgFIkIKF1JvbGxiYWNrU2Vzc2lvblJlc3BvbnNlEicKCmNoZWNrcG9pbnQYASABKAsyEy5seW9uLnYxLkNoZWNrcG9pbnQiOgoVU2F2ZUNoZWNrcG9pbnRSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDQoFbGFiZWwYAiABKAkiQQoWU2F2ZUNoZWNrcG9pbnRSZXNwb25zZRInCgpjaGVja3BvaW50GAEgASgLMhMubHlvbi52MS5DaGVja3BvaW50IigKElVuZG9MYXN0UnVuUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIjoKE1VuZG9MYXN0UnVuUmVzcG9uc2USFgoOcmVzdG9yZWRfcGF0aHMYASADKAkSCwoDcmVmGAIgASgJIsMCCgdTZXNzaW9uEgoKAmlkGAEgASgJEhEKCXdvcmtzcGFjZRgCIAEoCRINCgVtb2RlbBgDIAEoCRINCgV0aXRsZRgEIAEoCRIMCgRtb2RlGAUgASgJEgwKBGJ1c3kYBiABKAgSEQoJcXVldWVfbGVuGAcgASgFEg0KBXR1cm5zGAggASgFEi4KCmNyZWF0ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2xhc3RfYWN0aXZlGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCg5jb250ZXh0X3dpbmRvdxgLIAEoAxIQCghjdHhfdXNlZBgMIAEoAxIVCghjb3N0X3VzZBgNIAEoAUgAiAEBEg4KBnZpc2lvbhgOIAEoCEILCglfY29zdF91c2QiMwoUQ3JlYXRlU2Vzc2lvblJlcXVlc3QSDQoFbW9kZWwYASABKAkSDAoEbW9kZRgCIAEoCSI6ChVDcmVhdGVTZXNzaW9uUmVzcG9uc2USIQoHc2Vzc2lvbhgBIAEoCzIQLmx5b24udjEuU2Vzc2lvbiIVChNMaXN0U2Vzc2lvbnNSZXF1ZXN0IjoKFExpc3RTZXNzaW9uc1Jlc3BvbnNlEiIKCHNlc3Npb25zGAEgAygLMhAubHlvbi52MS5TZXNzaW9uIicKEUdldFNlc3Npb25SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiNwoSR2V0U2Vzc2lvblJlc3BvbnNlEiEKB3Nlc3Npb24YASABKAsyEC5seW9uLnYxLlNlc3Npb24iKgoURGVsZXRlU2Vzc2lvblJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSIXChVEZWxldGVTZXNzaW9uUmVzcG9uc2UiSAoTU3VibWl0UHJvbXB0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg4KBnByb21wdBgCIAEoCRINCgVtb2RlbBgDIAEoCSInChRTdWJtaXRQcm9tcHRSZXNwb25zZRIPCgdzdGFydGVkGAEgASgIIjoKFEVucXVldWVQcm9tcHRSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDgoGcHJvbXB0GAIgASgJIioKFUVucXVldWVQcm9tcHRSZXNwb25zZRIRCglxdWV1ZV9sZW4YASABKAUiJgoQSW50ZXJydXB0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIigKEUludGVycnVwdFJlc3BvbnNlEhMKC2ludGVycnVwdGVkGAEgASgIIiUKD0dldFN0YXRzUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIokBCghUdXJuU3RhdBIMCgR0dXJuGAEgASgFEhMKC3N0b3BfcmVhc29uGAIgASgJEh0KBXVzYWdlGAMgASgLMg4ubHlvbi52MS5Vc2FnZRITCgtkdXJhdGlvbl9tcxgEIAEoAxImCgJhdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiNAoQR2V0U3RhdHNSZXNwb25zZRIgCgV0dXJucxgBIAMoCzIRLmx5b24udjEuVHVyblN0YXQiMgoOU2V0TW9kZVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRtb2RlGAIgASgJIh8KD1NldE1vZGVSZXNwb25zZRIMCgRtb2RlGAEgASgJIjsKE1dhdGNoRXZlbnRzUmVzcG9uc2USJAoFZXZlbnQYASABKAsyFS5seW9uLnYxLlNlc3Npb25FdmVudCI6ChJXYXRjaEV2ZW50c1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIQCghmcm9tX3NlcRgCIAEoAyInChFHZXRIaXN0b3J5UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIk0KEkdldEhpc3RvcnlSZXNwb25zZRIlCgZldmVudHMYASADKAsyFS5seW9uLnYxLlNlc3Npb25FdmVudBIQCghsYXN0X3NlcRgCIAEoAyIlChVSZXN0b3JlU2Vzc2lvblJlcXVlc3QSDAoEcGF0aBgBIAEoCSJWChZSZXN0b3JlU2Vzc2lvblJlc3BvbnNlEiEKB3Nlc3Npb24YASABKAsyEC5seW9uLnYxLlNlc3Npb24SGQoRcmVzdG9yZWRfbWVzc2FnZXMYAiABKAUy0wkKDlNlc3Npb25TZXJ2aWNlEk4KDUNyZWF0ZVNlc3Npb24SHS5seW9uLnYxLkNyZWF0ZVNlc3Npb25SZXF1ZXN0Gh4ubHlvbi52MS5DcmVhdGVTZXNzaW9uUmVzcG9uc2USSwoMTGlzdFNlc3Npb25zEhwubHlvbi52MS5MaXN0U2Vzc2lvbnNSZXF1ZXN0Gh0ubHlvbi52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJFCgpHZXRTZXNzaW9uEhoubHlvbi52MS5HZXRTZXNzaW9uUmVxdWVzdBobLmx5b24udjEuR2V0U2Vzc2lvblJlc3BvbnNlEk4KDURlbGV0ZVNlc3Npb24SHS5seW9uLnYxLkRlbGV0ZVNlc3Npb25SZXF1ZXN0Gh4ubHlvbi52MS5EZWxldGVTZXNzaW9uUmVzcG9uc2USSwoMU3VibWl0UHJvbXB0EhwubHlvbi52MS5TdWJtaXRQcm9tcHRSZXF1ZXN0Gh0ubHlvbi52MS5TdWJtaXRQcm9tcHRSZXNwb25zZRJOCg1FbnF1ZXVlUHJvbXB0Eh0ubHlvbi52MS5FbnF1ZXVlUHJvbXB0UmVxdWVzdBoeLmx5b24udjEuRW5xdWV1ZVByb21wdFJlc3BvbnNlEkIKCUludGVycnVwdBIZLmx5b24udjEuSW50ZXJydXB0UmVxdWVzdBoaLmx5b24udjEuSW50ZXJydXB0UmVzcG9uc2USPwoIR2V0U3RhdHMSGC5seW9uLnYxLkdldFN0YXRzUmVxdWVzdBoZLmx5b24udjEuR2V0U3RhdHNSZXNwb25zZRI8CgdTZXRNb2RlEhcubHlvbi52MS5TZXRNb2RlUmVxdWVzdBoYLmx5b24udjEuU2V0TW9kZVJlc3BvbnNlEkoKC1dhdGNoRXZlbnRzEhsubHlvbi52MS5XYXRjaEV2ZW50c1JlcXVlc3QaHC5seW9uLnYxLldhdGNoRXZlbnRzUmVzcG9uc2UwARJFCgpHZXRIaXN0b3J5EhoubHlvbi52MS5HZXRIaXN0b3J5UmVxdWVzdBobLmx5b24udjEuR2V0SGlzdG9yeVJlc3BvbnNlElEKDlJlc3RvcmVTZXNzaW9uEh4ubHlvbi52MS5SZXN0b3JlU2Vzc2lvblJlcXVlc3QaHy5seW9uLnYxLlJlc3RvcmVTZXNzaW9uUmVzcG9uc2USVAoPTGlzdENoZWNrcG9pbnRzEh8ubHlvbi52MS5MaXN0Q2hlY2twb2ludHNSZXF1ZXN0GiAubHlvbi52MS5MaXN0Q2hlY2twb2ludHNSZXNwb25zZRJUCg9Sb2xsYmFja1Nlc3Npb24SHy5seW9uLnYxLlJvbGxiYWNrU2Vzc2lvblJlcXVlc3QaIC5seW9uLnYxLlJvbGxiYWNrU2Vzc2lvblJlc3BvbnNlElEKDlNhdmVDaGVja3BvaW50Eh4ubHlvbi52MS5TYXZlQ2hlY2twb2ludFJlcXVlc3QaHy5seW9uLnYxLlNhdmVDaGVja3BvaW50UmVzcG9uc2USSAoLVW5kb0xhc3RSdW4SGy5seW9uLnYxLlVuZG9MYXN0UnVuUmVxdWVzdBocLmx5b24udjEuVW5kb0xhc3RSdW5SZXNwb25zZUIiWiBseW9uLWFnZW50L2dlbi9nby9seW9uL3YxO2x5b252MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_lyon_v1_event]);
 
 /**
  * Checkpoint is one undo point: a prompt boundary or a pre-compaction
@@ -181,6 +181,50 @@ export const SaveCheckpointResponseSchema: GenMessage<SaveCheckpointResponse> = 
   messageDesc(file_lyon_v1_session, 6);
 
 /**
+ * @generated from message lyon.v1.UndoLastRunRequest
+ */
+export type UndoLastRunRequest = Message<"lyon.v1.UndoLastRunRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+};
+
+/**
+ * Describes the message lyon.v1.UndoLastRunRequest.
+ * Use `create(UndoLastRunRequestSchema)` to create a new message.
+ */
+export const UndoLastRunRequestSchema: GenMessage<UndoLastRunRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_session, 7);
+
+/**
+ * @generated from message lyon.v1.UndoLastRunResponse
+ */
+export type UndoLastRunResponse = Message<"lyon.v1.UndoLastRunResponse"> & {
+  /**
+   * Worktree paths the undo restored or removed (the flash list).
+   *
+   * @generated from field: repeated string restored_paths = 1;
+   */
+  restoredPaths: string[];
+
+  /**
+   * Side ref after the undo: short sha of the new chain tip, "" when the
+   * chain is exhausted (the ref was removed — next call finds nothing).
+   *
+   * @generated from field: string ref = 2;
+   */
+  ref: string;
+};
+
+/**
+ * Describes the message lyon.v1.UndoLastRunResponse.
+ * Use `create(UndoLastRunResponseSchema)` to create a new message.
+ */
+export const UndoLastRunResponseSchema: GenMessage<UndoLastRunResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_session, 8);
+
+/**
  * @generated from message lyon.v1.Session
  */
 export type Session = Message<"lyon.v1.Session"> & {
@@ -283,7 +327,7 @@ export type Session = Message<"lyon.v1.Session"> & {
  * Use `create(SessionSchema)` to create a new message.
  */
 export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 7);
+  messageDesc(file_lyon_v1_session, 9);
 
 /**
  * @generated from message lyon.v1.CreateSessionRequest
@@ -309,7 +353,7 @@ export type CreateSessionRequest = Message<"lyon.v1.CreateSessionRequest"> & {
  * Use `create(CreateSessionRequestSchema)` to create a new message.
  */
 export const CreateSessionRequestSchema: GenMessage<CreateSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 8);
+  messageDesc(file_lyon_v1_session, 10);
 
 /**
  * @generated from message lyon.v1.CreateSessionResponse
@@ -326,7 +370,7 @@ export type CreateSessionResponse = Message<"lyon.v1.CreateSessionResponse"> & {
  * Use `create(CreateSessionResponseSchema)` to create a new message.
  */
 export const CreateSessionResponseSchema: GenMessage<CreateSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 9);
+  messageDesc(file_lyon_v1_session, 11);
 
 /**
  * @generated from message lyon.v1.ListSessionsRequest
@@ -339,7 +383,7 @@ export type ListSessionsRequest = Message<"lyon.v1.ListSessionsRequest"> & {
  * Use `create(ListSessionsRequestSchema)` to create a new message.
  */
 export const ListSessionsRequestSchema: GenMessage<ListSessionsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 10);
+  messageDesc(file_lyon_v1_session, 12);
 
 /**
  * @generated from message lyon.v1.ListSessionsResponse
@@ -356,7 +400,7 @@ export type ListSessionsResponse = Message<"lyon.v1.ListSessionsResponse"> & {
  * Use `create(ListSessionsResponseSchema)` to create a new message.
  */
 export const ListSessionsResponseSchema: GenMessage<ListSessionsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 11);
+  messageDesc(file_lyon_v1_session, 13);
 
 /**
  * @generated from message lyon.v1.GetSessionRequest
@@ -373,7 +417,7 @@ export type GetSessionRequest = Message<"lyon.v1.GetSessionRequest"> & {
  * Use `create(GetSessionRequestSchema)` to create a new message.
  */
 export const GetSessionRequestSchema: GenMessage<GetSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 12);
+  messageDesc(file_lyon_v1_session, 14);
 
 /**
  * @generated from message lyon.v1.GetSessionResponse
@@ -390,7 +434,7 @@ export type GetSessionResponse = Message<"lyon.v1.GetSessionResponse"> & {
  * Use `create(GetSessionResponseSchema)` to create a new message.
  */
 export const GetSessionResponseSchema: GenMessage<GetSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 13);
+  messageDesc(file_lyon_v1_session, 15);
 
 /**
  * @generated from message lyon.v1.DeleteSessionRequest
@@ -407,7 +451,7 @@ export type DeleteSessionRequest = Message<"lyon.v1.DeleteSessionRequest"> & {
  * Use `create(DeleteSessionRequestSchema)` to create a new message.
  */
 export const DeleteSessionRequestSchema: GenMessage<DeleteSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 14);
+  messageDesc(file_lyon_v1_session, 16);
 
 /**
  * @generated from message lyon.v1.DeleteSessionResponse
@@ -420,7 +464,7 @@ export type DeleteSessionResponse = Message<"lyon.v1.DeleteSessionResponse"> & {
  * Use `create(DeleteSessionResponseSchema)` to create a new message.
  */
 export const DeleteSessionResponseSchema: GenMessage<DeleteSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 15);
+  messageDesc(file_lyon_v1_session, 17);
 
 /**
  * @generated from message lyon.v1.SubmitPromptRequest
@@ -449,7 +493,7 @@ export type SubmitPromptRequest = Message<"lyon.v1.SubmitPromptRequest"> & {
  * Use `create(SubmitPromptRequestSchema)` to create a new message.
  */
 export const SubmitPromptRequestSchema: GenMessage<SubmitPromptRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 16);
+  messageDesc(file_lyon_v1_session, 18);
 
 /**
  * @generated from message lyon.v1.SubmitPromptResponse
@@ -466,7 +510,7 @@ export type SubmitPromptResponse = Message<"lyon.v1.SubmitPromptResponse"> & {
  * Use `create(SubmitPromptResponseSchema)` to create a new message.
  */
 export const SubmitPromptResponseSchema: GenMessage<SubmitPromptResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 17);
+  messageDesc(file_lyon_v1_session, 19);
 
 /**
  * @generated from message lyon.v1.EnqueuePromptRequest
@@ -488,7 +532,7 @@ export type EnqueuePromptRequest = Message<"lyon.v1.EnqueuePromptRequest"> & {
  * Use `create(EnqueuePromptRequestSchema)` to create a new message.
  */
 export const EnqueuePromptRequestSchema: GenMessage<EnqueuePromptRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 18);
+  messageDesc(file_lyon_v1_session, 20);
 
 /**
  * @generated from message lyon.v1.EnqueuePromptResponse
@@ -505,7 +549,7 @@ export type EnqueuePromptResponse = Message<"lyon.v1.EnqueuePromptResponse"> & {
  * Use `create(EnqueuePromptResponseSchema)` to create a new message.
  */
 export const EnqueuePromptResponseSchema: GenMessage<EnqueuePromptResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 19);
+  messageDesc(file_lyon_v1_session, 21);
 
 /**
  * @generated from message lyon.v1.InterruptRequest
@@ -522,7 +566,7 @@ export type InterruptRequest = Message<"lyon.v1.InterruptRequest"> & {
  * Use `create(InterruptRequestSchema)` to create a new message.
  */
 export const InterruptRequestSchema: GenMessage<InterruptRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 20);
+  messageDesc(file_lyon_v1_session, 22);
 
 /**
  * @generated from message lyon.v1.InterruptResponse
@@ -539,7 +583,7 @@ export type InterruptResponse = Message<"lyon.v1.InterruptResponse"> & {
  * Use `create(InterruptResponseSchema)` to create a new message.
  */
 export const InterruptResponseSchema: GenMessage<InterruptResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 21);
+  messageDesc(file_lyon_v1_session, 23);
 
 /**
  * @generated from message lyon.v1.GetStatsRequest
@@ -556,7 +600,7 @@ export type GetStatsRequest = Message<"lyon.v1.GetStatsRequest"> & {
  * Use `create(GetStatsRequestSchema)` to create a new message.
  */
 export const GetStatsRequestSchema: GenMessage<GetStatsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 22);
+  messageDesc(file_lyon_v1_session, 24);
 
 /**
  * @generated from message lyon.v1.TurnStat
@@ -593,7 +637,7 @@ export type TurnStat = Message<"lyon.v1.TurnStat"> & {
  * Use `create(TurnStatSchema)` to create a new message.
  */
 export const TurnStatSchema: GenMessage<TurnStat> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 23);
+  messageDesc(file_lyon_v1_session, 25);
 
 /**
  * @generated from message lyon.v1.GetStatsResponse
@@ -610,7 +654,7 @@ export type GetStatsResponse = Message<"lyon.v1.GetStatsResponse"> & {
  * Use `create(GetStatsResponseSchema)` to create a new message.
  */
 export const GetStatsResponseSchema: GenMessage<GetStatsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 24);
+  messageDesc(file_lyon_v1_session, 26);
 
 /**
  * @generated from message lyon.v1.SetModeRequest
@@ -634,7 +678,7 @@ export type SetModeRequest = Message<"lyon.v1.SetModeRequest"> & {
  * Use `create(SetModeRequestSchema)` to create a new message.
  */
 export const SetModeRequestSchema: GenMessage<SetModeRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 25);
+  messageDesc(file_lyon_v1_session, 27);
 
 /**
  * @generated from message lyon.v1.SetModeResponse
@@ -651,7 +695,7 @@ export type SetModeResponse = Message<"lyon.v1.SetModeResponse"> & {
  * Use `create(SetModeResponseSchema)` to create a new message.
  */
 export const SetModeResponseSchema: GenMessage<SetModeResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 26);
+  messageDesc(file_lyon_v1_session, 28);
 
 /**
  * One streamed chunk wraps one hub event (SessionEvent stays a pure data
@@ -671,7 +715,7 @@ export type WatchEventsResponse = Message<"lyon.v1.WatchEventsResponse"> & {
  * Use `create(WatchEventsResponseSchema)` to create a new message.
  */
 export const WatchEventsResponseSchema: GenMessage<WatchEventsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 27);
+  messageDesc(file_lyon_v1_session, 29);
 
 /**
  * @generated from message lyon.v1.WatchEventsRequest
@@ -698,7 +742,7 @@ export type WatchEventsRequest = Message<"lyon.v1.WatchEventsRequest"> & {
  * Use `create(WatchEventsRequestSchema)` to create a new message.
  */
 export const WatchEventsRequestSchema: GenMessage<WatchEventsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 28);
+  messageDesc(file_lyon_v1_session, 30);
 
 /**
  * @generated from message lyon.v1.GetHistoryRequest
@@ -715,7 +759,7 @@ export type GetHistoryRequest = Message<"lyon.v1.GetHistoryRequest"> & {
  * Use `create(GetHistoryRequestSchema)` to create a new message.
  */
 export const GetHistoryRequestSchema: GenMessage<GetHistoryRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 29);
+  messageDesc(file_lyon_v1_session, 31);
 
 /**
  * @generated from message lyon.v1.GetHistoryResponse
@@ -741,7 +785,7 @@ export type GetHistoryResponse = Message<"lyon.v1.GetHistoryResponse"> & {
  * Use `create(GetHistoryResponseSchema)` to create a new message.
  */
 export const GetHistoryResponseSchema: GenMessage<GetHistoryResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 30);
+  messageDesc(file_lyon_v1_session, 32);
 
 /**
  * @generated from message lyon.v1.RestoreSessionRequest
@@ -762,7 +806,7 @@ export type RestoreSessionRequest = Message<"lyon.v1.RestoreSessionRequest"> & {
  * Use `create(RestoreSessionRequestSchema)` to create a new message.
  */
 export const RestoreSessionRequestSchema: GenMessage<RestoreSessionRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 31);
+  messageDesc(file_lyon_v1_session, 33);
 
 /**
  * @generated from message lyon.v1.RestoreSessionResponse
@@ -786,7 +830,7 @@ export type RestoreSessionResponse = Message<"lyon.v1.RestoreSessionResponse"> &
  * Use `create(RestoreSessionResponseSchema)` to create a new message.
  */
 export const RestoreSessionResponseSchema: GenMessage<RestoreSessionResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_session, 32);
+  messageDesc(file_lyon_v1_session, 34);
 
 /**
  * SessionService: lifecycle + prompt injection + event streaming.
@@ -953,6 +997,25 @@ export const SessionService: GenService<{
     methodKind: "unary";
     input: typeof SaveCheckpointRequestSchema;
     output: typeof SaveCheckpointResponseSchema;
+  },
+  /**
+   * UndoLastRun reverts the workspace FILE changes of the session's most
+   * recent run — the file dimension of undo, paired with RollbackSession's
+   * conversation dimension (/undo vs /rollback). Every run that touched
+   * files auto-commits to a per-session side ref (refs/lyon/auto/<sid>,
+   * git plumbing only: HEAD, the branch and the user's index are never
+   * touched); this RPC restores the worktree paths that commit changed and
+   * steps the side ref down its chain, so repeated calls keep undoing runs.
+   * codes.NotFound = nothing left to undo. Restored paths come back so the
+   * UI can flash them — a post-commit user edit on the same file is
+   * overwritten (no 3-way merge at this scale).
+   *
+   * @generated from rpc lyon.v1.SessionService.UndoLastRun
+   */
+  undoLastRun: {
+    methodKind: "unary";
+    input: typeof UndoLastRunRequestSchema;
+    output: typeof UndoLastRunResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_lyon_v1_session, 0);

@@ -283,6 +283,21 @@ func (m *tuiModel) subTask(subID string) *execStep {
 	return nil
 }
 
+// runningFanout counts dispatched subtask nodes still in flight — the
+// F2 「N 项并行中」 indicator on the run_subagents parent row. Computed
+// at render time from the step list itself, so it tracks starts/ends
+// with no state of its own.
+func (m *tuiModel) runningFanout() int {
+	n := 0
+	for i := range m.steps {
+		s := &m.steps[i]
+		if s.sub != "" && s.status == stepRunning {
+			n++
+		}
+	}
+	return n
+}
+
 // startPromptStep opens a new prompt group — one titled parent row that
 // answers "what problem are these steps solving". The title is the
 // prompt itself, collapsed to a single line.
@@ -872,6 +887,17 @@ func (m *tuiModel) stepLine(s execStep, w int) string {
 		tail := s.detail
 		if s.status == stepError && s.err != "" {
 			tail = s.err
+		} else if s.name == "run_subagents" && s.status == stepRunning {
+			// F2: the parent row wears the live concurrency count while
+			// its dispatched subtasks overlap — 「3 项并行中」.
+			if n := m.runningFanout(); n >= 2 {
+				ind := fmt.Sprintf("%d 项并行中", n)
+				if tail != "" {
+					tail += " · " + ind
+				} else {
+					tail = ind
+				}
+			}
 		}
 		if tail != "" {
 			head += " " + paint(cDim, ansi.Truncate(sanitizeText(tail), rest, "…"))

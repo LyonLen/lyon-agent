@@ -119,6 +119,69 @@ func TestRenderStepsSizing(t *testing.T) {
 	}
 }
 
+// TestRunningFanoutIndicator: F2 — while a run_subagents parent has two
+// or more dispatched subtasks in flight, its row wears the live
+// concurrency count (「N 项并行中」); once they finish, the badge goes.
+func TestRunningFanoutIndicator(t *testing.T) {
+	m := newTestModel(t)
+	m.applyEvent(agent.Event{
+		Type: agent.EventToolUseStart, ToolID: "tu1", ToolName: "run_subagents",
+		Input: json.RawMessage(`{"tasks":[{"task":"alpha"},{"task":"beta"},{"task":"gamma"}]}`),
+	})
+	m.applyEvent(agent.Event{
+		Type: agent.EventSubagentStart, Sub: true, SubID: "d1.1",
+		ToolName: "model-a", Detail: "alpha research",
+	})
+	m.applyEvent(agent.Event{
+		Type: agent.EventSubagentStart, Sub: true, SubID: "d1.2",
+		ToolName: "model-b", Detail: "beta survey",
+	})
+
+	parent := m.findToolStep("run_subagents")
+	if parent == nil {
+		t.Fatal("parent run_subagents row missing")
+	}
+	line := m.stepLine(*parent, 100)
+	if !strings.Contains(line, "2 项并行中") {
+		t.Fatalf("parent row = %q, want the fan-out indicator", line)
+	}
+
+	// Third subtask joins — the count tracks live starts.
+	m.applyEvent(agent.Event{
+		Type: agent.EventSubagentStart, Sub: true, SubID: "d1.3",
+		ToolName: "model-c", Detail: "gamma notes",
+	})
+	parent = m.findToolStep("run_subagents")
+	if line = m.stepLine(*parent, 100); !strings.Contains(line, "3 项并行中") {
+		t.Fatalf("parent row = %q, want 3 项并行中", line)
+	}
+
+	// Two end — one left running: below the threshold, badge gone.
+	m.applyEvent(agent.Event{
+		Type: agent.EventSubagentEnd, Sub: true, SubID: "d1.1",
+		ToolName: "model-a", Detail: "1 API calls", DurationMS: 10,
+	})
+	m.applyEvent(agent.Event{
+		Type: agent.EventSubagentEnd, Sub: true, SubID: "d1.2",
+		ToolName: "model-b", Detail: "1 API calls", DurationMS: 10,
+	})
+	parent = m.findToolStep("run_subagents")
+	if line = m.stepLine(*parent, 100); strings.Contains(line, "项并行中") {
+		t.Fatalf("parent row = %q, want no badge with a single subtask", line)
+	}
+
+	// All ended: the parent closes clean with no badge.
+	m.applyEvent(agent.Event{
+		Type: agent.EventSubagentEnd, Sub: true, SubID: "d1.3",
+		ToolName: "model-c", Detail: "1 API calls", DurationMS: 10,
+	})
+	m.applyEvent(agent.Event{Type: agent.EventToolExecEnd, ExecID: 1, ToolName: "run_subagents"})
+	parent = m.findToolStep("run_subagents")
+	if parent != nil {
+		t.Fatalf("parent still running after all ends: %+v", parent)
+	}
+}
+
 // TestStepsPanelGeometry: at wide sizes the View splits into transcript +
 // gutter + panel and still satisfies the exact-frame invariants; at 100
 // columns (every legacy TUI test's size) the panel stays away; /steps

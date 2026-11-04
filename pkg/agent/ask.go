@@ -30,6 +30,14 @@ func (s *Session) AskModel(ctx context.Context, model, system, user string, maxT
 		MaxTokens: maxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: system}},
 		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(user))},
+		// Extraction/judgment calls budget for TEXT only — a reasoning
+		// model's thinking blocks count against MaxTokens and used to
+		// consume the whole budget (stop_reason=max_tokens, zero text
+		// blocks → "empty reply" skips). Thinking is off: cheaper,
+		// faster, and the budget buys the answer it was sized for.
+		Thinking: anthropic.BetaThinkingConfigParamUnion{
+			OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
+		},
 	})
 	if err != nil {
 		return "", err

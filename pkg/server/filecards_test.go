@@ -141,7 +141,7 @@ func TestFileCardsFlow(t *testing.T) {
 	events := make(chan agent.Event)
 	h := newHub(events)
 	// Store's onPromptEnd, verbatim shape (store.go): the tap only schedules.
-	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(repo) }
+	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(repo, "") }
 	go h.run()
 	defer close(events)
 
@@ -201,7 +201,7 @@ func TestFileCardsSkipWithoutBaseline(t *testing.T) {
 
 	events := make(chan agent.Event)
 	h := newHub(events)
-	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(repo) }
+	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(repo, "") }
 	go h.run()
 	defer close(events)
 
@@ -250,7 +250,7 @@ func TestFileCardsForeignWriterExcluded(t *testing.T) {
 
 	events := make(chan agent.Event)
 	h := newHub(events)
-	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(repo) }
+	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(repo, "") }
 	h.sid, h.ws, h.writes = "seat-A", repo, ledger
 	go h.run()
 	defer close(events)
@@ -371,7 +371,7 @@ func TestFileCardsNotARepo(t *testing.T) {
 
 	events := make(chan agent.Event)
 	h := newHub(events)
-	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(dir) }
+	h.onPromptEnd = func(agent.Event) { h.scheduleFileCards(dir, "") }
 	go h.run()
 	defer close(events)
 

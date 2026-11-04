@@ -62,7 +62,7 @@ func (t *TodoWrite) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	if len(in.Todos) > todoMaxItems {
 		return nil, fmt.Errorf("todo_write: %d items exceeds the %d-item cap", len(in.Todos), todoMaxItems)
 	}
-	var done, total int
+	var done, total, pending int
 	current := ""
 	for i, it := range in.Todos {
 		content := strings.TrimSpace(it.Content)
@@ -80,11 +80,20 @@ func (t *TodoWrite) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 		if it.Status == "completed" {
 			done++
 		}
+		if it.Status == "pending" {
+			pending++
+		}
 		total++
 	}
 	ack := fmt.Sprintf("plan updated: %d/%d completed", done, total)
 	if current != "" {
 		ack += fmt.Sprintf(" · in progress: %q", current)
+	}
+	// F2 计划感知扇出: a list this long with this many items left is a
+	// fan-out candidate — nudge at exactly the moment the plan lands, so
+	// the model dispatches instead of grinding serially.
+	if pending >= 3 {
+		ack += fmt.Sprintf(" · %d pending — dispatch independent items in one run_subagents fan-out", pending)
 	}
 	return TextResult(ack), nil
 }

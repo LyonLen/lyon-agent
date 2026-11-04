@@ -76,6 +76,9 @@ const (
 	// SessionServiceSaveCheckpointProcedure is the fully-qualified name of the SessionService's
 	// SaveCheckpoint RPC.
 	SessionServiceSaveCheckpointProcedure = "/lyon.v1.SessionService/SaveCheckpoint"
+	// SessionServiceUndoLastRunProcedure is the fully-qualified name of the SessionService's
+	// UndoLastRun RPC.
+	SessionServiceUndoLastRunProcedure = "/lyon.v1.SessionService/UndoLastRun"
 )
 
 // SessionServiceClient is a client for the lyon.v1.SessionService service.
@@ -124,6 +127,17 @@ type SessionServiceClient interface {
 	// label the checkpoint before a risky stretch of work, then roll back to
 	// it later. Fails codes.FailedPrecondition on an empty history.
 	SaveCheckpoint(context.Context, *connect.Request[v1.SaveCheckpointRequest]) (*connect.Response[v1.SaveCheckpointResponse], error)
+	// UndoLastRun reverts the workspace FILE changes of the session's most
+	// recent run — the file dimension of undo, paired with RollbackSession's
+	// conversation dimension (/undo vs /rollback). Every run that touched
+	// files auto-commits to a per-session side ref (refs/lyon/auto/<sid>,
+	// git plumbing only: HEAD, the branch and the user's index are never
+	// touched); this RPC restores the worktree paths that commit changed and
+	// steps the side ref down its chain, so repeated calls keep undoing runs.
+	// codes.NotFound = nothing left to undo. Restored paths come back so the
+	// UI can flash them — a post-commit user edit on the same file is
+	// overwritten (no 3-way merge at this scale).
+	UndoLastRun(context.Context, *connect.Request[v1.UndoLastRunRequest]) (*connect.Response[v1.UndoLastRunResponse], error)
 }
 
 // NewSessionServiceClient constructs a client for the lyon.v1.SessionService service. By default,
@@ -227,6 +241,12 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("SaveCheckpoint")),
 			connect.WithClientOptions(opts...),
 		),
+		undoLastRun: connect.NewClient[v1.UndoLastRunRequest, v1.UndoLastRunResponse](
+			httpClient,
+			baseURL+SessionServiceUndoLastRunProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("UndoLastRun")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -247,6 +267,7 @@ type sessionServiceClient struct {
 	listCheckpoints *connect.Client[v1.ListCheckpointsRequest, v1.ListCheckpointsResponse]
 	rollbackSession *connect.Client[v1.RollbackSessionRequest, v1.RollbackSessionResponse]
 	saveCheckpoint  *connect.Client[v1.SaveCheckpointRequest, v1.SaveCheckpointResponse]
+	undoLastRun     *connect.Client[v1.UndoLastRunRequest, v1.UndoLastRunResponse]
 }
 
 // CreateSession calls lyon.v1.SessionService.CreateSession.
@@ -324,6 +345,11 @@ func (c *sessionServiceClient) SaveCheckpoint(ctx context.Context, req *connect.
 	return c.saveCheckpoint.CallUnary(ctx, req)
 }
 
+// UndoLastRun calls lyon.v1.SessionService.UndoLastRun.
+func (c *sessionServiceClient) UndoLastRun(ctx context.Context, req *connect.Request[v1.UndoLastRunRequest]) (*connect.Response[v1.UndoLastRunResponse], error) {
+	return c.undoLastRun.CallUnary(ctx, req)
+}
+
 // SessionServiceHandler is an implementation of the lyon.v1.SessionService service.
 type SessionServiceHandler interface {
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
@@ -370,6 +396,17 @@ type SessionServiceHandler interface {
 	// label the checkpoint before a risky stretch of work, then roll back to
 	// it later. Fails codes.FailedPrecondition on an empty history.
 	SaveCheckpoint(context.Context, *connect.Request[v1.SaveCheckpointRequest]) (*connect.Response[v1.SaveCheckpointResponse], error)
+	// UndoLastRun reverts the workspace FILE changes of the session's most
+	// recent run — the file dimension of undo, paired with RollbackSession's
+	// conversation dimension (/undo vs /rollback). Every run that touched
+	// files auto-commits to a per-session side ref (refs/lyon/auto/<sid>,
+	// git plumbing only: HEAD, the branch and the user's index are never
+	// touched); this RPC restores the worktree paths that commit changed and
+	// steps the side ref down its chain, so repeated calls keep undoing runs.
+	// codes.NotFound = nothing left to undo. Restored paths come back so the
+	// UI can flash them — a post-commit user edit on the same file is
+	// overwritten (no 3-way merge at this scale).
+	UndoLastRun(context.Context, *connect.Request[v1.UndoLastRunRequest]) (*connect.Response[v1.UndoLastRunResponse], error)
 }
 
 // NewSessionServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -469,6 +506,12 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("SaveCheckpoint")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceUndoLastRunHandler := connect.NewUnaryHandler(
+		SessionServiceUndoLastRunProcedure,
+		svc.UndoLastRun,
+		connect.WithSchema(sessionServiceMethods.ByName("UndoLastRun")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/lyon.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionServiceCreateSessionProcedure:
@@ -501,6 +544,8 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceRollbackSessionHandler.ServeHTTP(w, r)
 		case SessionServiceSaveCheckpointProcedure:
 			sessionServiceSaveCheckpointHandler.ServeHTTP(w, r)
+		case SessionServiceUndoLastRunProcedure:
+			sessionServiceUndoLastRunHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -568,4 +613,8 @@ func (UnimplementedSessionServiceHandler) RollbackSession(context.Context, *conn
 
 func (UnimplementedSessionServiceHandler) SaveCheckpoint(context.Context, *connect.Request[v1.SaveCheckpointRequest]) (*connect.Response[v1.SaveCheckpointResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.SaveCheckpoint is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) UndoLastRun(context.Context, *connect.Request[v1.UndoLastRunRequest]) (*connect.Response[v1.UndoLastRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.SessionService.UndoLastRun is not implemented"))
 }

@@ -256,10 +256,13 @@ func (h *hub) beginFileCards(ws string) {
 // scheduleFileCards consumes the baseline at prompt_end: the diff itself
 // runs in its own goroutine (git status never delays the hub's consumer —
 // same contract as retitle's tap) and injects files_changed once the delta
-// is known non-empty. Wired from Store's onPromptEnd, which run() calls
-// AFTER pushing prompt_end — so the card's seq is always above the reply
-// it belongs to.
-func (h *hub) scheduleFileCards(ws string) {
+// is known non-empty. The same goroutine then records the delta on the
+// session's side ref (autoCommitRun, autocommit.go) — one capture, one
+// status pass, card first, commit second, no index.lock contention.
+// Wired from Store's onPromptEnd, which run() calls AFTER pushing
+// prompt_end — so the card's seq is always above the reply it belongs to.
+// prompt (Session.LastPrompt) is the commit message's summary source.
+func (h *hub) scheduleFileCards(ws, prompt string) {
 	h.baselineMu.Lock()
 	h.fileGen++ // invalidate any capture still in flight — it describes a run that already ended
 	if !h.baselineOK {
@@ -289,5 +292,8 @@ func (h *hub) scheduleFileCards(ws string) {
 			Type:  evFilesChanged,
 			Attrs: map[string]string{"files": string(data)},
 		})
+		// The card lands first; the auto-commit of exactly this delta
+		// follows in the same goroutine (fail-open, silent).
+		h.autoCommitRun(ws, prompt, cards)
 	}()
 }

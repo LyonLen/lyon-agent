@@ -64,6 +64,18 @@ service SessionService {
   // label the checkpoint before a risky stretch of work, then roll back to
   // it later. Fails codes.FailedPrecondition on an empty history.
   rpc SaveCheckpoint(SaveCheckpointRequest) returns (SaveCheckpointResponse);
+
+  // UndoLastRun reverts the workspace FILE changes of the session's most
+  // recent run — the file dimension of undo, paired with RollbackSession's
+  // conversation dimension (/undo vs /rollback). Every run that touched
+  // files auto-commits to a per-session side ref (refs/lyon/auto/<sid>,
+  // git plumbing only: HEAD, the branch and the user's index are never
+  // touched); this RPC restores the worktree paths that commit changed and
+  // steps the side ref down its chain, so repeated calls keep undoing runs.
+  // codes.NotFound = nothing left to undo. Restored paths come back so the
+  // UI can flash them — a post-commit user edit on the same file is
+  // overwritten (no 3-way merge at this scale).
+  rpc UndoLastRun(UndoLastRunRequest) returns (UndoLastRunResponse);
 }
 
 // Checkpoint is one undo point: a prompt boundary or a pre-compaction
@@ -87,6 +99,15 @@ message SaveCheckpointRequest {
   string label = 2; // empty = server default ("manual checkpoint (N msgs)")
 }
 message SaveCheckpointResponse { Checkpoint checkpoint = 1; }
+
+message UndoLastRunRequest { string session_id = 1; }
+message UndoLastRunResponse {
+  // Worktree paths the undo restored or removed (the flash list).
+  repeated string restored_paths = 1;
+  // Side ref after the undo: short sha of the new chain tip, "" when the
+  // chain is exhausted (the ref was removed — next call finds nothing).
+  string ref = 2;
+}
 
 message Session {
   string id = 1;
