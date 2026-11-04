@@ -122,10 +122,24 @@ type Node struct {
 	EditedByUser bool   `json:"edited_by_user"`
 	Tombstone    bool   `json:"tombstone"`
 	State        string `json:"state"`
+	// Relation is the M3 跨分支连线 (§9): one optional edge to a node in
+	// another subtree — the tree stays the spine, this is the only
+	// non-tree pointer on a node. Rides nodes_json like everything else
+	// (proto stays untouched; nodes_json/ops_json are JSON sinks).
+	Relation *Relation `json:"relation,omitempty"`
+}
+
+// Relation is one cross-branch link (§9 M3). Type is an open string —
+// "related" and "contradicts" are the conventions, not an enum — and
+// Target is another alive node's id (validated on write; a target that
+// later dies is simply a dangling edge the renderer may ignore).
+type Relation struct {
+	Type   string `json:"type"`
+	Target string `json:"target"`
 }
 
 // Op is one entry of ops_json — the §7.3 map_ops set (merge /
-// set_parent / rewrite / add / park / delete / confirm) plus the
+// set_parent / rewrite / add / park / delete / confirm / relate) plus the
 // distiller's use of the same shapes. Field sets differ per op:
 //
 //	add         id(new|empty→slug), parent_id, label, kind, source_turn
@@ -135,16 +149,18 @@ type Node struct {
 //	delete      id            (user/agent: tombstone cascade; distiller: parks)
 //	confirm     id, state(confirmed|proposed; default confirmed — proposed = 取消确认)
 //	merge       id(survivor), source_ids (absorbed → children move up, source tombstoned)
+//	relate      id, relation{type,target} (M3: nil/absent or target "" clears the edge)
 type Op struct {
-	Op         string   `json:"op"`
-	ID         string   `json:"id"`
-	Label      string   `json:"label,omitempty"`
-	ParentID   string   `json:"parent_id,omitempty"`
-	Kind       string   `json:"kind,omitempty"`
-	Status     string   `json:"status,omitempty"`
-	State      string   `json:"state,omitempty"`
-	SourceTurn int      `json:"source_turn,omitempty"`
-	SourceIDs  []string `json:"source_ids,omitempty"`
+	Op         string    `json:"op"`
+	ID         string    `json:"id"`
+	Label      string    `json:"label,omitempty"`
+	ParentID   string    `json:"parent_id,omitempty"`
+	Kind       string    `json:"kind,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	State      string    `json:"state,omitempty"`
+	SourceTurn int       `json:"source_turn,omitempty"`
+	SourceIDs  []string  `json:"source_ids,omitempty"`
+	Relation   *Relation `json:"relation,omitempty"`
 }
 
 // Diff is one distiller reply (§6: a diff, never the full tree).
@@ -653,6 +669,8 @@ func applyOp(g *state, o Op, auth authority) error {
 		return applyConfirm(g, o, auth)
 	case "merge":
 		return applyMerge(g, o, auth)
+	case "relate":
+		return applyRelate(g, o, auth)
 	default:
 		return fmt.Errorf("%w: unknown op %q", ErrInvalid, o.Op)
 	}
@@ -1216,6 +1234,53 @@ func applyMerge(g *state, o Op, auth authority) error {
 		if auth == authUser {
 			pin(s)
 		}
+	}
+	return nil
+}
+
+// applyRelate sets or clears one node's cross-branch edge (§9 M3).
+// Auth is rewrite's class — a relation edit is a content edit on the
+// SOURCE node, so agent origins may not touch pinned/confirmed nodes
+// (ErrFrozen) while origin=user always may (and pins, like rewrite).
+// The TARGET only has to exist and be alive: drawing an edge to a node
+// does not modify it, so the target's own frozen state is irrelevant,
+// but a tombstoned target is rejected outright (edges never point into
+// the grave — requireTarget enforces it).
+//
+// Clearing: relation absent/nil, or target "" → Relation = nil. A clear
+// on an already-clear node is a no-op (no revision tick).
+func applyRelate(g *state, o Op, auth authority) error {
+	n, err := requireModifiable(g, o.ID, auth)
+	if err != nil {
+		return err
+	}
+	if o.Relation == nil || strings.TrimSpace(o.Relation.Target) == "" {
+		if n.Relation == nil {
+			return nil
+		}
+		n.Relation = nil
+		if auth == authUser {
+			pin(n)
+		}
+		return nil
+	}
+	target := strings.TrimSpace(o.Relation.Target)
+	typ := strings.TrimSpace(o.Relation.Type)
+	if typ == "" {
+		return fmt.Errorf("%w: relate without relation type", ErrInvalid)
+	}
+	if target == n.ID {
+		return fmt.Errorf("%w: node %q cannot relate to itself", ErrInvalid, n.ID)
+	}
+	if _, err := requireTarget(g, target); err != nil {
+		return fmt.Errorf("%w: relate target: %v", ErrInvalid, err)
+	}
+	if n.Relation != nil && n.Relation.Type == typ && n.Relation.Target == target {
+		return nil // identical edge already set
+	}
+	n.Relation = &Relation{Type: typ, Target: target}
+	if auth == authUser {
+		pin(n)
 	}
 	return nil
 }

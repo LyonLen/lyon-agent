@@ -16,6 +16,7 @@ import MemoryPanel from "./components/MemoryPanel";
 import EvolvePanel from "./components/EvolvePanel";
 import SettingsPane from "./components/SettingsPane";
 import ErrorBoundary from "./components/ErrorBoundary";
+import MindMapCard from "./components/MindMapCard";
 import TilingWorkspace, { type PaneDef } from "./tiling/TilingWorkspace";
 import { useWorkspaceLayout } from "./tiling/useWorkspaceLayout";
 import { collectLeaves, findParentSplit, widthShare } from "./tiling/types";
@@ -27,6 +28,7 @@ import { fmtCount } from "./fmt";
 const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 import type { TodoItem } from "./todos";
 import type { StepRow } from "./types";
+import type { MindmapSnap } from "./mindmap";
 
 export default function App() {
   const [tokenInput, setTokenInput] = useState(getToken());
@@ -48,6 +50,43 @@ export default function App() {
   // already-open pane (see openPlan). Cleared on a timer.
   const [shakeLeaf, setShakeLeaf] = useState("");
   const [steps, setSteps] = useState<StepRow[]>([]);
+  // The session mindmap (#51): ChatView owns the revision-guarded snapshot
+  // (it sits on the event stream) and reports it up — the map renders in
+  // its own pane, a peer of chat. mmJump is the seq'd jump request the
+  // pane sends back down to ChatView's feed. The snapshot is TAGGED with
+  // its session: during a switch the outgoing session's map is still in
+  // hand, and acting on it would mark the incoming session auto-opened
+  // against the old pane tree (the round-trip pane-loss bug). The derived
+  // `mindmap` stays null until tag and selection agree.
+  const [mm, setMm] = useState<{ sid: string; snap: MindmapSnap | null } | null>(null);
+  const mindmap = mm && mm.sid === selectedId ? mm.snap : null;
+  const [mmJump, setMmJump] = useState<{ turn: number; seq: number } | null>(null);
+  // M2 edit channel: the pane's UpdateMindmap response (rev + nodes →
+  // ChatView applies under the revision guard) or a conflict refetch
+  // (no rev) — seq bumps so duplicate commands still re-fire.
+  const [mmCmd, setMmCmd] = useState<{ seq: number; rev?: number; nodesJson?: string } | null>(null);
+  const mmSeq = useRef(0);
+  const mmAutoOpened = useRef<string | null>(null);
+  // §7.3 selection-ask: ids live here (both panes render from one truth),
+  // selAsk is the seq'd dispatch ChatView's effect consumes, and
+  // mmAgentBatches counts agent-origin UpdateMindmap batches whose
+  // proposed nodes are still unconfirmed (A5's "先处理" warning).
+  const [mmSel, setMmSel] = useState<string[] | null>(null);
+  const [selAsk, setSelAsk] = useState<{ seq: number; text: string } | null>(null);
+  const [mmAgentBatches, setMmAgentBatches] = useState(0);
+  // Session switch: the old seat's selection/ask state must not leak into
+  // the next session's map.
+  useEffect(() => {
+    setMmSel(null);
+    setSelAsk(null);
+    setMmAgentBatches(0);
+  }, [selectedId]);
+  // A map with no proposed nodes has nothing pending — A5 disarms.
+  useEffect(() => {
+    if (mindmap && !mindmap.nodes.some((n) => !n.tombstone && n.state === "proposed")) {
+      setMmAgentBatches(0);
+    }
+  }, [mindmap]);
   const [reloadKey, setReloadKey] = useState(0);
   // Bottom-left mode dock: click expands the three-mode picker; the chip
   // mirrors the selected session's mode (falls back to "default").
@@ -79,6 +118,17 @@ export default function App() {
     setShakeLeaf(id);
     window.setTimeout(() => setShakeLeaf((cur) => (cur === id ? "" : cur)), 600);
   };
+  // #51: the map is a pane, not a chat-tail card. Open it beside chat the
+  // first time the session's snapshot carries nodes — focus stays in the
+  // composer — and only once per session so a manual close sticks until
+  // the session is re-selected (its saved layout may restore it anyway).
+  useEffect(() => {
+    if (!selectedId || mmAutoOpened.current === selectedId) return;
+    if (!mindmap || mindmap.nodes.length === 0) return;
+    mmAutoOpened.current = selectedId;
+    if (!ws.hasPane("mindmap")) ws.openPane("mindmap", { focus: false });
+  }, [mindmap, selectedId, ws]);
+
   const fileTabs = useFileTabs(ws.root, selectedId);
   // External directory navigation for the files pane (markdown links,
   // slash routing): seq bumps so re-requesting the same path reloads.
@@ -99,6 +149,8 @@ export default function App() {
   useEffect(() => {
     setTodos([]);
     setSteps([]);
+    setMm(null);
+    setMmJump(null);
   }, [selectedId]);
   useEffect(() => {
     pendingRef.current = pending;
@@ -419,6 +471,11 @@ export default function App() {
         ws.openPane("memory");
         flash("memory pane — project scope");
         break;
+      case "/mindmap":
+      case "/mm":
+        ws.openPane("mindmap");
+        flash("mindmap pane — 会话的实时理解图");
+        break;
       case "/settings":
         ws.openPane("settings");
         flash("settings pane — engine & models");
@@ -649,9 +706,53 @@ export default function App() {
               snapshots={saved}
               onRestore={(p) => void restore(p)}
               onRollbackTo={(id) => void rollback(id)}
+              onMindmap={(snap, sid) => setMm({ sid, snap })}
+              jumpTo={mmJump}
+              mmCmd={mmCmd}
+              mmSelIds={mmSel}
+              onMmSelect={setMmSel}
+              selAsk={selAsk}
+              onAgentBatch={() => setMmAgentBatches((c) => c + 1)}
             />
             {chatFooter}
           </div>
+        ) : (
+          <div className="placeholder">select or create a session</div>
+        ),
+    },
+    {
+      kind: "mindmap",
+      title: mindmap?.title ? `mindmap — ${mindmap.title}` : "mindmap",
+      desc: "session's live understanding map",
+      icon: (
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden>
+          <circle cx="7" cy="3.2" r="1.7" />
+          <circle cx="3" cy="10.8" r="1.5" />
+          <circle cx="11" cy="10.8" r="1.5" />
+          <path d="M6.2 4.7 3.7 9.3M7.8 4.7l2.5 4.6" />
+        </svg>
+      ),
+      render: () =>
+        selectedId ? (
+          mindmap ? (
+            <div className="mindmap-pane">
+              <MindMapCard
+                snap={mindmap}
+                sessionId={selectedId}
+                onJump={(turn) => setMmJump({ turn, seq: ++mmSeq.current })}
+                onApplied={(rev, nodesJson) =>
+                  setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1, rev, nodesJson }))
+                }
+                onResync={() => setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1 }))}
+                selected={mmSel}
+                onSelect={setMmSel}
+                onAsk={(text) => setSelAsk((s) => ({ seq: (s?.seq ?? 0) + 1, text }))}
+                agentBatches={mmAgentBatches}
+              />
+            </div>
+          ) : (
+            <div className="placeholder">no mindmap yet — it grows with the conversation</div>
+          )
         ) : (
           <div className="placeholder">select or create a session</div>
         ),

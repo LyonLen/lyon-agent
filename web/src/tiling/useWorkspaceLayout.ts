@@ -91,8 +91,10 @@ export interface WorkspaceLayout {
   maximized: string | null;
   setFocus: (leafId: string | null) => void;
   setMaximized: (leafId: string | null) => void;
-  /** Focus an existing pane of this kind, or open one beside the chat pane. */
-  openPane: (kind: PaneKind) => void;
+  /** Focus an existing pane of this kind, or open one beside the chat pane.
+   *  `focus: false` opens without stealing focus (auto-open on a snapshot
+   *  landing must not yank the caret out of the composer). */
+  openPane: (kind: PaneKind, opts?: { focus?: boolean }) => void;
   closeLeaf: (leafId: string) => void;
   /** Split leaf by adding kind on `dir`; focuses the new leaf. Returns its
    *  nodeId (null when the anchor vanished) so callers can seed per-leaf
@@ -180,24 +182,28 @@ export function useWorkspaceLayout(sessionId: string): WorkspaceLayout {
     setMaximized((m) => (m === leafId ? null : m));
   }, []);
 
-  const openPane = useCallback((kind: PaneKind) => {
-    const r = rootRef.current;
-    const existing = findLeafByPane(r, kind);
-    if (existing) {
-      setFocus(existing.nodeId);
-      return;
-    }
-    // No instance yet: split beside chat (or the first leaf as fallback) —
-    // the new pane lands to the right.
-    const anchor = findLeafByPane(r, "chat") ?? findFirstLeaf(r);
-    if (!anchor) return;
-    const leaf = makeLeaf(kind);
-    setState((s) => ({
-      ...s,
-      root: splitLeaf(s.root, anchor.nodeId, "h", leaf),
-      focus: leaf.nodeId,
-    }));
-  }, [setFocus]);
+  const openPane = useCallback(
+    (kind: PaneKind, opts?: { focus?: boolean }) => {
+      const focusNew = opts?.focus !== false;
+      const r = rootRef.current;
+      const existing = findLeafByPane(r, kind);
+      if (existing) {
+        if (focusNew) setFocus(existing.nodeId);
+        return;
+      }
+      // No instance yet: split beside chat (or the first leaf as fallback) —
+      // the new pane lands to the right.
+      const anchor = findLeafByPane(r, "chat") ?? findFirstLeaf(r);
+      if (!anchor) return;
+      const leaf = makeLeaf(kind);
+      setState((s) => ({
+        ...s,
+        root: splitLeaf(s.root, anchor.nodeId, "h", leaf),
+        focus: focusNew ? leaf.nodeId : s.focus,
+      }));
+    },
+    [setFocus],
+  );
 
   const hasPane = useCallback((kind: PaneKind) => findLeafByPane(rootRef.current, kind) !== null, []);
   const leafOf = useCallback((kind: PaneKind) => findLeafByPane(rootRef.current, kind)?.nodeId ?? null, []);

@@ -1042,12 +1042,17 @@ button:focus-visible,
    onto dark tokens. proposed = dashed gray (the model's guess),
    confirmed = solid branch color (yours) — a dishonest map is worse
    than none (§4.3). Click a node / t# → jump back to the source turn. */
+/* The map lives in the `mindmap` pane, a peer of chat (#51): the tile
+   already draws the frame, so the card fills it edge to edge. Head /
+   legend / foot are chrome; only the radial canvas scrolls. */
+.mindmap-pane {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  overflow: hidden;
+}
 .mindmap-card {
-  /* feed children are flex-column items: overflow:hidden zeroes the
-     automatic min-size, so without this the card shrinks to 2px. */
-  flex-shrink: 0;
-  border: 1px solid var(--line); border-radius: var(--radius-2);
-  background: var(--bg-plan); overflow: hidden;
+  flex: 1; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column;
+  background: var(--bg-plan);
 }
 .mm-head {
   display: flex; align-items: flex-start; gap: 12px;
@@ -1105,92 +1110,129 @@ button:focus-visible,
 .mm-kinds span { white-space: nowrap; }
 .mm-k { font-size: 10px; }
 
-.mm-spine {
-  position: relative; margin: 18px 12px 0; height: 34px;
-  display: flex; align-items: flex-start;
+/* ── radial canvas (classic mind-map baseline, refs/01-classic-radial) ──
+   Absolute rows on a fixed-slot plane + one SVG for the bezier links.
+   Honesty rule survives the restyle: confirmed = solid branch color,
+   proposed = dashed gray — a dishonest map is worse than none. */
+.mm-canvas {
+  flex: 1; min-height: 0; overflow: auto; position: relative;
+  display: flex; /* sizer margin:auto centers the map in BOTH axes when
+                    it fits; when the 0.7 floor leaves it oversized,
+                    auto margins collapse to 0 and the canvas pans */
 }
-.mm-root {
-  position: relative; z-index: 2; flex: 0 1 auto; max-width: 100%;
+.mm-sizer { position: relative; margin: auto; flex: none; }
+/* plane is absolutely placed in the sizer: its scaled bounds are the
+   only scrollable-overflow contributor (layout box alone would lie) */
+.mm-plane { position: absolute; left: 0; top: 0; }
+.mm-links { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 0; }
+.mm-croot {
+  position: absolute; transform: translate(-50%, -50%); z-index: 3;
   background: var(--fg); color: var(--bg);
-  border-radius: 11px; padding: 8px 15px;
-  font-size: 13px; font-weight: 600; letter-spacing: .2px;
-  display: flex; align-items: center; gap: 9px;
+  border-radius: 13px; padding: 9px 16px;
+  font-size: 13.5px; font-weight: 650; letter-spacing: .2px;
+  display: flex; align-items: center; gap: 9px; white-space: nowrap;
   cursor: pointer; box-shadow: 0 8px 18px -12px var(--shadow-strong);
 }
-.mm-rl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mm-rt {
+.mm-croot .mm-rl { overflow: hidden; text-overflow: ellipsis; }
+.mm-croot .mm-rt {
   font-size: 10px; opacity: .62; font-weight: 400; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.mm-trunk {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 1.5px;
-  background: linear-gradient(90deg, var(--fg) 0%, var(--line) 22%, var(--line) 100%);
-}
-.mm-cols {
-  display: flex; gap: 14px; align-items: flex-start;
-  margin: 18px 12px 0; flex-wrap: wrap;
-}
-.mm-col {
-  flex: 1 1 160px; min-width: 148px; max-width: 240px;
-  display: flex; flex-direction: column; gap: 8px; position: relative;
-}
-.mm-col::before { /* lead line down from the trunk */
-  content: ""; position: absolute; left: 50%; top: -18px;
-  width: 1.5px; height: 18px; background: var(--line);
-}
-.mm-col-head {
-  border-radius: 10px; padding: 8px 10px; color: #fff;
+.mm-cbranch {
+  position: absolute; z-index: 2; box-sizing: border-box;
+  height: 30px; border-radius: 15px; padding: 0 6px 0 13px;
+  display: flex; align-items: center; gap: 7px;
   font-size: 12.5px; font-weight: 600; letter-spacing: .3px;
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  position: relative; cursor: pointer; background: var(--dot);
+  cursor: pointer; overflow: hidden;
+  background: var(--dot); color: #fff;          /* confirmed: solid fill */
+  transition: filter var(--dur-1), background var(--dur-1);
 }
-.mm-col-head.parked { opacity: .55; }
-.mm-col-head::before { /* trunk landing dot */
-  content: ""; position: absolute; left: 50%; top: -21px;
-  width: 7px; height: 7px; margin-left: -3.5px;
-  border-radius: 50%; background: var(--dot); opacity: .85;
+.mm-cbranch .mm-cl {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.mm-col-head .n {
-  font-size: 11px; opacity: .75; font-weight: 500;
-  font-variant-numeric: tabular-nums;
+.mm-cbranch .n {
+  font-size: 11px; opacity: .75; font-weight: 500; flex-shrink: 0;
+  padding-right: 7px; font-variant-numeric: tabular-nums;
 }
-.mm-empty { font-size: 11.5px; color: var(--fg-faint); padding: 6px 2px; }
-.mm-node-wrap { display: flex; flex-direction: column; }
-.mm-node {
-  position: relative; cursor: pointer;
-  background: var(--bg-card); border-radius: 9px;
-  padding: 8px 10px 8px 12px;
-  font-size: 12.3px; line-height: 1.5; color: var(--fg);
-  border: 1.4px dashed var(--dim);       /* proposed: the model's guess */
-  transition: background var(--dur-1), border-color var(--dur-1);
+.mm-cbranch:hover { filter: brightness(1.12); }
+/* proposed: the model's guess — dashed outline, no fill */
+.mm-cbranch:not(.confirmed) {
+  background: transparent; color: var(--dot);
+  border: 1.5px dashed var(--dot);
 }
-.mm-node:hover { background: var(--bg-hover); border-color: var(--fg-faint); }
-.mm-node.confirmed {
-  border: 1.4px solid var(--b, var(--line-soft)); /* confirmed: yours */
-  border-left-width: 4px;
-  background: var(--bg-row);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+.mm-cbranch:not(.confirmed):hover { background: rgba(255, 255, 255, .04); filter: none; }
+.mm-cbranch.parked { opacity: .5; }
+.mm-cnode {
+  position: absolute; z-index: 1; box-sizing: border-box;
+  height: 22px; padding: 2px 4px 0;
+  font-size: 12.3px; line-height: 1.5; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer;
+  border-bottom: 1.5px dashed var(--fg-faint); /* proposed: the guess */
+  transition: background var(--dur-1), color var(--dur-1);
 }
-.mm-node.confirmed:hover { background: var(--bg-select); }
-.mm-node .mm-t {
-  display: inline-block; margin-left: 6px; vertical-align: 2px;
+.mm-cnode.left { text-align: right; }
+.mm-cnode:hover { background: var(--bg-hover); border-radius: 4px 4px 0 0; }
+.mm-cnode.confirmed {
+  color: var(--fg); font-weight: 600;
+  border-bottom: 1.5px solid var(--b);          /* confirmed: yours */
+}
+.mm-cnode .mm-t {
+  display: inline-block; margin-left: 6px; vertical-align: 1px;
   font-size: 9.5px; color: var(--fg-faint);
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, Consolas, monospace;
+  font-weight: 400;
 }
-.mm-node.confirmed .mm-t { color: var(--b); opacity: .8; }
-.mm-node .mm-i {
-  font-size: 9px; margin-right: 5px; vertical-align: 1.5px; opacity: .7;
+.mm-cnode.confirmed .mm-t { color: var(--b); opacity: .85; }
+.mm-cnode .mm-i {
+  font-size: 9px; margin-right: 4px; vertical-align: 1px; opacity: .7;
 }
-.mm-node.open_question {
-  background: var(--bg-warn); border-color: var(--warn-line);
-}
-.mm-node.parked { opacity: .5; }
+.mm-cnode.open_question { background: var(--bg-warn); color: var(--warn); }
+.mm-cnode.parked { opacity: .5; }
 .mm-pen { margin-left: 5px; font-size: 10px; color: var(--fg-faint); }
-.mm-kids {
-  display: flex; flex-direction: column; gap: 7px;
-  margin: 7px 0 0 10px; padding-left: 9px;
-  border-left: 1px solid var(--line);
+
+/* ── M2 edit channel: hover actions, inline rename, batch confirm ──
+   Actions fade in over the row's right edge (the ellipsis zone — the
+   tooltip still carries the full label); rename swaps the row content
+   for an input in place, Enter commits / Esc cancels / blur commits. */
+.mm-acts {
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 3px; align-items: center;
+  opacity: 0; pointer-events: none; z-index: 4;
+  transition: opacity var(--dur-1);
+}
+.mm-cbranch:hover .mm-acts,
+.mm-cnode:hover .mm-acts,
+.mm-croot:hover .mm-acts { opacity: 1; pointer-events: auto; }
+.mm-acts button {
+  width: 17px; height: 17px; padding: 0; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--bg-card); color: var(--dim);
+  font-size: 10px; line-height: 1; cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; flex-shrink: 0;
+}
+.mm-acts button:hover {
+  color: var(--fg); border-color: var(--accent); background: var(--bg-hover);
+}
+.mm-acts button.on { color: var(--accent); border-color: var(--accent); }
+.mm-ein {
+  box-sizing: border-box; width: 100%; height: 100%;
+  border: 1.5px solid var(--accent); border-radius: inherit;
+  background: var(--bg-card); color: var(--fg);
+  font: inherit; padding: 0 6px; outline: none; min-width: 70px;
+}
+.mm-croot .mm-ein { flex: 1; min-width: 120px; }
+button.mm-chip {
+  cursor: pointer; font-family: inherit; line-height: 1.35;
+}
+button.mm-chip:hover { border-color: var(--accent); color: var(--fg); background: var(--bg-hover); }
+button.mm-chip b { color: var(--accent); }
+
+.mm-empty { font-size: 11.5px; color: var(--fg-faint); padding: 6px 2px; }
+.mm-cempty {
+  position: absolute; left: 50%; top: 60%;
+  transform: translate(-50%, -50%); padding: 0;
 }
 .mm-foot {
   margin-top: 16px; padding: 10px 12px 12px;
@@ -1206,12 +1248,122 @@ button:focus-visible,
   from { box-shadow: 0 0 0 3px var(--accent-a28); background: var(--accent-a13); }
   to { box-shadow: 0 0 0 0 transparent; }
 }
-.mm-node.fresh, .mm-col-head.fresh { animation: mm-fresh .4s var(--ease); }
+.mm-cbranch.fresh, .mm-cnode.fresh { animation: mm-fresh .4s var(--ease); }
 @keyframes mm-jump {
   0%, 100% { box-shadow: none; }
   25%, 65% { box-shadow: 0 0 0 3px var(--accent-a35); }
 }
 .chat-feed .mm-jump { animation: mm-jump 1.5s var(--ease); }
+
+/* ── §7.3 selection (marquee / toolbar / hint / chips) ───────────── */
+.mm-canvas { user-select: none; } /* marquee drags must not select text */
+.mm-canvas input, .mm-canvas textarea { user-select: text; } /* rename box */
+.mm-marquee {
+  position: absolute; z-index: 4; pointer-events: none;
+  border: 1.5px solid var(--accent);
+  background: var(--accent-a13);
+  border-radius: 3px;
+}
+.mm-cbranch.sel, .mm-cnode.sel, .mm-croot.sel {
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px var(--accent-a28);
+}
+.mm-croot.sel { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px var(--accent-a28), 0 8px 18px -12px var(--shadow-strong); }
+
+/* Floating toolbar: anchored above the selection bbox (plane coords),
+   counter-scaled 1/fit by the inline transform so it reads at natural
+   size. Buttons stay compact — one row, no wrap. */
+.mm-toolbar {
+  position: absolute; z-index: 6;
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 5px 7px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 10px 24px -14px var(--shadow-strong);
+}
+/* children never break mid-label; the CONTAINER wraps instead */
+.mm-toolbar button,
+.mm-toolbar select.mm-tb-sel,
+.mm-toolbar input.mm-tb-q,
+.mm-toolbar .mm-tb-warn { flex: none; white-space: nowrap; }
+.mm-toolbar button {
+  border: 1px solid var(--line); background: var(--bg-row); color: var(--dim);
+  border-radius: 6px; padding: 3px 9px; font-size: 11.5px; cursor: pointer;
+  transition: border-color var(--dur-1), color var(--dur-1), background var(--dur-1);
+}
+.mm-toolbar button:hover:not(:disabled) {
+  border-color: var(--accent); color: var(--fg); background: var(--bg-hover);
+}
+.mm-toolbar button:disabled { opacity: .4; cursor: default; }
+.mm-toolbar .mm-tb-go { border-color: var(--accent); color: var(--accent); }
+.mm-toolbar .mm-tb-x { margin-left: 2px; }
+.mm-toolbar .mm-tb-sep {
+  width: 1px; height: 16px; background: var(--line); margin: 0 3px; flex: none;
+}
+.mm-toolbar select.mm-tb-sel {
+  border: 1px solid var(--line); background: var(--bg-row); color: var(--dim);
+  border-radius: 6px; padding: 3px 4px; font-size: 11.5px; cursor: pointer;
+  max-width: 130px;
+}
+.mm-toolbar select.mm-tb-sel:hover { border-color: var(--accent); color: var(--fg); }
+.mm-toolbar input.mm-tb-q {
+  border: 1px solid var(--line); background: var(--bg-row); color: var(--fg);
+  border-radius: 6px; padding: 3px 8px; font-size: 11.5px; width: 132px;
+  outline: none;
+}
+.mm-toolbar input.mm-tb-q:focus { border-color: var(--accent); }
+.mm-toolbar input.mm-tb-q::placeholder { color: var(--fg-faint); }
+.mm-tb-warn {
+  font-size: 11px; color: var(--warn); background: var(--bg-warn);
+  border: 1px solid var(--warn-line); border-radius: 6px; padding: 3px 8px;
+}
+.mm-tb-warn.on { background: var(--accent-a13); border-color: var(--accent); color: var(--accent); }
+.mm-toolbar.armed { border-color: var(--warn-line); }
+
+/* Composer hint row: a selection in the map surfaces here so the ask
+   path is discoverable without looking at the pane. */
+.mm-selhint {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 10px 4px; padding: 5px 10px;
+  background: var(--accent-a13);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-size: 12px; color: var(--fg);
+  animation: rise-in var(--dur-2) var(--ease) both;
+}
+.mm-selhint-count { flex: 1; min-width: 0; }
+.mm-selhint-clear { font-size: 11.5px; padding: 2px 8px; }
+
+/* Selection-ask rows in the feed: the marker's ids render as label
+   chips (click re-selects them in the map), the prose follows. */
+.mm-usrchips { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px; }
+button.mm-chip-user {
+  border: 1px solid var(--accent); background: var(--accent-a13);
+  color: var(--accent); border-radius: 999px;
+  padding: 2px 9px; font-size: 11px; cursor: pointer; max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+button.mm-chip-user:hover { background: var(--bg-hover); color: var(--fg); }
+
+/* M2.5 eligible banner + write receipt */
+.mm-banner {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  margin: 4px 12px 0; padding: 6px 10px;
+  background: var(--bg-warn); border: 1px solid var(--warn-line);
+  border-radius: 8px; font-size: 12px; color: var(--warn);
+}
+.mm-banner b { font-variant-numeric: tabular-nums; }
+.mm-banner.done { background: var(--bg-row); border-color: var(--line); color: var(--dim); }
+button.mm-chip.mm-mem { border-color: var(--accent); color: var(--accent); cursor: pointer; }
+button.mm-chip.mm-mem b { color: var(--accent); }
+button.mm-chip.mm-mem:hover { background: var(--bg-hover); }
+
+/* open_question = a hole waiting for an answer (§9): dashed ring so it
+   reads as editable/askable, not as a finished fact. */
+.mm-cnode.open_question {
+  background: var(--bg-warn); color: var(--warn);
+  border-style: dashed; border-color: var(--warn-line);
+}
 
 /* panel tabs: both slots stay mounted, hidden keeps FilePanel's state */
 .panel-tabs { gap: 2px; }

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
 	"lyon-agent/pkg/agent"
+	"lyon-agent/pkg/mindmap"
 )
 
 // The right-hand steps panel is the session's live action audit, shaped
@@ -521,6 +523,12 @@ func (m *tuiModel) stepEvent(ev agent.Event) {
 		})
 
 	case agent.EventPromptEnd:
+		// The mind-map distiller rides this same prompt_end seam —
+		// lyond composes it via store.SetPromptEndObserver(mindmap.Hook)
+		// (cmd/lyond/main.go). Hook self-gates (prompt_end + LYON_MINDMAP)
+		// and hands the work to its own goroutine, so this bare call on
+		// the UI thread never delays a frame.
+		mindmap.Hook(m.sess, ev)
 		// Anything still running when the prompt closes never got its
 		// end event — interrupt, budget cut, transport failure. Record
 		// it truthfully.
@@ -724,7 +732,9 @@ func reverseRow(s string) string {
 // renderSteps produces exactly h rows of at most w cells: a header (with
 // the selection marker), then the visible window of steps — live tail by
 // default, or centered on the selection (expanded block kept whole) —
-// then blanks. ANSI-aware so the column edge stays aligned.
+// then blanks, then the mindmap outline block when a map is seeded for
+// the session (M3 §7.2; it steals the bottom rows from the step window).
+// ANSI-aware so the column edge stays aligned.
 func (m *tuiModel) renderSteps(w, h int) []string {
 	if w <= 0 || h <= 0 {
 		return nil
@@ -765,9 +775,32 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 	if avail <= 0 {
 		return []string{fitRow(header, w)}
 	}
+
+	// M3 §7.2: the mindmap outline claims the panel's BOTTOM rows,
+	// stealing them from the step list — steps keep at least
+	// mmMinStepRows, and a panel too small for that yields the outline
+	// entirely. No section label row: U1 pins outline rows == node
+	// count (剔除 tombstone), so only node rows enter the block.
+	var sid string
+	if m.sess != nil {
+		sid = m.sess.SeatID()
+	}
+	outline := mindmapOutlineRows(sid, w)
+	const mmMinStepRows = 3
+	outlineN := len(outline)
+	if max := avail - mmMinStepRows; outlineN > max {
+		outlineN = max
+	}
+	if outlineN <= 0 {
+		outline, outlineN = nil, 0
+	} else {
+		outline = outline[:outlineN]
+	}
+	stepAvail := avail - outlineN
+
 	lo := 0
-	if len(rows) > avail {
-		lo = len(rows) - avail // live follow: newest at the bottom
+	if len(rows) > stepAvail {
+		lo = len(rows) - stepAvail // live follow: newest at the bottom
 		if m.stepSel > 0 {
 			idx := -1
 			for i, r := range rows {
@@ -781,11 +814,11 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 				for idx+block < len(rows) && rows[idx+block].n == m.stepSel {
 					block++
 				}
-				if block > avail {
-					block = avail
+				if block > stepAvail {
+					block = stepAvail
 				}
-				lo = idx - (avail - block) // selection block sits at the bottom
-				if max := len(rows) - avail; lo > max {
+				lo = idx - (stepAvail - block) // selection block sits at the bottom
+				if max := len(rows) - stepAvail; lo > max {
 					lo = max
 				}
 				if lo < 0 {
@@ -797,17 +830,160 @@ func (m *tuiModel) renderSteps(w, h int) []string {
 
 	out := make([]string, 0, h)
 	out = append(out, fitRow(header, w))
-	end := lo + avail
+	end := lo + stepAvail
 	if end > len(rows) {
 		end = len(rows)
 	}
 	for _, r := range rows[lo:end] {
 		out = append(out, r.text)
 	}
-	for len(out) < h {
+	for len(out) < h-outlineN {
 		out = append(out, "")
 	}
+	for _, r := range outline {
+		out = append(out, fitRow(r, w))
+	}
 	return out
+}
+
+// ── mindmap outline (M3 §7.2) ────────────────────────────────────────
+
+// mmKindIcon mirrors web/src/components/MindMapCard.tsx's ICON map —
+// the TUI outline wears the same kind glyphs as the web graph (真图形
+// 只给 web; only the glyph travels).
+var mmKindIcon = map[string]string{
+	mindmap.KindBranch:       "▸",
+	mindmap.KindDecision:     "◆",
+	mindmap.KindFact:         "●",
+	mindmap.KindOpenQuestion: "○",
+}
+
+// mmOutlineCache memoizes the last built outline. renderSteps runs every
+// frame and State() hands back a fresh node slice each call, so an
+// unchanged sid+rev+w reuses the rows without re-walking the tree.
+// Single entry — the TUI renders one session's panel at a time. It lives
+// here, not on tuiModel: that struct is in tui.go, which is 只减不增.
+type mmOutlineCache struct {
+	mu   sync.Mutex
+	sid  string
+	rev  int
+	w    int
+	rows []string
+	has  bool
+}
+
+var mmOutline mmOutlineCache
+
+// mindmapOutlineRows renders sid's mind map as the §7.2 indented outline:
+// one row per ALIVE node including the root (U1: 行数 = 节点数，剔除
+// tombstone — no header or label row, or the count would break), 2-space
+// indent per depth, ├─/└─ sibling glyphs, web kind icons, then
+// t<source_turn> and the ⏸ parked marker when the row's width allows.
+// Returns nil — render nothing — when the session has no seat, the map
+// is opted out (LYON_MINDMAP=off), or the seat has no nodes.
+func mindmapOutlineRows(sid string, w int) []string {
+	if sid == "" || w <= 0 || mindmap.Off() {
+		return nil
+	}
+	rev, nodes, err := mindmap.Open().State(sid)
+	if err != nil || len(nodes) == 0 {
+		return nil
+	}
+	mmOutline.mu.Lock()
+	defer mmOutline.mu.Unlock()
+	if mmOutline.has && mmOutline.sid == sid && mmOutline.rev == rev && mmOutline.w == w {
+		return mmOutline.rows
+	}
+	rows := buildMindmapOutline(nodes, w)
+	mmOutline.sid, mmOutline.rev, mmOutline.w = sid, rev, w
+	mmOutline.rows, mmOutline.has = rows, true
+	return rows
+}
+
+// buildMindmapOutline walks the alive tree depth-first — roots and
+// siblings in stored order — and formats one row per node. Every alive
+// node is emitted exactly once (U1): orphans whose parent is missing or
+// tombstoned surface as top-level rows, and a corrupt parent cycle is
+// cut by the seen-set rather than dropped.
+func buildMindmapOutline(nodes []mindmap.Node, w int) []string {
+	byID := make(map[string]*mindmap.Node, len(nodes))
+	for i := range nodes {
+		if !nodes[i].Tombstone {
+			byID[nodes[i].ID] = &nodes[i]
+		}
+	}
+	if len(byID) == 0 {
+		return nil
+	}
+	kids := make(map[string][]string, len(byID))
+	roots := make([]string, 0, 4)
+	for i := range nodes {
+		n := &nodes[i]
+		if n.Tombstone {
+			continue
+		}
+		if n.ParentID != "" && n.ParentID != n.ID {
+			if _, ok := byID[n.ParentID]; ok {
+				kids[n.ParentID] = append(kids[n.ParentID], n.ID)
+				continue
+			}
+		}
+		roots = append(roots, n.ID)
+	}
+
+	rows := make([]string, 0, len(byID))
+	seen := make(map[string]bool, len(byID))
+	var emit func(id string, depth int, last bool)
+	emit = func(id string, depth int, last bool) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		n := byID[id]
+		icon := mmKindIcon[n.Kind]
+		if icon == "" {
+			icon = mmKindIcon[mindmap.KindBranch]
+		}
+		label := oneLine(n.Label)
+		var line string
+		if depth == 0 {
+			line = icon + " " + label // root: no glyph, no indent
+		} else {
+			glyph := "├─ "
+			if last {
+				glyph = "└─ "
+			}
+			line = strings.Repeat("  ", depth) + glyph + icon + " " + label
+		}
+		if n.SourceTurn > 0 {
+			if s := fmt.Sprintf(" t%d", n.SourceTurn); ansi.StringWidth(line)+ansi.StringWidth(s) <= w {
+				line += s
+			}
+		}
+		if n.Status == mindmap.StatusParked {
+			if s := " ⏸"; ansi.StringWidth(line)+ansi.StringWidth(s) <= w {
+				line += s
+			}
+		}
+		if ansi.StringWidth(line) > w {
+			line = ansi.Truncate(line, w, "…")
+		}
+		rows = append(rows, line)
+		children := kids[id]
+		for i, c := range children {
+			emit(c, depth+1, i == len(children)-1)
+		}
+	}
+	for _, r := range roots {
+		emit(r, 0, true)
+	}
+	for i := range nodes {
+		n := &nodes[i]
+		if !n.Tombstone && !seen[n.ID] {
+			emit(n.ID, 0, true) // unreachable from any root — still owes U1 its row
+		}
+	}
+	return rows
 }
 
 // stepsFooter is the steps panel's key-hint row — the column's shared

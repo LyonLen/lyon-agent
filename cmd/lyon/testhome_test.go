@@ -17,6 +17,11 @@ func TestMain(m *testing.M) {
 	// The planner (pkg/agent/planner.go) would consume a scripted mock
 	// turn on any gate-passing prompt; tests opt in per-case.
 	os.Setenv("LYON_PLANNER", "off")
+	// The mind-map distiller taps prompt_end from stepEvent (M3): off
+	// keeps injection/mock-prompt tests from spawning distill goroutines
+	// that would eat a scripted turn (tests that want the map opt in
+	// per-case with t.Setenv).
+	os.Setenv("LYON_MINDMAP", "off")
 	code := m.Run()
 	if dir != "" {
 		os.RemoveAll(dir)

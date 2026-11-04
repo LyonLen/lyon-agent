@@ -14,6 +14,9 @@ export type MapNode = {
   edited_by_user: boolean;
   tombstone: boolean;
   state: string; // proposed | confirmed
+  // M3 cross-branch link (§9): absent on the pure-tree v1 map; when a
+  // `relate` op sets it the card draws a dashed edge to the target.
+  relation?: { type: string; target: string } | null;
 };
 
 // One card snapshot — what GetMindmap answers and what every

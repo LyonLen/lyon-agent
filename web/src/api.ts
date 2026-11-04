@@ -32,6 +32,22 @@ export function setToken(t: string): void {
   }
 }
 
+// Legacy /v1 JSON routes (no proto — the connect transport can't reach
+// them): plain fetch with the same bearer token the interceptor injects.
+export async function v1Json<T>(path: string, body: unknown): Promise<T> {
+  const t = getToken();
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return (await res.json()) as T;
+}
+
 const authInterceptor: Interceptor = (next) => async (req) => {
   const t = getToken();
   if (t) {

@@ -59,6 +59,8 @@ var envCatalog = []envEntry{
 	{"LYON_HOOKS", "hook 配置路径"},
 	{"LYON_AUDIT", "审计日志开关"},
 	{"LYON_DISTILL", "记忆蒸馏开关"},
+	{"LYON_MINDMAP", "思维导图总开关（off = 无蒸馏、无事件、零调用）"},
+	{"LYON_MINDMAP_ASK", "图上编辑自动提问（off = 只入 chat 不发轮）"},
 	{"LYON_DIAGNOSE", "失败自诊断开关"},
 	{"LYON_DEBUG", "调试输出开关"},
 	{"LYON_DUMP", "运行 dump 开关"},

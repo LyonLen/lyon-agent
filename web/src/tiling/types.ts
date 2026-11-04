@@ -6,6 +6,7 @@
 export type PaneKind =
   | "sessions"
   | "chat"
+  | "mindmap"
   | "files"
   | "steps"
   | "plan"
@@ -18,6 +19,7 @@ export type PaneKind =
 export const PANE_KINDS: readonly PaneKind[] = [
   "sessions",
   "chat",
+  "mindmap",
   "files",
   "steps",
   "plan",

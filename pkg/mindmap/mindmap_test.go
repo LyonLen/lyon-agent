@@ -707,3 +707,124 @@ func TestDistillReentrancyGate(t *testing.T) {
 		t.Fatal("claim must succeed after end")
 	}
 }
+
+// ── M3: relate op — 跨分支连线 (§9) ─────────────────────────────
+
+func TestRelateOp(t *testing.T) {
+	m, sid := scratch(t)
+	base := mustUser(t, m, sid, 0,
+		Op{Op: "add", ID: "root", Label: "主题", Kind: KindBranch},
+		Op{Op: "add", ID: "br1", ParentID: "root", Label: "甲支", Kind: KindBranch},
+		Op{Op: "add", ID: "br2", ParentID: "root", Label: "乙支", Kind: KindBranch},
+		Op{Op: "add", ID: "a", ParentID: "br1", Label: "节点甲", Kind: KindFact},
+		Op{Op: "add", ID: "b", ParentID: "br2", Label: "节点乙", Kind: KindFact},
+		Op{Op: "add", ID: "gone", ParentID: "br2", Label: "将删", Kind: KindFact},
+		Op{Op: "delete", ID: "gone"},
+	)
+
+	// Set: user origin on a confirmed node (rewrite-class authority —
+	// user may, and it pins like every other human content edit).
+	base = mustUser(t, m, sid, base, Op{
+		Op: "relate", ID: "a",
+		Relation: &Relation{Type: "contradicts", Target: "b"},
+	})
+	if rel := nodeByID(t, m, sid)["a"].Relation; rel == nil ||
+		rel.Type != "contradicts" || rel.Target != "b" {
+		t.Fatalf("relation not set: %+v", rel)
+	}
+
+	// JSON round-trip through Snapshot's nodes_json (the web's read path).
+	_, _, _, nodesJSON, err := m.Snapshot(sid)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	var wire []Node
+	if err := json.Unmarshal([]byte(nodesJSON), &wire); err != nil {
+		t.Fatalf("nodes_json: %v", err)
+	}
+	found := false
+	for _, n := range wire {
+		if n.ID == "a" {
+			found = true
+			if n.Relation == nil || n.Relation.Type != "contradicts" || n.Relation.Target != "b" {
+				t.Errorf("relation lost in nodes_json: %+v", n.Relation)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("node a missing from nodes_json")
+	}
+
+	// Target validation: missing node, self, tombstone, missing type —
+	// each an InvalidArgument-grade rejection, map untouched.
+	relateErr := func(auth string, o Op) error {
+		b, err := json.Marshal([]Op{o})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err = m.ApplyUserOps(sid, base, auth, string(b))
+		return err
+	}
+	for _, bad := range []Op{
+		{Op: "relate", ID: "a", Relation: &Relation{Type: "related", Target: "nope"}},
+		{Op: "relate", ID: "a", Relation: &Relation{Type: "related", Target: "a"}},
+		{Op: "relate", ID: "a", Relation: &Relation{Type: "related", Target: "gone"}},
+		{Op: "relate", ID: "a", Relation: &Relation{Target: "b"}}, // type required
+	} {
+		if err := relateErr("user", bad); !errors.Is(err, ErrInvalid) {
+			t.Errorf("relate %+v: err=%v, want ErrInvalid", bad.Relation, err)
+		}
+	}
+
+	// Agent origin: frozen class — a confirmed node is the human's.
+	if err := relateErr("agent", Op{
+		Op: "relate", ID: "a",
+		Relation: &Relation{Type: "related", Target: "b"},
+	}); !errors.Is(err, ErrFrozen) {
+		t.Errorf("agent relate on confirmed: err=%v, want ErrFrozen", err)
+	}
+	// Agent origin on a proposed node: allowed, stays proposed/unpinned.
+	d := m.ApplyDistill(sid, base, Diff{Ops: []Op{
+		{Op: "add", ID: "d", ParentID: "br1", Label: "提案节点", Kind: KindFact},
+	}})
+	if !d.Changed {
+		t.Fatal("distill seed must land")
+	}
+	b, _ := json.Marshal([]Op{{Op: "relate", ID: "d", Relation: &Relation{Type: "related", Target: "b"}}})
+	rev, _, changed, err := m.ApplyUserOps(sid, d.Revision, "agent", string(b))
+	if err != nil || !changed {
+		t.Fatalf("agent relate on proposed: changed=%v err=%v", changed, err)
+	}
+	if n := nodeByID(t, m, sid)["d"]; n.Relation == nil || n.Pinned ||
+		n.State != StateProposed {
+		t.Errorf("agent relate must not pin: %+v", n)
+	}
+	if rev != d.Revision+1 {
+		t.Errorf("revision = %d, want %d", rev, d.Revision+1)
+	}
+	base = rev
+
+	// Clear: absent relation removes the edge; a second clear is a no-op
+	// (revision must not tick on an already-clear node).
+	base = mustUser(t, m, sid, base, Op{Op: "relate", ID: "a"})
+	if rel := nodeByID(t, m, sid)["a"].Relation; rel != nil {
+		t.Errorf("relation not cleared: %+v", rel)
+	}
+	rev, _, changed, err = m.ApplyUserOps(sid, base, "user", `[{"op":"relate","id":"a"}]`)
+	if err != nil || changed {
+		t.Errorf("clear of clear node: changed=%v err=%v, want no-op", changed, err)
+	}
+	if rev != base {
+		t.Errorf("revision = %d, want %d (no-op)", rev, base)
+	}
+	// An identical edge (d already carries it from the agent batch) is
+	// also a no-op.
+	rev, _, changed, err = m.ApplyUserOps(sid, base, "user",
+		`[{"op":"relate","id":"d","relation":{"type":"related","target":"b"}}]`)
+	if err != nil || changed {
+		t.Errorf("identical relate: changed=%v err=%v, want no-op", changed, err)
+	}
+	if rev != base {
+		t.Errorf("revision = %d, want %d (no-op)", rev, base)
+	}
+}

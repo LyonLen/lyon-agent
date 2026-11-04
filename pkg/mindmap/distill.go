@@ -54,6 +54,7 @@ Hard limits (server-enforced; violating ops are dropped):
 
 Discipline:
 - Admission: only write content that carries a conclusion, decision, fact, or open question. Greetings and process talk never become nodes.
+- Parallel phrasing: siblings must read as peers — all children of one parent (and all branches at one level) use ONE sentence template: all noun phrases, or all "topic: point", or all verb phrases. Never mix templates within a sibling set. When you rewrite/add/remove any child, normalize the WHOLE sibling set under that parent to the same template in the same diff.
 - Prune over grow: the map reflects the current understanding. When new information refutes a branch, PARK it — do not keep both versions side by side.
 - ID stability: ALWAYS reuse ids from the inventory — an unchanged branch keeps its id so the map never flickers. New nodes get fresh slug ids like b-<ascii>. Never re-add an id that already exists, and never add a label similar to an existing one (the server merges or drops it).
 - Deleted labels listed in the inventory must NEVER reappear in any form.

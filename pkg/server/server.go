@@ -55,6 +55,9 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.HandleFunc("POST /v1/sessions/{id}/messages", s.handleMessage)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /v1/sessions/{id}/stats", s.handleStats)
+	// Mindmap → memory extraction (M2.5, §10): bearer-covered like every
+	// other /v1 route via Handler()'s mux wrapper.
+	s.mux.HandleFunc("POST /v1/mindmap/{id}/extract", s.handleMindmapExtract)
 	// Connect RPC (web v1): mounts under /lyon.v1.*Service/* on the same
 	// mux, so Handler()'s bearer-token wrapper covers them wholesale.
 	sessPath, sessHandler := lyonv1connect.NewSessionServiceHandler(&sessionService{s: s})

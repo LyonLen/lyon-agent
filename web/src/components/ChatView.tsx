@@ -6,17 +6,17 @@ import { ModeAction, type WatchPendingResponse } from "../gen/lyon/v1/approval_p
 import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { errText, fileClient, mindmapClient, sessionClient } from "../api";
+import { errText, fileClient, mindmapClient, sessionClient, settingsClient } from "../api";
 import { FileIcon, gitBadge } from "../fileIcons";
 import { uploadPaste } from "../paste";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
 import { parseNodes } from "../mindmap";
-import type { MindmapSnap } from "../mindmap";
+import type { MapNode, MindmapSnap } from "../mindmap";
+// (MindMapCard moved to App — the map renders in its own pane, #51)
 import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
 import OutputDrawer from "./OutputDrawer";
-import MindMapCard from "./MindMapCard";
 import { KEY_TABLE } from "../keys";
 import { fmtDuration } from "../fmt";
 
@@ -41,6 +41,7 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/model", desc: "show the session's effective model", kind: "model" },
   { cmd: "/think", desc: "expand/collapse thinking blocks", kind: "model" },
   { cmd: "/steps", desc: "open|close the audit panel · width N resizes", kind: "panel" },
+  { cmd: "/mindmap", desc: "session mindmap — live understanding map", kind: "panel" },
   { cmd: "/memory", desc: "browse project memory — hot toggle, forget", kind: "panel" },
   { cmd: "/evolve", desc: "evolution panel — lineage, seats, exam banks", kind: "panel" },
   { cmd: "/exam", desc: "exam bank & clock (panel view)", kind: "panel" },
@@ -151,6 +152,21 @@ type Block =
 // One row of the files_changed card — GitChange's JSON shape off the
 // server's diff (pkg/server/filecards.go), so gitBadge applies as-is.
 type FileCard = { path: string; xy: string; kind: string; staged: boolean };
+
+// §8 LYON_MINDMAP_ASK (default ON, draft 按 on 写): should a merged map
+// edit fire a turn, or only land in chat? The flag is lyond's env — read
+// once from the settings env catalog for the whole tab; any failure
+// falls back to the spec default (on).
+let mmAskFlag: Promise<boolean> | null = null;
+const mindmapAskOn = (): Promise<boolean> =>
+  (mmAskFlag ??= settingsClient
+    .getSettings({})
+    .then((res) => {
+      const e = (res.env ?? []).find((v) => v.name === "LYON_MINDMAP_ASK");
+      if (!e) return true;
+      return !["off", "0", "false", "no"].includes((e.value || "").toLowerCase());
+    })
+    .catch(() => true));
 
 function appendToLast(
   blocks: Block[],
@@ -683,6 +699,31 @@ export default function ChatView(props: {
   onRollbackTo: (checkpointId: number) => void;
   // Mode control lives in App's bottom-left dock (shift+tab / click) —
   // ChatView no longer owns a badge or set-mode buttons.
+  /** Lifts the revision-guarded mindmap snapshot to App — the map renders
+   *  in the mindmap pane, a peer of chat (#51). Fires null on mount so a
+   *  fresh session key clears the previous seat's map before GetMindmap. */
+  /** Snapshot report carries the session it belongs to — App guards
+   *  against acting on the outgoing session's map during a switch. */
+  onMindmap?: (s: MindmapSnap | null, sid: string) => void;
+  /** M2 edit-channel commands from the pane: a seq'd request carrying
+   *  the RPC's fresh nodes (rev set) or a bare refetch (rev undefined —
+   *  the optimistic apply lost a §5 conflict). seq bumps per command. */
+  mmCmd?: { seq: number; rev?: number; nodesJson?: string } | null;
+  /** Jump request from the mindmap pane: seq changes on every click so
+   *  re-jumping the same turn re-fires. */
+  jumpTo?: { turn: number; seq: number } | null;
+  /** §7.3 selection: node ids currently圈选 in the pane (same session).
+   *  Drives the composer's 对 N 个节点提问 hint; null/empty = none. */
+  mmSelIds?: string[] | null;
+  /** Chip clicks in past selection messages re-highlight that selection. */
+  onMmSelect?: (ids: string[] | null) => void;
+  /** A semantic selection ask composed by the pane's toolbar — seq bumps
+   *  per ask so the same text can re-fire. ChatView dispatches it through
+   *  the normal prompt path (queue-aware). */
+  selAsk?: { seq: number; text: string } | null;
+  /** A batch of agent-origin map_ops just landed — App counts unconfirmed
+   *  batches for the toolbar's A5 warning (先处理未确认改动). */
+  onAgentBatch?: () => void;
 }) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [busy, setBusy] = useState(false);
@@ -705,10 +746,208 @@ export default function ChatView(props: {
   }, [input]);
   // Phase D: plan corner / status line / slash panel local state.
   const [todos, setTodos] = useState<TodoItem[]>([]);
-  // The chat-tail mindmap (§7.1): ONE revision-guarded snapshot, not a
+  // The session mindmap (§7.1): ONE revision-guarded snapshot, not a
   // Block — every distill update would otherwise append another card.
   // Null until GetMindmap or the first event lands; reset on switch.
+  // ChatView keeps the subscription (it owns the event stream) but the
+  // card renders in App's mindmap pane, a peer of chat (#51) — the
+  // snapshot is reported up on every change (null first, on mount).
   const [mindmap, setMindmap] = useState<MindmapSnap | null>(null);
+  const mmRevRef = useRef(0);
+  useEffect(() => {
+    props.onMindmap?.(mindmap, props.sessionId);
+  }, [mindmap]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The revision-guarded snapshot apply (§7.1): one state, never a
+  // Block. Stale revisions lose; equal rev is an idempotent re-delivery
+  // (same content — skip, no re-render churn). mindmap_update carries
+  // title/subtitle, mindmap_edit doesn't — empty keeps what's on hand.
+  // Component scope so every seam shares it: live stream, history
+  // replay, GetMindmap, and the pane's UpdateMindmap response (mmCmd).
+  const applyMindmap = (
+    rev: number,
+    title: string | undefined,
+    subtitle: string | undefined,
+    nodesJson: string | undefined,
+  ) => {
+    // Latest accepted revision as a ref: the live stream closure must
+    // stamp agent map_ops with the CURRENT base (§5 optimistic lock)
+    // without re-subscribing on every snapshot change. Max-merge keeps
+    // it monotonic even under StrictMode's double-invoked updaters.
+    mmRevRef.current = Math.max(mmRevRef.current, rev);
+    setMindmap((cur) => {
+      if (cur && rev <= cur.revision) return cur;
+      return {
+        revision: rev,
+        title: title || cur?.title || "",
+        subtitle: subtitle || cur?.subtitle || "",
+        nodes: parseNodes(nodesJson),
+      };
+    });
+  };
+  // M2 merge window (§2/§8): consecutive human edits coalesce for 800ms
+  // into ONE chat line (A1 — 改 A、改 B、删 C in a single message). Only
+  // LIVE stream events feed the buffer: replaying an old mindmap_edit
+  // from history must never re-fire a turn. LYON_MINDMAP_ASK=off lands
+  // the merged line as a feed notice instead (只入 chat 不发轮).
+  const mmEditBuf = useRef<string[]>([]);
+  const mmEditTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetMmEdit = () => {
+    if (mmEditTimer.current) clearTimeout(mmEditTimer.current);
+    mmEditTimer.current = null;
+    mmEditBuf.current = [];
+  };
+  // dispatchPrompt is declared below the stream effect; the merge fires
+  // asynchronously (800ms later), so it goes through a ref that always
+  // holds the latest closure (busy/queued state included).
+  const dispatchRef = useRef<(p: string) => Promise<void>>(async () => {});
+  const summarizeMmEdit = (opsJson: string | undefined, nodes: MapNode[]): string[] => {
+    type Op = {
+      op: string;
+      id: string;
+      label?: string;
+      parent_id?: string;
+      status?: string;
+      state?: string;
+    };
+    let ops: Op[] = [];
+    try {
+      ops = JSON.parse(opsJson || "[]") as Op[];
+    } catch {
+      return [];
+    }
+    const by = new Map(nodes.map((n) => [n.id, n] as const));
+    const name = (id: string) => by.get(id)?.label ?? id;
+    return ops.map((o) => {
+      switch (o.op) {
+        case "rewrite":
+          return `重命名节点为「${name(o.id)}」`;
+        case "delete":
+          return `删除「${name(o.id)}」`;
+        case "park":
+          return o.status === "active" ? `恢复「${name(o.id)}」` : `停靠「${name(o.id)}」`;
+        case "confirm":
+          return o.state === "proposed" ? `取消确认「${name(o.id)}」` : `确认「${name(o.id)}」`;
+        case "set_parent":
+          return `把「${name(o.id)}」移到「${name(o.parent_id || "")}」下`;
+        case "merge":
+          return `合并「${name(o.id)}」的选定节点`;
+        case "add":
+          return `新增「${o.label ?? name(o.id)}」`;
+        default:
+          return `${o.op}「${name(o.id)}」`;
+      }
+    });
+  };
+  const flushMmEdit = () => {
+    const edits = mmEditBuf.current;
+    mmEditBuf.current = [];
+    mmEditTimer.current = null;
+    if (edits.length === 0) return;
+    const summary = edits.join("；");
+    void mindmapAskOn().then((ask) => {
+      if (!ask) {
+        setBlocks((b) => [
+          ...b,
+          {
+            kind: "notice",
+            text: `思维导图编辑：${summary}`,
+            detail: "LYON_MINDMAP_ASK=off — 只入 chat，未发轮",
+          },
+        ]);
+        return;
+      }
+      // §4.4 prompt discipline rides the message itself: one
+      // restatement, ONE question, zero tool use — the turn exists so
+      // the agent can voice its understanding back for correction.
+      void dispatchRef.current(
+        `我在思维导图上做了改动：${summary}。\n` +
+          `【系统 · 图上自动提问纪律】先用一句话复述你对这次改动的理解，只问一个最关键的问题；` +
+          `不要执行任何工具，不写文件、不改代码、不开始任何工作。`,
+      );
+    });
+  };
+  const applyMindmapEv = (ev: SessionEvent, live: boolean) => {
+    const upd = ev.typeName === "mindmap_update";
+    if (!upd && ev.typeName !== "mindmap_edit") return;
+    applyMindmap(
+      Number(ev.attrs["revision"] || 0),
+      upd ? ev.attrs["title"] : undefined,
+      upd ? ev.attrs["subtitle"] : undefined,
+      ev.attrs["nodes"],
+    );
+    if (!live || upd) return;
+    const parts = summarizeMmEdit(ev.attrs["ops"], parseNodes(ev.attrs["nodes"]));
+    if (parts.length === 0) return;
+    mmEditBuf.current.push(...parts);
+    if (mmEditTimer.current) clearTimeout(mmEditTimer.current);
+    mmEditTimer.current = setTimeout(flushMmEdit, 800);
+  };
+  // §7.3 selection-ask reply: the toolbar dispatches a marked prompt; the
+  // live loop arms this ref on OUR user_message (a queued ask must not
+  // collect the PREVIOUS turn's deltas), buffers text_delta, and parses
+  // the ```map_ops fence once at prompt_end. History replay never arms it.
+  const selAskRef = useRef<{
+    text: string;
+    collecting: boolean;
+    buf: string;
+    done: boolean;
+  } | null>(null);
+  const parseSelReply = (buf: string) => {
+    const notice = (text: string, detail: string) =>
+      setBlocks((b) => [...b, { kind: "notice", text, detail }]);
+    const fence = /```map_ops\s*([\s\S]*?)```/.exec(buf);
+    if (!fence) {
+      // A4: prose-only reply — the map stays untouched, never guessed.
+      // Only verbs that expected a change (【期望落图】 in the dispatched
+      // text) earn the notice; 解释/矛盾吗 answering in prose is correct.
+      if ((selAskRef.current?.text ?? "").includes("【期望落图】")) {
+        notice(
+          "选区答复未带 map_ops — 图未改动",
+          "需要结构化 map_ops 才能落图（散文不落图）",
+        );
+      }
+      return;
+    }
+    let ops: unknown;
+    try {
+      ops = JSON.parse(fence[1].trim());
+    } catch {
+      notice("map_ops 不是合法 JSON — 图未改动", "答复里的代码块解析失败");
+      return;
+    }
+    if (
+      !Array.isArray(ops) ||
+      ops.length === 0 ||
+      ops.some((o) => !o || typeof (o as { op?: unknown }).op !== "string")
+    ) {
+      notice("map_ops 格式不对 — 图未改动", "需要 JSON 数组，每项带 op 字段");
+      return;
+    }
+    // origin="agent": §4.3 — may never touch pinned/confirmed (server
+    // rejects the batch), new nodes land proposed (dashed, A5's count).
+    void mindmapClient
+      .updateMindmap({
+        sessionId: props.sessionId,
+        revision: mmRevRef.current,
+        origin: "agent",
+        opsJson: JSON.stringify(ops),
+      })
+      .then((res) => {
+        applyMindmap(Number(res.revision), undefined, undefined, res.nodesJson);
+        props.onAgentBatch?.();
+      })
+      .catch((e) => setErr(errText(e)));
+  };
+  // Toolbar → wire: arm the collector, then hand the marked prompt to the
+  // single submission path. seq gates the effect so re-renders and
+  // StrictMode double-mounts don't double-send.
+  useEffect(() => {
+    const a = props.selAsk;
+    if (!a) return;
+    selAskRef.current = { text: a.text, collecting: false, buf: "", done: false };
+    void dispatchRef.current(a.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seq is the trigger
+  }, [props.selAsk?.seq]);
   const [thinkOpen, setThinkOpen] = useState(false);
   const [cmdNote, setCmdNote] = useState(""); // local command receipt, 3s
   const [slashSel, setSlashSel] = useState(0);
@@ -881,38 +1120,9 @@ export default function ChatView(props: {
     setErr("");
     setTodos([]);
     setMindmap(null);
+    resetMmEdit(); // a pending auto-ask belongs to the outgoing seat
     props.onCtx?.(0);
     props.onCost?.(undefined);
-    // mindmap snapshot apply (§7.1): one revision-guarded state, never a
-    // block. Stale revisions lose; equal rev is an idempotent re-delivery
-    // (same content — skip, no re-render churn). mindmap_update carries
-    // title/subtitle, mindmap_edit doesn't — empty keeps what's on hand.
-    const applyMindmap = (
-      rev: number,
-      title: string | undefined,
-      subtitle: string | undefined,
-      nodesJson: string | undefined,
-    ) => {
-      setMindmap((cur) => {
-        if (cur && rev <= cur.revision) return cur;
-        return {
-          revision: rev,
-          title: title || cur?.title || "",
-          subtitle: subtitle || cur?.subtitle || "",
-          nodes: parseNodes(nodesJson),
-        };
-      });
-    };
-    const applyMindmapEv = (ev: SessionEvent) => {
-      const upd = ev.typeName === "mindmap_update";
-      if (!upd && ev.typeName !== "mindmap_edit") return;
-      applyMindmap(
-        Number(ev.attrs["revision"] || 0),
-        upd ? ev.attrs["title"] : undefined,
-        upd ? ev.attrs["subtitle"] : undefined,
-        ev.attrs["nodes"],
-      );
-    };
     void (async () => {
       // All three reads are unary (content-length) responses — they
       // arrive even while a streaming socket would sit unread. Parallel:
@@ -953,7 +1163,7 @@ export default function ChatView(props: {
             if (ev.ctxUsed) props.onCtx?.(Number(ev.ctxUsed));
             if (ev.costUsd !== undefined) props.onCost?.(Number(ev.costUsd));
           }
-          applyMindmapEv(ev); // reduce() ignores these types by design
+          applyMindmapEv(ev, false); // replay: snapshot only, no auto-ask re-fire
           seeded = reduce(seeded, ev);
         }
         setBlocks(seeded);
@@ -999,7 +1209,13 @@ export default function ChatView(props: {
         try {
           const stream = sessionClient.watchEvents(
             { sessionId: props.sessionId, fromSeq: anchor },
-            { signal: controller.signal },
+            {
+              signal: controller.signal,
+              // Chrome won't complete the first read on a held-open
+              // connect+json chunked stream until ~1s of continued flow;
+              // the server beats every 100ms when this header is set.
+              headers: { "x-lyon-keepalive": "1" },
+            },
           );
           for await (const msg of stream) {
             if (!live) return;
@@ -1009,7 +1225,25 @@ export default function ChatView(props: {
             }
             const ev = msg.event;
             if (!ev) continue;
+            // §7.3 selection-ask collection: arm on OUR prompt echo (a
+            // queued ask must not collect the previous turn's deltas),
+            // buffer the reply's text deltas, parse once at prompt_end.
+            if (
+              ev.typeName === "user_message" &&
+              selAskRef.current &&
+              !selAskRef.current.done &&
+              ev.text === selAskRef.current.text
+            ) {
+              selAskRef.current.collecting = true;
+            }
+            if (ev.typeName === "text_delta" && selAskRef.current?.collecting) {
+              selAskRef.current.buf += ev.text ?? "";
+            }
             if (ev.typeName === "prompt_end") {
+              if (selAskRef.current?.collecting && !selAskRef.current.done) {
+                selAskRef.current.done = true;
+                parseSelReply(selAskRef.current.buf);
+              }
               // Undelivered parked lines were dropped by the session in the
               // same critical section that cleared busy (#2). Mirror the
               // TUI's kickQueued: re-send the head as the next prompt (one
@@ -1062,7 +1296,7 @@ export default function ChatView(props: {
               if (ev.ctxUsed) props.onCtx?.(Number(ev.ctxUsed));
               if (ev.costUsd !== undefined) props.onCost?.(Number(ev.costUsd));
             }
-            applyMindmapEv(ev); // reduce() ignores these types by design
+            applyMindmapEv(ev, true); // live: feeds the 800ms merge → one chat line
             setBlocks((b) => reduce(b, ev));
             // Advance the retry anchor with every processed event: a
             // reopen replays seq > anchor, so blocks fold once per event
@@ -1533,6 +1767,9 @@ export default function ChatView(props: {
       setErr(errText(e));
     }
   };
+  // The merge window fires long after this render — hand dispatchPrompt
+  // (with its live busy/queued closure) to the flush through the ref.
+  dispatchRef.current = dispatchPrompt;
 
   const send = async () => {
     const prompt = input.trim();
@@ -1593,6 +1830,37 @@ export default function ChatView(props: {
     window.setTimeout(() => target.classList.remove("mm-jump"), 1600);
   };
 
+  // The map's clicks land in App's pane (#51) and arrive as seq'd
+  // requests — seq bumps per click so jumping the same turn twice
+  // still re-fires the scroll + flash.
+  useEffect(() => {
+    if (!props.jumpTo) return;
+    jumpToTurn(props.jumpTo.turn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.jumpTo?.seq]);
+
+  // M2 edit-channel responses from the pane: rev set = the RPC's fresh
+  // nodes applied under the same guard (the stream event dedups by
+  // revision); rev undefined = a §5 conflict — refetch the authoritative
+  // snapshot instead of showing a half-stale map.
+  useEffect(() => {
+    const cmd = props.mmCmd;
+    if (!cmd) return;
+    void (async () => {
+      if (cmd.rev === undefined) {
+        try {
+          const mm = await mindmapClient.getMindmap({ sessionId: props.sessionId });
+          if (mm) applyMindmap(Number(mm.revision), mm.title, mm.subtitle, mm.nodesJson);
+        } catch {
+          // transient — the next mindmap event re-syncs anyway
+        }
+        return;
+      }
+      applyMindmap(cmd.rev, undefined, undefined, cmd.nodesJson);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.mmCmd?.seq]);
+
   return (
     <div className={"chat" + (busy ? " streaming" : "")}>
       <div className="chat-feed" ref={feedRef} onScroll={onFeedScroll}>
@@ -1628,14 +1896,17 @@ export default function ChatView(props: {
             hinted={i === lastThinking(blocks)}
             onOpenFile={props.onOpenFile}
             onOpenDiff={props.onOpenDiff}
+            mmNodes={mindmap?.nodes ?? null}
+            onMmSelect={props.onMmSelect}
           />
         ))}
-        {blocks.length === 0 && !mindmap && (
+        {blocks.length === 0 && (
           <div className="placeholder">
             live events appear here — submit a prompt below
           </div>
         )}
-        {mindmap && <MindMapCard snap={mindmap} onJump={jumpToTurn} />}
+        {/* The map lives in the mindmap pane, a peer of chat (#51) —
+            jumps arrive via props.jumpTo, handled next to jumpToTurn. */}
       </div>
       {err && (
         <div className="chat-err-row">
@@ -1864,6 +2135,21 @@ export default function ChatView(props: {
           </span>
         ) : null}
       </div>
+      {props.mmSelIds && props.mmSelIds.length > 0 && (
+        <div className="mm-selhint">
+          <span className="mm-selhint-count">
+            对 {props.mmSelIds.length} 个节点提问 — 选区浮条在图上（改写 /
+            矛盾吗 / 解释 / 自由输入）
+          </span>
+          <button
+            type="button"
+            className="ghost mm-selhint-clear"
+            onClick={() => props.onMmSelect?.(null)}
+          >
+            清除 (Esc)
+          </button>
+        </div>
+      )}
       <div className="chat-input">
         <textarea
           ref={composerRef}
@@ -2028,6 +2314,8 @@ function BlockView({
   onOpenFile,
   onOpenDiff,
   hinted,
+  mmNodes,
+  onMmSelect,
 }: {
   block: Block;
   thinkOpen: boolean;
@@ -2046,14 +2334,46 @@ function BlockView({
   onOpenDiff?: (path: string) => void;
   /** The feed's last thinking row carries the fold hint (one per feed). */
   hinted?: boolean;
+  /** §7.3 selection-ask rows: node snapshot for chip labels + chip click
+   *  re-selects the ids in the map pane. */
+  mmNodes?: MapNode[] | null;
+  onMmSelect?: (ids: string[] | null) => void;
 }) {
   switch (block.kind) {
-    case "user":
+    case "user": {
+      // §7.3: the toolbar's marker rides the prompt text itself (ids in
+      // the wire string, labels from the snapshot) — strip it from the
+      // prose, render the ids as clickable chips instead.
+      const m = /^\[导图选区 (\d+) 个节点\|([^\]]+)\]\s*/.exec(block.text);
+      if (m && mmNodes) {
+        const ids = m[2].split(",").filter(Boolean);
+        const byId = new Map(mmNodes.map((n) => [n.id, n]));
+        const rest = block.text.slice(m[0].length);
+        return (
+          <div className="blk-user">
+            <div className="mm-usrchips">
+              {ids.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="mm-chip-user"
+                  title={byId.get(id)?.label ?? id}
+                  onClick={() => onMmSelect?.(ids)}
+                >
+                  {byId.get(id)?.label ?? id.slice(0, 8)}
+                </button>
+              ))}
+            </div>
+            <div className="user-text">{rest}</div>
+          </div>
+        );
+      }
       return (
         <div className="blk-user">
           <div className="user-text">{block.text}</div>
         </div>
       );
+    }
     case "text":
       return (
         <div className="blk-text md">

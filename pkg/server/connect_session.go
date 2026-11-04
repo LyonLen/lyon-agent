@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -287,10 +288,31 @@ func (c *sessionService) WatchEvents(ctx context.Context, req *connect.Request[l
 			return err
 		}
 	}
+	// Chrome keepalive (opt-in via x-lyon-keepalive): on a held-open
+	// application/connect+json chunked response Chrome does not complete
+	// the first socket read until the byte stream shows ~1s of continued
+	// flow — a single burst then silence leaves fetch() pending until the
+	// client watchdog aborts. A beat every 100ms lands the read, after
+	// which normal streaming proceeds. The frame carries seq 0 and an
+	// unknown type_name, so every consumer folds it into its default
+	// (no-op) branch; tests and the TUI don't send the header and never
+	// see one.
+	var ka <-chan time.Time
+	if req.Header().Get("x-lyon-keepalive") == "1" {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		ka = t.C
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil // client went away; teardown is the framework's
+		case <-ka:
+			if err := stream.Send(&lyonv1.WatchEventsResponse{Event: &lyonv1.SessionEvent{
+				TypeName: "keepalive",
+			}}); err != nil {
+				return err
+			}
 		case it, ok := <-sub.ch:
 			if !ok {
 				if sub.kicked {
