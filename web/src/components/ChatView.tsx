@@ -723,9 +723,11 @@ export default function ChatView(props: {
   /** Chip clicks in past selection messages re-highlight that selection. */
   onMmSelect?: (ids: string[] | null) => void;
   /** A semantic selection ask composed by the pane's toolbar — seq bumps
-   *  per ask so the same text can re-fire. ChatView dispatches it through
-   *  the normal prompt path (queue-aware). */
-  selAsk?: { seq: number; text: string } | null;
+   *  per ask so the same text can re-fire; sid tags the seat that asked,
+   *  which is what keeps an incoming ChatView from re-dispatching the
+   *  outgoing seat's ask (Image #74). ChatView dispatches it through the
+   *  normal prompt path (queue-aware). */
+  selAsk?: { seq: number; sid: string; text: string } | null;
   /** The session's execution mode (App's dock). Gates the AUTO-ask only:
    *  map edits dispatch a round in mindmap mode, land as a notice
    *  otherwise (Image #61). Manual selAsk is untouched — it is the user
@@ -979,7 +981,10 @@ export default function ChatView(props: {
   // StrictMode double-mounts don't double-send.
   useEffect(() => {
     const a = props.selAsk;
-    if (!a) return;
+    // Image #74: this effect's FIRST run on a seat switch still sees the
+    // outgoing seat's ask (child effects precede App's clear) — the sid
+    // tag rejects it instead of re-dispatching into the new session.
+    if (!a || a.sid !== props.sessionId) return;
     selAskRef.current = { text: a.text, collecting: false, buf: "", done: false };
     void dispatchRef.current(a.text);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seq is the trigger

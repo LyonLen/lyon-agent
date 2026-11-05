@@ -74,7 +74,11 @@ export default function App() {
   // mmAgentBatches counts agent-origin UpdateMindmap batches whose
   // proposed nodes are still unconfirmed (A5's "先处理" warning).
   const [mmSel, setMmSel] = useState<string[] | null>(null);
-  const [selAsk, setSelAsk] = useState<{ seq: number; text: string } | null>(null);
+  // sid tags the owning seat (same contract as mmCmd): on a switch the
+  // incoming ChatView's mount effect runs BEFORE this file's clear effect,
+  // so without the tag it would re-dispatch the outgoing seat's ask into
+  // the new session (Image #74 — b-open-next-step rode into another seat).
+  const [selAsk, setSelAsk] = useState<{ seq: number; sid: string; text: string } | null>(null);
   const [mmAgentBatches, setMmAgentBatches] = useState(0);
   // Session switch: the old seat's selection/ask state must not leak into
   // the next session's map.
@@ -805,7 +809,9 @@ export default function App() {
                 }
                 selected={mmSel}
                 onSelect={setMmSel}
-                onAsk={(text) => setSelAsk((s) => ({ seq: (s?.seq ?? 0) + 1, text }))}
+                onAsk={(text) =>
+                  setSelAsk((s) => ({ seq: (s?.seq ?? 0) + 1, sid: selectedId, text }))
+                }
                 agentBatches={mmAgentBatches}
               />
             </div>
