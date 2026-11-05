@@ -2138,7 +2138,7 @@ export default function ChatView(props: {
       {props.mmSelIds && props.mmSelIds.length > 0 && (
         <div className="mm-selhint">
           <span className="mm-selhint-count">
-            对 {props.mmSelIds.length} 个节点提问 — 选区浮条在图上（改写 /
+            对 {props.mmSelIds.length} 个节点提问 — 选区浮条在图顶部（改写 /
             矛盾吗 / 解释 / 自由输入）
           </span>
           <button

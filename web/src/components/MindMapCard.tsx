@@ -11,19 +11,24 @@
 // §7.3 selection (M2): marquee on the blank canvas (Shift unions, a
 // <4px drag clears), ctrl/cmd-click toggles, Esc clears — ids live in
 // App so the chat composer's hint row and this pane share one truth.
-// A floating toolbar anchors above the selection bbox (counter-scaled
-// 1/fit so it reads at natural size): local verbs (合并/归类到/停靠/
-// 删除) ride origin="user" applyOps; semantic verbs (改写/矛盾吗/
-// 解释/提问) compose the marked prompt through onAsk — App seq-bumps
-// it into ChatView's selAsk, the only submission path.
+// The toolbar DOCKS as a layout row above the canvas (Image #55: the
+// floating version occluded map nodes): local verbs (合并/归类到/
+// 停靠/删除) ride origin="user" applyOps; semantic verbs (改写/
+// 矛盾吗/解释/提问) compose the marked prompt through onAsk — App
+// seq-bumps it into ChatView's selAsk, the only submission path.
+//
+// Canvas gestures: middle-button (wheel press) drag pans from anywhere
+// (node pills included — they own only left-clicks); ctrl+wheel zooms
+// around the cursor (dbl-click blank resets to the auto fit).
 //
 // Layout: single-direction tree (user directive, Image #53) — root
 // bubble at the LEFT, every branch growing rightward in original order,
 // bezier curves out to content-sized child rows. (Earlier radial
 // two-sided split confused peers; the ref's curve language — hues,
-// joint dots, pill branches — stays.) Positions are computed up-front
-// (fixed depth slots); only the curves need measured text widths,
-// which a single layout pass collects.
+// joint dots, pill branches — stays.) Labels are NEVER ellipsized
+// (Image #56): rows take natural width and each depth column advances
+// by the measured max of the previous column — one measure pass feeds
+// both the column x positions and the curve anchors.
 //
 // Visual baseline: docs/design/mindmap-sample.html (light sheet),
 // restyled onto the app's dark tokens. The §4.3 honesty rule rides on
@@ -74,16 +79,17 @@ function hueOf(label: string): string {
   return PALETTE[h % PALETTE.length];
 }
 
-// ── radial geometry (CSS px; fixed slots keep layout deterministic) ──
+// ── radial geometry (CSS px; PILL_W/TEXT_W/TEXT_W3 are first-pass
+// estimates — the measure pass replaces them with per-column maxima) ──
 const PILL_H = 30; // branch pill row
 const ROW_H = 22; // child text row
 const SIB_GAP = 6; // between siblings
 const ROOT_GAP = 20; // between branch groups on one side
 const CURVE_ROOT_MIN = 54; // root → branch run floor; grows with the root bubble
-const PILL_W = 160; // branch pill slot (ellipsis at the edge)
+const PILL_W = 160; // depth-1 column estimate
 const CURVE_N = 30; // parent → child horizontal run
-const TEXT_W = 150; // depth-2 text slot
-const TEXT_W3 = 135; // depth-3 text slot
+const TEXT_W = 150; // depth-2 column estimate
+const TEXT_W3 = 135; // depth-3 column estimate
 const MAX_DEPTH = 3; // render children while depth < 3 (root=0 … L3)
 const JOINT_GAP = 4; // curve end pulls back so the joint dot misses glyphs
 
@@ -146,12 +152,33 @@ export default function MindMapCard({
   // the curves dangle. Floor at 0.7 keeps text readable; below that we
   // keep the scale and scroll instead.
   const [fit, setFit] = useState(1);
+  // Manual zoom (ctrl+wheel): null = follow the auto fit. Once set it
+  // overrides the auto scale until dbl-click blank resets it.
+  const [zoom, setZoom] = useState<number | null>(null);
+  const scale = zoom ?? fit;
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale; // live value for the wheel handler
+  const [panning, setPanning] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const centeredRef = useRef(false);
+  // Canvas pixel box — the docked toolbar and pane resizes change it,
+  // and the fit pass below must re-run when they do.
+  const [canvasBox, setCanvasBox] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      setCanvasBox((b) => (b.w === w && b.h === h ? b : { w, h }));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open]);
 
   // ── §7.3 selection ────────────────────────────────────────────────
-  // Ids live in App; the card owns the marquee draft, the toolbar
-  // anchor, the free-input line and the A5 arm.
+  // Ids live in App; the card owns the marquee draft, the free-input
+  // line and the A5 arm.
   const sel = selected ?? [];
   const [marquee, setMarquee] = useState<{
     x: number;
@@ -166,22 +193,6 @@ export default function MindMapCard({
   useEffect(() => {
     if ((agentBatches ?? 0) < 3) setArmed(false);
   }, [agentBatches]);
-  // Toolbar natural size (offset* ignores the counter-scale, and the
-  // layout box maps 1:1 to screen px through the fit∘(1/fit) pair) —
-  // the anchor clamps against it so verbs never hang off the canvas
-  // (live shot: a right-side selection in a 0.7-floored map clipped
-  // 提问/✕), and the top edge tracks the measured height when the
-  // toolbar wraps inside a narrow pane.
-  const tbRef = useRef<HTMLDivElement>(null);
-  const [tbBox, setTbBox] = useState({ w: 0, h: 0 });
-  useLayoutEffect(() => {
-    const el = tbRef.current;
-    if (!el) return;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    if (w > 0 && (w !== tbBox.w || h !== tbBox.h)) setTbBox({ w, h });
-  });
-
   // §10 M2.5 — probe eligibility on every revision (dry run): the
   // banner/chip appear only when the map has ≥4 confirmed decision|fact
   // rows and no 导图-* fact yet (server-side gates, extract.go). The
@@ -218,17 +229,41 @@ export default function MindMapCard({
       });
   };
 
-  // Screen → plane coords (the plane carries scale(fit)).
+  // Screen → plane coords (the plane carries scale(scale)).
   const toPlane = (cx: number, cy: number) => {
     const r = planeRef.current?.getBoundingClientRect();
     if (!r) return { x: 0, y: 0 };
-    return { x: (cx - r.left) / fit, y: (cy - r.top) / fit };
+    return { x: (cx - r.left) / scale, y: (cy - r.top) / scale };
   };
 
   // Marquee drag: starts on blank canvas (node mouses are filtered by
   // the closest() guard below), tracks on the window so the drag
   // survives leaving the pane, collects by rect-intersect on release.
   const canvasDown = (e: MouseEvent<HTMLDivElement>) => {
+    // Middle button (wheel press) pans the canvas — grab from anywhere,
+    // node pills included (they own only left-clicks). preventDefault
+    // kills the browser's autoscroll mode.
+    if (e.button === 1) {
+      e.preventDefault();
+      const cv = e.currentTarget;
+      const sx = e.clientX;
+      const sy = e.clientY;
+      const sl = cv.scrollLeft;
+      const st = cv.scrollTop;
+      setPanning(true);
+      const move = (ev: WindowEventMap["mousemove"]) => {
+        cv.scrollLeft = sl - (ev.clientX - sx);
+        cv.scrollTop = st - (ev.clientY - sy);
+      };
+      const up = () => {
+        setPanning(false);
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+      return;
+    }
     if (e.button !== 0) return;
     const t = e.target as HTMLElement;
     if (t.closest("[data-mm-id]")) return; // node owns its own click
@@ -272,10 +307,10 @@ export default function MindMapCard({
       const hits: string[] = [];
       for (const el of plane.querySelectorAll<HTMLElement>("[data-mm-id]")) {
         const er = el.getBoundingClientRect();
-        const ex = (er.left - pr.left) / fit;
-        const ey = (er.top - pr.top) / fit;
-        const ew = er.width / fit;
-        const eh = er.height / fit;
+        const ex = (er.left - pr.left) / scale;
+        const ey = (er.top - pr.top) / scale;
+        const ew = er.width / scale;
+        const eh = er.height / scale;
         if (
           ex < r.x + r.w &&
           ex + ew > r.x &&
@@ -297,7 +332,7 @@ export default function MindMapCard({
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
     };
-  }, [sel, fit, onSelect]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sel, scale, onSelect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Esc clears — but never while typing (the inline rename input and
   // the toolbar's free-input own their own Esc via stopPropagation).
@@ -317,29 +352,33 @@ export default function MindMapCard({
     return () => window.removeEventListener("keydown", h);
   }, [sel.length, onSelect]);
 
-  // Toolbar anchor: selection bbox in plane coords, 46px above the top
-  // edge (toolbar height ~36 + gap); clamped to the plane's top so a
-  // top-row selection doesn't push it off-canvas.
-  const toolbarBox = (() => {
-    if (!open || sel.length === 0 || !planeRef.current) return null;
-    const plane = planeRef.current;
-    const pr = plane.getBoundingClientRect();
-    let x0 = Infinity;
-    let y0 = Infinity;
-    for (const id of sel) {
-      const el = plane.querySelector<HTMLElement>(
-        `[data-mm-id="${CSS.escape(id)}"]`,
+  // ctrl+wheel zoom: scales around the cursor (the scroll offsets are
+  // rebased so the point under the pointer stays put); plain wheel keeps
+  // native scroll. Native listener with passive:false — React's onWheel
+  // can't reliably preventDefault the browser's page zoom.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (ev: WheelEvent) => {
+      if (!ev.ctrlKey && !ev.metaKey) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const prev = scaleRef.current;
+      const next = Math.min(
+        2.5,
+        Math.max(0.4, prev * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)),
       );
-      if (!el) continue;
+      if (next === prev) return;
       const r = el.getBoundingClientRect();
-      x0 = Math.min(x0, (r.left - pr.left) / fit);
-      y0 = Math.min(y0, (r.top - pr.top) / fit);
-    }
-    if (!isFinite(x0)) return null;
-    // Raw bbox anchor; viewport clamps need the measured toolbar size
-    // and the canvas/plane rects, all applied at the JSX site.
-    return { x: x0, y: y0 };
-  })();
+      const cx = ev.clientX - r.left;
+      const cy = ev.clientY - r.top;
+      el.scrollLeft = ((el.scrollLeft + cx) * next) / prev - cx;
+      el.scrollTop = ((el.scrollTop + cy) * next) / prev - cy;
+      setZoom(next);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [open]);
 
   // Tombstones are deletions (negative signal) — out of the render and
   // out of every count.
@@ -441,23 +480,8 @@ export default function MindMapCard({
     arr.reduce((a, g) => a + g.h, 0) + (arr.length > 1 ? ROOT_GAP * (arr.length - 1) : 0);
   const totalH = stackH(groups);
 
-  // Horizontal extent: which depths actually occur (one side only).
-  const extent = (arr: typeof groups) => {
-    let e = curveRoot + PILL_W;
-    const has2 = arr.some((g) => kidsOf(g.b, 1).length > 0);
-    if (has2) {
-      e += CURVE_N + TEXT_W;
-      const has3 = arr.some((g) =>
-        kidsOf(g.b, 1).some((k) => kidsOf(k, 2).length > 0),
-      );
-      if (has3) e += CURVE_N + TEXT_W3;
-    }
-    return e;
-  };
-  const e = extent(groups);
   // The root bubble hangs LEFT of CX — park it clear of the plane edge.
   const CX = Math.ceil(rootW / 2) + 16;
-  const W = CX + e + 12;
   const H = Math.max(totalH, ROW_H) + 56;
   const CY = H / 2;
 
@@ -467,19 +491,41 @@ export default function MindMapCard({
     y += g.h + ROOT_GAP;
   });
 
+  // Columns are content-width (Image #56: no ellipsis anywhere): each
+  // depth's x advances by the MEASURED max of the previous column, so
+  // a long label widens the plane instead of clipping. The first pass
+  // has no measurements yet — fall back to the estimate constants; the
+  // measure pass below re-runs this with real widths until it settles.
+  const colW = (depth: number, est: number) => {
+    let m = est;
+    for (const p of pos) {
+      if (p.depth === depth) m = Math.max(m, widths[p.node.id] ?? 0);
+    }
+    return m;
+  };
+  const CW1 = colW(1, PILL_W);
+  const CW2 = colW(2, TEXT_W);
+  const CW3 = colW(3, TEXT_W3);
+  const has2 = pos.some((p) => p.depth === 2);
+  const has3 = pos.some((p) => p.depth === 3);
+  let e = curveRoot + CW1;
+  if (has2) e += CURVE_N + CW2;
+  if (has3) e += CURVE_N + CW3;
+  const W = CX + e + 12;
+
   // Box x for a placed node (left edge, canvas coords).
   const xOf = (p: Pos): number => {
     const s = p.side;
-    if (p.depth === 1) return s === 1 ? CX + curveRoot : CX - curveRoot - PILL_W;
+    if (p.depth === 1) return s === 1 ? CX + curveRoot : CX - curveRoot - CW1;
     if (p.depth === 2)
       return s === 1
-        ? CX + curveRoot + PILL_W + CURVE_N
-        : CX - curveRoot - PILL_W - CURVE_N - TEXT_W;
+        ? CX + curveRoot + CW1 + CURVE_N
+        : CX - curveRoot - CW1 - CURVE_N - CW2;
     return s === 1
-      ? CX + curveRoot + PILL_W + CURVE_N + TEXT_W + CURVE_N
-      : CX - curveRoot - PILL_W - CURVE_N - TEXT_W - CURVE_N - TEXT_W3;
+      ? CX + curveRoot + CW1 + CURVE_N + CW2 + CURVE_N
+      : CX - curveRoot - CW1 - CURVE_N - CW2 - CURVE_N - CW3;
   };
-  const slotW = (p: Pos) => (p.depth === 1 ? PILL_W : p.depth === 2 ? TEXT_W : TEXT_W3);
+  const slotW = (p: Pos) => (p.depth === 1 ? CW1 : p.depth === 2 ? CW2 : CW3);
 
   // Measure pass: text widths anchor the curves' outer ends, and the
   // root bubble width sets the root→branch clearance. offsetWidth is
@@ -525,10 +571,10 @@ export default function MindMapCard({
       centeredRef.current = true;
       // When the scaled sizer fits, margin:auto already centers it and
       // these scroll to 0; the floor-clamped case pans to the root.
-      canvas.scrollLeft = Math.max(0, CX * fit - canvas.clientWidth / 2);
-      canvas.scrollTop = Math.max(0, CY * fit - canvas.clientHeight / 2);
+      canvas.scrollLeft = Math.max(0, CX * scale - canvas.clientWidth / 2);
+      canvas.scrollTop = Math.max(0, CY * scale - canvas.clientHeight / 2);
     }
-  }, [open, pos.length, snap.revision, rootW, widths, fit]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, pos.length, snap.revision, rootW, widths, fit, canvasBox, scale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── curves ────────────────────────────────────────────────────────
   const wOf = (id: string, fallback: number) => widths[id] ?? fallback;
@@ -552,15 +598,14 @@ export default function MindMapCard({
         k.node.parent_id === p.node.id,
     );
     if (kids.length === 0) continue;
-    // Parent's outer edge: full pill slot for depth 1; for text rows
-    // (left side is right-anchored) the content starts slotW - width
-    // in from the slot's left edge.
+    // Parent's outer edge: its measured content width (pills are
+    // content-width too — Image #56 killed the fixed slot).
     const px0 = xOf(p);
-    const pw = p.depth === 1 ? PILL_W : wOf(p.node.id, slotW(p));
+    const pw = wOf(p.node.id, slotW(p));
     const sx = p.side === 1 ? px0 + pw : px0 + slotW(p) - pw;
     for (const k of kids) {
       const kx0 = xOf(k);
-      // The child's inner edge is its anchor (fixed by the slot), so
+      // The child's inner edge is its anchor (column left edge), so
       // pull the curve end JOINT_GAP back toward the parent — the joint
       // dot lands beside the text, not on its first/last glyph (the
       // live shot read t2 as "t:○").
@@ -587,8 +632,8 @@ export default function MindMapCard({
       if (!t) continue;
       const tp = posById.get(t);
       if (!tp) continue;
-      const px = xOf(p) + slotW(p) / 2;
-      const tx = xOf(tp) + slotW(tp) / 2;
+      const px = xOf(p) + wOf(p.node.id, slotW(p)) / 2;
+      const tx = xOf(tp) + wOf(tp.node.id, slotW(tp)) / 2;
       const lift = Math.min(p.cy, tp.cy) - 22;
       rels.push({
         d: `M ${px} ${p.cy} Q ${(px + tx) / 2} ${lift} ${tx} ${tp.cy}`,
@@ -834,23 +879,19 @@ export default function MindMapCard({
     ]
       .filter(Boolean)
       .join(" ");
-    // Branch pills keep a fixed slot (they carry the count badge);
-    // text rows are content-width so the underline hugs the text —
-    // left-side rows anchor by their right edge (toward the parent).
+    // Content-width rows (Image #56 — labels never clip): x anchors
+    // the left edge at the column and the box grows with the label.
+    // (Legacy left-side rows would anchor by their right edge; the
+    // single-direction layout renders none.)
     const style: CSSProperties & Record<"--b" | "--dot", string> = {
       top: `${p.top}px`,
       "--b": p.hue,
       "--dot": p.hue,
     };
-    if (p.depth === 1) {
+    if (p.depth === 1 || p.side === 1) {
       style.left = `${xOf(p)}px`;
-      style.width = `${slotW(p)}px`;
-    } else if (p.side === 1) {
-      style.left = `${xOf(p)}px`;
-      style.maxWidth = `${slotW(p)}px`;
     } else {
       style.right = `${W - (xOf(p) + slotW(p))}px`;
-      style.maxWidth = `${slotW(p)}px`;
     }
     const kidCount = p.depth === 1 ? countDesc(n.id) : 0;
     const inner =
@@ -896,8 +937,8 @@ export default function MindMapCard({
           onJump(n.source_turn);
         }}
         onDoubleClick={startEdit(n)}
-        // Full label FIRST: the rows ellipsize by design, and the tooltip
-        // is where the whole sentence must be readable (Image #54).
+        // Full label FIRST in the tooltip too (Image #54); the row text
+        // itself is never clipped since Image #56.
         title={`${n.label}\n${n.kind} · 出自第 ${n.source_turn} 轮 · ${conf ? "已确认" : "待你确认"}${n.status === "parked" ? " · 停靠" : ""} — 点击跳回原话 · 双击改名`}
       >
         {inner}
@@ -1051,10 +1092,126 @@ export default function MindMapCard({
           )}
           {memNote && <div className="mm-banner done">{memNote}</div>}
 
-          <div className="mm-canvas" ref={canvasRef} onMouseDown={canvasDown}>
+          {sel.length > 0 && (
+            <div className={"mm-toolbar" + (armed ? " armed" : "")}>
+              {(agentBatches ?? 0) >= 3 && (
+                <span className={"mm-tb-warn" + (armed ? " on" : "")}>
+                  ⚠ 先处理这 {agentBatches} 批未确认改动
+                  {armed ? " — 再点一次执行" : ""}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={guard(mergeSel)}
+                disabled={selIds.length < 2}
+                title="合并：其余选中节点折进第一个（源节点墓碑化，子节点上移）"
+              >
+                合并
+              </button>
+              <select
+                className="mm-tb-sel"
+                value=""
+                title="把选中节点挂到某个节点之下（候选已排除选区与选区的后代，避免成环）"
+                onChange={(e) => {
+                  if (e.target.value) guard(() => reparent(e.target.value))();
+                }}
+              >
+                <option value="">归类到…</option>
+                {reparentCands.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={guard(parkSel)}
+                title="停靠 / 恢复选中节点"
+              >
+                停靠
+              </button>
+              <button
+                type="button"
+                onClick={guard(delSel)}
+                title="删除选中节点（墓碑，不再长回）"
+              >
+                删除
+              </button>
+              <span className="mm-tb-sep" aria-hidden="true" />
+              <button
+                type="button"
+                onClick={guard(() =>
+                  askSel("改写这些节点，让同级表述一致、更准确。", true),
+                )}
+                title="让模型重写选区节点的表述（map_ops rewrite）"
+              >
+                改写
+              </button>
+              <button
+                type="button"
+                onClick={guard(() => askSel("这些节点之间有矛盾吗？指出冲突之处。"))}
+                disabled={sel.length < 2}
+                title="检查选区内的结论是否互相冲突"
+              >
+                矛盾吗
+              </button>
+              <button
+                type="button"
+                onClick={guard(() => askSel("解释这些节点的含义与彼此关系。"))}
+                title="让模型解释选区（散文回答，不改图）"
+              >
+                解释
+              </button>
+              <input
+                className="mm-tb-q"
+                value={tbQ}
+                placeholder="对选区提问…"
+                onChange={(e) => setTbQ(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation(); // Esc here clears the line, not the selection
+                  if (e.key === "Enter") {
+                    guard(() => {
+                      askSel(tbQ);
+                      setTbQ("");
+                    })();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="mm-tb-go"
+                onClick={guard(() => {
+                  askSel(tbQ);
+                  setTbQ("");
+                })}
+              >
+                提问
+              </button>
+              <button
+                type="button"
+                className="mm-tb-x"
+                title="清除选区 (Esc)"
+                onClick={() => onSelect?.(null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <div
+            className={"mm-canvas" + (panning ? " panning" : "")}
+            ref={canvasRef}
+            onMouseDown={canvasDown}
+            onDoubleClick={(e) => {
+              // dbl-click blank: manual zoom → back to auto fit.
+              // Node pills own their own dblclick (rename) — skip.
+              if ((e.target as HTMLElement).closest("[data-mm-id]")) return;
+              setZoom(null);
+            }}
+          >
             <div
               className="mm-sizer"
-              style={{ width: `${W * fit}px`, height: `${H * fit}px` }}
+              style={{ width: `${W * scale}px`, height: `${H * scale}px` }}
             >
             <div
               className="mm-plane"
@@ -1062,7 +1219,7 @@ export default function MindMapCard({
               style={{
                 width: `${W}px`,
                 height: `${H}px`,
-                transform: fit < 1 ? `scale(${fit})` : undefined,
+                transform: scale < 1 ? `scale(${scale})` : undefined,
                 transformOrigin: "0 0",
               }}
             >
@@ -1158,151 +1315,6 @@ export default function MindMapCard({
                 />
               )}
 
-              {toolbarBox && (() => {
-                // The toolbar's layout box maps 1:1 to screen px through
-                // fit∘(1/fit); its VISUAL plane footprint is w/fit ×
-                // h/fit anchored bottom-left (origin "0 100%"). Clamp
-                // that footprint into the canvas viewport — a 0.7-floored
-                // map scrolls, and plane-right ≠ canvas-right (live shot:
-                // verbs clipped at the pane edge).
-                const H = tbBox.h || 36;
-                const cv = canvasRef.current?.getBoundingClientRect();
-                const pr = planeRef.current?.getBoundingClientRect();
-                let left = toolbarBox.x;
-                let top = toolbarBox.y - 10 - H; // visual bottom = y0 - 10
-                if (cv && pr && tbBox.w > 0) {
-                  const viewTop = (cv.top - pr.top) / fit;
-                  const viewLeft = (cv.left - pr.left) / fit;
-                  const viewRight = (cv.right - pr.left) / fit;
-                  left = Math.min(left, viewRight - tbBox.w / fit - 4);
-                  left = Math.max(left, viewLeft + 4);
-                  // visual top = top + H - H/fit ≥ viewTop + 4
-                  top = Math.max(top, viewTop + 4 - H + H / fit);
-                }
-                return (
-                <div
-                  ref={tbRef}
-                  className={"mm-toolbar" + (armed ? " armed" : "")}
-                  style={{
-                    left: `${Math.max(4, left)}px`,
-                    top: `${Math.max(4, top)}px`,
-                    // Wrap inside the viewport width (layout px map1:1
-                    // to screen px); the measure pass then re-anchors.
-                    maxWidth: `${Math.max(240, (cv?.width ?? 700) - 14)}px`,
-                    // The plane is scaled by fit; counter-scale so the
-                    // toolbar reads at natural size above the selection.
-                    transform: `scale(${1 / fit})`,
-                    transformOrigin: "0 100%",
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()} // never a marquee
-                  onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => e.stopPropagation()}
-                >
-                  {(agentBatches ?? 0) >= 3 && (
-                    <span className={"mm-tb-warn" + (armed ? " on" : "")}>
-                      ⚠ 先处理这 {agentBatches} 批未确认改动
-                      {armed ? " — 再点一次执行" : ""}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={guard(mergeSel)}
-                    disabled={selIds.length < 2}
-                    title="合并：其余选中节点折进第一个（源节点墓碑化，子节点上移）"
-                  >
-                    合并
-                  </button>
-                  <select
-                    className="mm-tb-sel"
-                    value=""
-                    title="把选中节点挂到某个节点之下（候选已排除选区与选区的后代，避免成环）"
-                    onChange={(e) => {
-                      if (e.target.value) guard(() => reparent(e.target.value))();
-                    }}
-                  >
-                    <option value="">归类到…</option>
-                    {reparentCands.map((n) => (
-                      <option key={n.id} value={n.id}>
-                        {n.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={guard(parkSel)}
-                    title="停靠 / 恢复选中节点"
-                  >
-                    停靠
-                  </button>
-                  <button
-                    type="button"
-                    onClick={guard(delSel)}
-                    title="删除选中节点（墓碑，不再长回）"
-                  >
-                    删除
-                  </button>
-                  <span className="mm-tb-sep" aria-hidden="true" />
-                  <button
-                    type="button"
-                    onClick={guard(() =>
-                      askSel("改写这些节点，让同级表述一致、更准确。", true),
-                    )}
-                    title="让模型重写选区节点的表述（map_ops rewrite）"
-                  >
-                    改写
-                  </button>
-                  <button
-                    type="button"
-                    onClick={guard(() => askSel("这些节点之间有矛盾吗？指出冲突之处。"))}
-                    disabled={sel.length < 2}
-                    title="检查选区内的结论是否互相冲突"
-                  >
-                    矛盾吗
-                  </button>
-                  <button
-                    type="button"
-                    onClick={guard(() => askSel("解释这些节点的含义与彼此关系。"))}
-                    title="让模型解释选区（散文回答，不改图）"
-                  >
-                    解释
-                  </button>
-                  <input
-                    className="mm-tb-q"
-                    value={tbQ}
-                    placeholder="对选区提问…"
-                    onChange={(e) => setTbQ(e.target.value)}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      e.stopPropagation(); // Esc here clears the line, not the selection
-                      if (e.key === "Enter") {
-                        guard(() => {
-                          askSel(tbQ);
-                          setTbQ("");
-                        })();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="mm-tb-go"
-                    onClick={guard(() => {
-                      askSel(tbQ);
-                      setTbQ("");
-                    })}
-                  >
-                    提问
-                  </button>
-                  <button
-                    type="button"
-                    className="mm-tb-x"
-                    title="清除选区 (Esc)"
-                    onClick={() => onSelect?.(null)}
-                  >
-                    ✕
-                  </button>
-                </div>
-                );
-              })()}
             </div>
             </div>
           </div>
@@ -1316,7 +1328,8 @@ export default function MindMapCard({
             </span>
             <span>
               <b>点</b> 跳回原话 · <b>双击</b> 改名 · 悬停 <b>✓ ⏸ ✕</b> 确认 /
-              停靠 / 删除 · <b>框选 / ctrl+点</b> 圈选 · <b>Esc</b> 清除
+              停靠 / 删除 · <b>框选 / ctrl+点</b> 圈选 · <b>Esc</b> 清除 ·{" "}
+              <b>滚轮按住</b> 拖动平移 · <b>ctrl+滚轮</b> 缩放（双击空白复位）
             </span>
           </div>
         </>

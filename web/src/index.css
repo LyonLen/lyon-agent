@@ -379,7 +379,7 @@ button:focus-visible,
 
 /* --- transcript blocks ------------------------------------------------ */
 .blk-user {
-  display: flex; gap: 8px; align-items: flex-start;
+  display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap;
   border-left: 3px solid var(--accent); padding: 4px 8px;
   background: var(--bg-row); border-radius: 0 var(--radius-2) var(--radius-2) 0;
 }
@@ -1133,7 +1133,7 @@ button:focus-visible,
   display: flex; align-items: center; gap: 9px; white-space: nowrap;
   cursor: pointer; box-shadow: 0 8px 18px -12px var(--shadow-strong);
 }
-.mm-croot .mm-rl { overflow: hidden; text-overflow: ellipsis; }
+.mm-croot .mm-rl { white-space: nowrap; } /* Image #56: never clip */
 .mm-croot .mm-rt {
   font-size: 10px; opacity: .62; font-weight: 400; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -1148,8 +1148,8 @@ button:focus-visible,
   transition: filter var(--dur-1), background var(--dur-1);
 }
 .mm-cbranch .mm-cl {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1; min-width: 0;
+  white-space: nowrap; /* Image #56: labels are never ellipsized */
 }
 .mm-cbranch .n {
   font-size: 11px; opacity: .75; font-weight: 500; flex-shrink: 0;
@@ -1167,7 +1167,7 @@ button:focus-visible,
   position: absolute; z-index: 1; box-sizing: border-box;
   height: 22px; padding: 2px 4px 0;
   font-size: 12.3px; line-height: 1.5; color: var(--dim);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; /* Image #56: content-width, no clipping */
   cursor: pointer;
   border-bottom: 1.5px dashed var(--fg-faint); /* proposed: the guess */
   transition: background var(--dur-1), color var(--dur-1);
@@ -1194,9 +1194,10 @@ button:focus-visible,
 .mm-pen { margin-left: 5px; font-size: 10px; color: var(--fg-faint); }
 
 /* ── M2 edit channel: hover actions, inline rename, batch confirm ──
-   Actions fade in over the row's right edge (the ellipsis zone — the
-   tooltip still carries the full label); rename swaps the row content
-   for an input in place, Enter commits / Esc cancels / blur commits. */
+   Actions fade in as a transient overlay on the row's right edge (the
+   label itself is never clipped — Image #56); rename swaps the row
+   content for an input in place, Enter commits / Esc cancels / blur
+   commits. */
 .mm-acts {
   position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
   display: flex; gap: 3px; align-items: center;
@@ -1258,6 +1259,8 @@ button.mm-chip b { color: var(--accent); }
 /* ── §7.3 selection (marquee / toolbar / hint / chips) ───────────── */
 .mm-canvas { user-select: none; } /* marquee drags must not select text */
 .mm-canvas input, .mm-canvas textarea { user-select: text; } /* rename box */
+.mm-canvas { cursor: grab; } /* middle-button (wheel press) pans */
+.mm-canvas.panning { cursor: grabbing; }
 .mm-marquee {
   position: absolute; z-index: 4; pointer-events: none;
   border: 1.5px solid var(--accent);
@@ -1272,14 +1275,18 @@ button.mm-chip b { color: var(--accent); }
 /* Floating toolbar: anchored above the selection bbox (plane coords),
    counter-scaled 1/fit by the inline transform so it reads at natural
    size. Buttons stay compact — one row, no wrap. */
+/* Docked selection bar — a layout row ABOVE the canvas (Image #55:
+   floating over the map occluded nodes). flex:none keeps it from
+   shrinking; the canvas below yields the space and re-fits. */
 .mm-toolbar {
-  position: absolute; z-index: 6;
+  flex: none;
   display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  margin: 4px 8px 0;
   padding: 5px 7px;
   background: var(--bg-card);
   border: 1px solid var(--line);
   border-radius: 9px;
-  box-shadow: 0 10px 24px -14px var(--shadow-strong);
+  box-shadow: 0 8px 18px -14px var(--shadow-strong);
 }
 /* children never break mid-label; the CONTAINER wraps instead */
 .mm-toolbar button,
@@ -1336,7 +1343,13 @@ button.mm-chip b { color: var(--accent); }
 
 /* Selection-ask rows in the feed: the marker's ids render as label
    chips (click re-selects them in the map), the prose follows. */
-.mm-usrchips { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px; }
+/* Selection chips own their FULL first row; the marker-stripped prose
+   wraps below at full width — in the flex ROW they used to sit in, the
+   question collapsed to a one-character column (Image #57). */
+.mm-usrchips {
+  display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;
+  flex: 1 0 100%; width: 100%;
+}
 button.mm-chip-user {
   border: 1px solid var(--accent); background: var(--accent-a13);
   color: var(--accent); border-radius: 999px;
