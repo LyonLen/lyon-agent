@@ -1219,7 +1219,11 @@ export default function MindMapCard({
               style={{
                 width: `${W}px`,
                 height: `${H}px`,
-                transform: scale < 1 ? `scale(${scale})` : undefined,
+                // Always transform — the old `scale < 1` guard left the
+                // plane unscaled when zoomed IN (Image #60): toPlane and
+                // the hit math still divided by scale, so the marquee
+                // drifted away from the cursor. scale(1) is identity.
+                transform: `scale(${scale})`,
                 transformOrigin: "0 0",
               }}
             >

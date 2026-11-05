@@ -146,6 +146,64 @@ func TestRenderTranscript(t *testing.T) {
 	}
 }
 
+// ── meta-channel plumbing never reaches the model (Image #58/#59) ──
+//
+// The web client synthesizes map-edit notices and selection markers
+// inside real user messages. They must not turn the tail into edit-log
+// meta (which the distiller then admitted as nodes), while the turn
+// counter keeps consuming their slots so source_turn jump anchors stay
+// aligned with the web feed's user-block count.
+
+func TestRenderTranscriptMetaStripped(t *testing.T) {
+	txt := func(role anthropic.BetaMessageParamRole, s string) anthropic.BetaMessageParam {
+		return anthropic.BetaMessageParam{Role: role, Content: []anthropic.BetaContentBlockParamUnion{
+			{OfText: &anthropic.BetaTextBlockParam{Text: s}},
+		}}
+	}
+	notice := "我在思维导图上做了改动：删除「场景层壳」。\n" +
+		"【系统 · 图上自动提问纪律】先用一句话复述你对这次改动的理解，只问一个最关键的问题；不要执行任何工具。"
+	selAsk := "[导图选区 3 个节点|a,b,c] 把措辞统一成「用户：诉求」\n" +
+		"【系统 · 选区提问纪律】你在回答一个「基于导图选区」的提问。规则：\n1. 需要改图时：只输出一个 ```map_ops 代码块。"
+	msgs := []anthropic.BetaMessageParam{
+		txt(anthropic.BetaMessageParamRoleUser, "真实问题一"),
+		txt(anthropic.BetaMessageParamRoleAssistant, "自然的回答"),
+		txt(anthropic.BetaMessageParamRoleUser, notice), // turn 2 — counted, not rendered
+		txt(anthropic.BetaMessageParamRoleUser, selAsk), // turn 3 — marker+suffix stripped
+		txt(anthropic.BetaMessageParamRoleUser, "真实问题四"),
+	}
+	out := renderTranscript(msgs, 10000)
+
+	for _, want := range []string{"[turn 1] user: 真实问题一", "把措辞统一成「用户：诉求」", "[turn 4] user: 真实问题四"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	for _, bad := range []string{"我在思维导图上做了改动", "自动提问纪律", "导图选区", "map_ops", "【系统 ·"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("meta wrapper %q leaked into the tail:\n%s", bad, out)
+		}
+	}
+	// "[turn 4]" in the wants above IS the turn-slot assertion: the
+	// dropped notice (turn 2) and stripped ask (turn 3) must still be
+	// counted, otherwise source_turn anchors drift against the feed.
+}
+
+// The prompt is the second half of the admission contract — pin the
+// subject-based exclusion so it cannot silently regress to the old
+// conclusion-shaped-only rule that let map-meta through.
+
+func TestDistillPromptMetaAdmission(t *testing.T) {
+	for _, want := range []string{
+		"ABOUT THE SUBJECT",
+		"its subject is the map",
+		"park them this round",
+	} {
+		if !strings.Contains(distillSystemPrompt, want) {
+			t.Errorf("distillSystemPrompt missing admission clause %q", want)
+		}
+	}
+}
+
 // ── D1: bad JSON / failed ask → silent skip, one audit line ───────
 
 func TestD1BadJSONSkipped(t *testing.T) {

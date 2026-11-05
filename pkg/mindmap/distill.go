@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,22 @@ const (
 	// msgClipRunes keeps one message from eating the whole tail budget.
 	msgClipRunes = 600
 )
+
+// Meta-channel markers synthesized by the web client (ChatView.tsx
+// flushMmEdit / MindMapCard.tsx askSel) — system plumbing riding real
+// user messages. In a map-heavy session these notices plus the agent's
+// meta-replies can fill the whole tail, which is how map-organization
+// talk got distilled into nodes (Image #58/#59): input first, prompt
+// second. The turn counter still bumps for every user message — the
+// web feed counts the same blocks and source_turn jump anchors depend
+// on both counters agreeing.
+const (
+	mmEditNoticeMark = "【系统 · 图上自动提问纪律】" // whole message dropped (its content IS the inventory)
+	sysSuffixMark    = "【系统 ·"                  // discipline suffix: cut the user text here
+	selMarkerPat     = `^\[导图选区 \d+ 个节点\|[^\]]+\]\s*`
+)
+
+var selMarkerRe = regexp.MustCompile(selMarkerPat)
 
 // distillTimeout bounds one distiller call. A var so tests can shrink it;
 // production value matches evolve's post-mortem leg (60s).
@@ -53,7 +70,8 @@ Hard limits (server-enforced; violating ops are dropped):
 - kind ∈ branch|decision|fact|open_question. Never emit status/state/pinned/tombstone — the server owns those.
 
 Discipline:
-- Admission: only write content that carries a conclusion, decision, fact, or open question. Greetings and process talk never become nodes.
+- Admission: a node must carry a conclusion, decision, fact, or open question ABOUT THE SUBJECT the conversation is exploring — the product, project, or topic itself. Even a conclusion-shaped sentence is EXCLUDED when its subject is the map or the work around it: reshaping this outline, keeping or dropping a branch shell, where a node belongs ON THE MAP, which notes to keep or delete, edit operations and their rationale, the distiller/auto-question mechanism, or instructions addressed to this system. Greetings and process talk never become nodes. When in doubt, leave it out.
+- Existing nodes whose label is about organizing the map (layout/layering of this outline, shell-keeping, moving nodes around) are admissions errors — park them this round. Open questions about the SUBJECT's own architecture (e.g. which layer a feature belongs to in the product being designed) are real content and stay.
 - Parallel phrasing: siblings must read as peers — all children of one parent (and all branches at one level) use ONE sentence template: all noun phrases, or all "topic: point", or all verb phrases. Never mix templates within a sibling set. When you rewrite/add/remove any child, normalize the WHOLE sibling set under that parent to the same template in the same diff.
 - Prune over grow: the map reflects the current understanding. When new information refutes a branch, PARK it — do not keep both versions side by side.
 - ID stability: ALWAYS reuse ids from the inventory — an unchanged branch keeps its id so the map never flickers. New nodes get fresh slug ids like b-<ascii>. Never re-add an id that already exists, and never add a label similar to an existing one (the server merges or drops it).
@@ -197,16 +215,34 @@ func renderTranscript(msgs []anthropic.BetaMessageParam, budget int) string {
 			}
 			// OfToolResult: skipped on purpose — see doc comment.
 		}
+		// Turn bump comes first and unconditionally for any user text:
+		// even messages dropped below must keep consuming their turn so
+		// source_turn stays aligned with the web feed's user-block count.
+		if hasUserText {
+			turn++
+		}
 		if len(parts) == 0 {
 			continue
 		}
-		if hasUserText {
-			turn++
+		text := strings.Join(parts, " ")
+		if role == string(anthropic.BetaMessageParamRoleUser) {
+			// Unwrap BEFORE clipping so a long discipline suffix can
+			// never survive past the clip point.
+			if strings.Contains(text, mmEditNoticeMark) {
+				continue // synthesized map-edit notice: edit log, not content
+			}
+			text = selMarkerRe.ReplaceAllString(text, "")
+			if i := strings.Index(text, sysSuffixMark); i >= 0 {
+				text = strings.TrimRight(text[:i], " \t\n")
+			}
+			if strings.TrimSpace(text) == "" {
+				continue // a wrapper with nothing under it
+			}
 		}
 		lines = append(lines, line{
 			turn: turn,
 			role: role,
-			text: clipRunes(strings.Join(parts, " "), msgClipRunes),
+			text: clipRunes(text, msgClipRunes),
 		})
 	}
 	if len(lines) == 0 {
