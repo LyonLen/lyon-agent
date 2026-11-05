@@ -399,7 +399,8 @@ func projectSignal(text string) bool {
 		return true
 	}
 	// function-name signals: snake_case with a verb-ish tail, or a
-	// camelCase run — cheap and good enough for labels ≤ 24 字.
+	// camelCase run — cheap and good enough for label phrases (no
+	// content clip anymore, so slugs only need a stable prefix).
 	if hasToken(text, '_') || hasCamel(text) {
 		return true
 	}

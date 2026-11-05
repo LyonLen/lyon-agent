@@ -46,6 +46,17 @@ func TestModeSwitching(t *testing.T) {
 	if _, err := s.SetMode(ModeBypass); err != nil || s.Mode() != ModeBypass {
 		t.Fatalf("bypass: %v mode=%s", err, s.Mode())
 	}
+	// mindmap (Image #61): a valid mode, not a plan/bypass hybrid.
+	if _, err := s.SetMode(ModeMindmap); err != nil || s.Mode() != ModeMindmap {
+		t.Fatalf("mindmap: %v mode=%s", err, s.Mode())
+	}
+	// Persistence: the snapshot whitelist must carry mindmap across
+	// restarts — an unknown value would silently fall back to default
+	// and disarm the map channel.
+	s.Restore(Snapshot{Mode: string(ModeMindmap)})
+	if s.Mode() != ModeMindmap {
+		t.Fatalf("restore lost mindmap mode: %s", s.Mode())
+	}
 }
 
 // TestPlanModeGate: preTool blocks mutations and unknowns in plan mode,
@@ -60,6 +71,15 @@ func TestPlanModeGate(t *testing.T) {
 		if err := s.preTool(ctx, tools.ExecEvent{Name: name, Input: in}); err != nil {
 			t.Fatalf("default mode blocked %s: %v", name, err)
 		}
+	}
+
+	// mindmap mode executes like default — it arms the web map channel,
+	// it is not an execution restriction.
+	if _, err := s.SetMode(ModeMindmap); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.preTool(ctx, tools.ExecEvent{Name: "run_shell", Input: in}); err != nil {
+		t.Fatalf("mindmap mode blocked run_shell: %v", err)
 	}
 
 	if _, err := s.SetMode(ModePlan); err != nil {

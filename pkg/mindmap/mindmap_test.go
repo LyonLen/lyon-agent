@@ -85,7 +85,8 @@ func nodeByID(t *testing.T, m *Manager, sid string) map[string]Node {
 // assertTree is G1's structural half: parents exist and are alive, no
 // cycles, depth ≤ 4, ≤ 8 alive children per node, ≤ 60 alive total,
 // kind/status/state inside their enums. Label length is checked by the
-// G1 test itself (user-authored labels may legally exceed 24).
+// G1 test itself (labels are never content-clipped; only output above
+// the 200-rune sanity bound is cut).
 func assertTree(t *testing.T, m *Manager, sid string) []Node {
 	t.Helper()
 	_, nodes, err := m.State(sid)
@@ -191,8 +192,9 @@ func TestG1StructureValid(t *testing.T) {
 		{Op: "add", ID: "badkind", ParentID: "root", Label: "坏枚举", Kind: "epic"},       // kind ∉ enum
 		{Op: "add", ID: "orphan", ParentID: "no-such-id", Label: "孤儿", Kind: "branch"}, // parent missing
 		{Op: "set_parent", ID: "a", ParentID: "d"},                                     // cycle: a is d's ancestor
-		// legal but over-long label — clipped to the §6 hat, not dropped
-		{Op: "add", ID: "long", ParentID: "root", Label: strings.Repeat("长", 40), Kind: "branch"},
+		// runaway label — clipped to the 200-rune sanity bound, not dropped
+		// (labels under 200 pass through whole: Image #62 「别省略」)
+		{Op: "add", ID: "long", ParentID: "root", Label: strings.Repeat("长", 300), Kind: "branch"},
 	}}
 	res := m.ApplyDistill(sid, 0, diff)
 	if !res.Changed {

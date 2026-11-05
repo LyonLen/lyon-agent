@@ -81,7 +81,7 @@ const (
 	maxDepth          = 4   // root depth 0
 	maxNodes          = 60  // alive (non-tombstone) nodes
 	maxChildren       = 8   // alive children per branch
-	maxLabelRunes     = 24  // distiller/agent label cap (§6)
+	maxLabelRunes     = 200 // agent/distiller label sanity bound — content is NEVER cut at 24 (Image #62 「别省略」); aligned with the human bound so no origin truncates mid-sentence
 	maxUserLabelRunes = 200 // human rename sanity bound (human is authoritative below this)
 )
 

@@ -66,7 +66,7 @@ ops you may emit (all optional; emit {"ops":[]} when nothing changed):
 - {"op":"merge","id":"<survivor-id>","source_ids":["<id>",...]} — fold duplicate branches into one
 
 Hard limits (server-enforced; violating ops are dropped):
-- depth ≤ 4 (root depth 0), total ≤ 60 alive nodes, ≤ 8 alive children per branch, label ≤ 24 characters.
+- depth ≤ 4 (root depth 0), total ≤ 60 alive nodes, ≤ 8 alive children per branch; label = one complete phrase — write the full text, never cut it short with "…".
 - kind ∈ branch|decision|fact|open_question. Never emit status/state/pinned/tombstone — the server owns those.
 
 Discipline:
@@ -84,10 +84,17 @@ Discipline:
 // claim the seat's single distill slot, then hand the actual work to its
 // own goroutine so the hub tap returns immediately. LYON_MINDMAP=off
 // makes it a complete no-op: zero goroutines, zero calls, zero events
-// (D2).
+// (D2). Image #71 adds a second gate: only a mindmap-mode session
+// draws — in every other mode the map must not grow on its own (the
+// write side follows the same "才会使用" rule as the auto-ask channel;
+// reading an existing map, manual selection asks and agent replies to
+// them stay mode-independent).
 func Hook(sess *agent.Session, ev agent.Event) {
 	if ev.Type != agent.EventPromptEnd || sess == nil || Off() {
 		return
+	}
+	if sess.Mode() != agent.ModeMindmap {
+		return // Image #71: default/plan/bypass never draw
 	}
 	sid := sess.SeatID()
 	if sid == "" {

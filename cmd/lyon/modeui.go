@@ -12,11 +12,15 @@ import (
 // owns enforcement (preTool read-only gate, bypass auto-approve); this
 // file is only the surface: parsing, wording, badges.
 
-// modeStatusLine answers bare /mode.
+// modeStatusLine answers bare /mode. mindmap is accepted by /mode but
+// not part of the shift+tab cycle: the TUI has no map editor (the auto-
+// ask channel is web-only), so cycling into an inert mode there would
+// just be noise — reach it with /mode mindmap. tui.go's help block can't
+// list it (不碰 tui.go red line); this file's strings are the live docs.
 func modeStatusLine(m agent.Mode) string {
 	return paint(cBold, tr("mode: ", "模式: ")+string(m)) + paint(cDim,
-		tr(" — /mode default|plan|bypass · shift+tab cycles",
-			" — /mode default|plan|bypass · shift+tab 循环切换")+
+		tr(" — /mode default|plan|bypass|mindmap · shift+tab cycles",
+			" — /mode default|plan|bypass|mindmap · shift+tab 循环切换")+
 			modeBlurb(m))
 }
 
@@ -28,6 +32,9 @@ func modeBlurb(m agent.Mode) string {
 	case agent.ModeBypass:
 		return tr(" · approvals auto-approved (policy & hooks still enforced)",
 			" · 审批自动通过（策略与钩子仍生效）")
+	case agent.ModeMindmap:
+		return tr(" · map edits auto-prompt the agent (web mindmap channel)",
+			" · 图上编辑自动追问（web 导图通道）")
 	default:
 		return tr(" · approvals ask y/n (chat default; -approve=false disables)",
 			" · 审批询问 y/n（聊天默认；-approve=false 关闭）")
@@ -47,6 +54,9 @@ func modeSwitchLine(from, to agent.Mode) string {
 	case agent.ModeBypass:
 		head = paint(cRed, tr("mode → bypass — approvals auto-approved (policy & hooks still enforced)",
 			"mode → bypass — 审批自动通过（策略与钩子仍生效）"))
+	case agent.ModeMindmap:
+		head = paint(cCyan, tr("mode → mindmap — map edits auto-prompt the agent (web card)",
+			"mode → mindmap — 图上编辑自动追问（web 图卡）"))
 	case agent.ModeDefault:
 		head = paint(cGreen, tr("mode → default — shell/write/edit ask y/n again (bypass skips them)",
 			"mode → default — shell/write/edit 恢复询问 y/n（bypass 会跳过）"))
@@ -56,13 +66,16 @@ func modeSwitchLine(from, to agent.Mode) string {
 }
 
 // modeBadge pins the active mode into the TUI header — plan/bypass must
-// be visible at a glance, always.
+// be visible at a glance, always; mindmap too (cyan), so a parked
+// mindmap-mode session never looks like a plain default one.
 func modeBadge(m agent.Mode) string {
 	switch m {
 	case agent.ModePlan:
 		return paint(cYellow, " · [plan]")
 	case agent.ModeBypass:
 		return paint(cRed, " · [bypass]")
+	case agent.ModeMindmap:
+		return paint(cCyan, " · [mindmap]")
 	default:
 		return ""
 	}
@@ -77,11 +90,16 @@ func modeToast(m agent.Mode) string {
 		color = cYellow
 	case agent.ModeBypass:
 		color = cRed
+	case agent.ModeMindmap:
+		color = cCyan
 	}
 	return tr("mode: ", "模式: ") + paint(color, string(m))
 }
 
 // cycleMode walks default → plan → bypass → default (shift+tab).
+// mindmap is deliberately out of the cycle — the TUI cannot edit the map,
+// so there the mode has no effect (reachable via /mode mindmap; the web
+// picker cycles all four).
 func cycleMode(m agent.Mode) agent.Mode {
 	switch m {
 	case agent.ModeDefault:
@@ -104,7 +122,7 @@ func modeAction(sess *agent.Session, args string) string {
 	}
 	prev, err := sess.SetMode(agent.Mode(arg))
 	if err != nil {
-		return paint(cYellow, err.Error()+" — usage: /mode [default|plan|bypass]")
+		return paint(cYellow, err.Error()+" — usage: /mode [default|plan|bypass|mindmap]")
 	}
 	return modeSwitchLine(prev, agent.Mode(arg))
 }

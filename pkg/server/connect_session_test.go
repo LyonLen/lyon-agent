@@ -187,6 +187,14 @@ loop:
 	if err != nil || mres.Msg.Mode != "plan" {
 		t.Fatalf("SetMode(plan) = %v err=%v", mres, err)
 	}
+	// mindmap (Image #61) round-trips like any other mode.
+	mres, err = client.SetMode(ctx, connect.NewRequest(&lyonv1.SetModeRequest{SessionId: sess.Id, Mode: "mindmap"}))
+	if err != nil || mres.Msg.Mode != "mindmap" {
+		t.Fatalf("SetMode(mindmap) = %v err=%v", mres, err)
+	}
+	if mres, err = client.SetMode(ctx, connect.NewRequest(&lyonv1.SetModeRequest{SessionId: sess.Id, Mode: "plan"})); err != nil || mres.Msg.Mode != "plan" {
+		t.Fatalf("SetMode(plan) back = %v err=%v", mres, err)
+	}
 	_, err = client.SetMode(ctx, connect.NewRequest(&lyonv1.SetModeRequest{SessionId: sess.Id, Mode: "nope"}))
 	if got := connectCode(err); got != connect.CodeInvalidArgument {
 		t.Fatalf("SetMode(nope) code = %v, want InvalidArgument", got)

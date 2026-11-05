@@ -38,6 +38,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { mindmapClient, v1Json } from "../api";
 import type { MapNode, MindmapSnap } from "../mindmap";
+import { buildSelAsk } from "../selask";
 
 // One UpdateMindmap op — pkg/mindmap Op's JSON shape (§7.3 vocabulary:
 // rewrite / park / delete / confirm / set_parent / merge / add).
@@ -134,9 +135,12 @@ export default function MindMapCard({
    *  at ≥3 the toolbar arms local verbs behind a second click. */
   agentBatches?: number;
 }) {
-  const [open, setOpen] = useState(true);
+  // Image #66 「都脱到 panel 了，没必要做折叠展开了」: the card lives in
+  // its own pane — it is always expanded; the header is a label, not a
+  // button. `open` stays as a constant so the layout/measure guards read
+  // unchanged.
+  const open = true;
   const [fresh, setFresh] = useState<ReadonlySet<string>>(() => new Set());
-  const [newCount, setNewCount] = useState(0);
   // Inline rename (double-click): the id being edited and its draft.
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
   const prevIdsRef = useRef<Set<string> | null>(null);
@@ -393,9 +397,7 @@ export default function MindMapCard({
   const root = tops.find((r) => r.id === "root") ?? tops[0];
 
   // New-node highlight (§7.1): ids that appeared since the previous
-  // snapshot. The first snapshot seeds the baseline (nothing is "new");
-  // while collapsed the additions accumulate into the one-liner's +k
-  // instead of flashing (the reader isn't looking).
+  // snapshot. The first snapshot seeds the baseline (nothing is "new").
   useEffect(() => {
     const ids = new Set(alive.map((n) => n.id));
     const prev = prevIdsRef.current;
@@ -403,13 +405,10 @@ export default function MindMapCard({
     if (!prev) return; // first snapshot: baseline
     const added = [...ids].filter((id) => !prev.has(id));
     if (added.length === 0) return;
-    if (open) {
-      setFresh(new Set(added));
-      const t = setTimeout(() => setFresh(new Set()), 450);
-      return () => clearTimeout(t);
-    }
-    setNewCount((c) => c + added.length);
-  }, [snap, open]); // eslint-disable-line react-hooks/exhaustive-deps
+    setFresh(new Set(added));
+    const t = setTimeout(() => setFresh(new Set()), 450);
+    return () => clearTimeout(t);
+  }, [snap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const branches = root
     ? [...(byParent.get(root.id) ?? []), ...tops.filter((t) => t.id !== root.id)]
@@ -641,13 +640,6 @@ export default function MindMapCard({
     }
   }
 
-  const toggle = () => {
-    setNewCount(0);
-    setFresh(new Set());
-    centeredRef.current = false; // re-expand re-centers on the root
-    setOpen((o) => !o);
-  };
-
   // ── M2 edit channel (§4.1 / §7.1) ─────────────────────────────────
   // Every human action is one UpdateMindmap batch, origin="user": the
   // server grants full authority, pins what it touches, bumps
@@ -787,27 +779,16 @@ export default function MindMapCard({
     if (selIds.length === 0) return;
     void applyOps(selIds.map((id) => ({ op: "delete", id })));
   };
-  // Semantic verbs: the marker carries the ids (ChatView strips them
-  // for display and renders label chips), the discipline suffix tells
-  // the model how a selection-ask may land on the map (§7.3 — prose
-  // never mutates; map_ops rides one fenced block or not at all).
-  const SEL_DISCIPLINE =
-    "【系统 · 选区提问纪律】你在回答一个「基于导图选区」的提问，选区节点 id 在上一行方括号里。规则：\n" +
-    "1. 需要改图时：只输出一个 ```map_ops 代码块，内容是 JSON 数组（每项带 op 字段，可用 rewrite/set_parent/add/park/delete/confirm/merge），代码块之外不写任何改动指令。\n" +
-    "2. 不需要改图时：直接散文回答，不要输出 map_ops 代码块。\n" +
-    "3. 改动落在选区上：rewrite/confirm/park/delete/merge/set_parent 只针对方括号里的选区 id；add 的新节点挂在选区节点下、提案态。\n" +
-    "4. 选区外的既有节点一律不动；已确认/已固定节点不要改（服务器会整批拒绝）。";
+  // Semantic verbs: the wire format lives in selask.ts — the SAME
+  // builder the main composer uses (Image #64: a selection question
+  // typed there must carry the marker too), and display strips exactly
+  // this string (Image #65: discipline suffix is wire, not feed text).
+  // 【期望落图】 rides only verbs that must mutate (改写): ChatView's
+  // reply parser uses it for the A4 prose-only notice — 解释/矛盾吗 in
+  // prose is correct, not a miss, and must stay quiet.
   const askSel = (q: string, expectMap = false) => {
     if (sel.length === 0) return;
-    const question = q.trim() || "这些节点讲了什么？彼此是什么关系？";
-    // 【期望落图】 rides only verbs that must mutate (改写): ChatView's
-    // reply parser uses it to decide whether a prose-only answer earns
-    // the A4 notice — 解释/矛盾吗 answering in prose is correct, not a
-    // miss, and must stay quiet.
-    const flag = expectMap ? "\n【期望落图】本次请求必须以 map_ops 围栏落图。" : "";
-    onAsk?.(
-      `[导图选区 ${sel.length} 个节点|${sel.join(",")}] ${question}\n${SEL_DISCIPLINE}${flag}`,
-    );
+    onAsk?.(buildSelAsk(sel, q, expectMap));
   };
 
   // The hover button cluster — same controls on every rendered row
@@ -955,48 +936,24 @@ export default function MindMapCard({
 
   return (
     <div className="mindmap-card">
-      <div
-        className="mm-head"
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={toggle}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggle();
-          }
-        }}
-      >
+      <div className="mm-head">
         <span className="mm-glyph" aria-hidden="true">🧠</span>
-        {open ? (
-          <div className="mm-titles">
-            <div className="mm-title">{title}</div>
-            {sub && (
-              <div className="mm-sub">
-                {cut > 0 ? (
-                  <>
-                    {sub.slice(0, cut + 3)}
-                    <b>{sub.slice(cut + 3)}</b>
-                  </>
-                ) : (
-                  sub
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="mm-oneline">
-            <b>{branches.length}</b> 个分支
-            {newCount > 0 && (
-              <>
-                {" "}· 最近 <b>+{newCount}</b>
-              </>
-            )}
-          </div>
-        )}
-        {open && (
-          <div className="mm-chips">
+        <div className="mm-titles">
+          <div className="mm-title">{title}</div>
+          {sub && (
+            <div className="mm-sub">
+              {cut > 0 ? (
+                <>
+                  {sub.slice(0, cut + 3)}
+                  <b>{sub.slice(cut + 3)}</b>
+                </>
+              ) : (
+                sub
+              )}
+            </div>
+          )}
+        </div>
+        <div className="mm-chips">
             <span className="mm-chip">
               <b>{alive.length}</b> 节点
             </span>
@@ -1046,13 +1003,8 @@ export default function MindMapCard({
               rev <b>{snap.revision}</b>
             </span>
           </div>
-        )}
-        <span className="mm-chev" aria-hidden="true">
-          {open ? "▾" : "▸"}
-        </span>
       </div>
-      {open && (
-        <>
+      <>
           <div className="mm-legend">
             <span className="mm-lg">
               <span className="mm-sw conf" />
@@ -1094,12 +1046,71 @@ export default function MindMapCard({
 
           {sel.length > 0 && (
             <div className={"mm-toolbar" + (armed ? " armed" : "")}>
-              {(agentBatches ?? 0) >= 3 && (
-                <span className={"mm-tb-warn" + (armed ? " on" : "")}>
-                  ⚠ 先处理这 {agentBatches} 批未确认改动
-                  {armed ? " — 再点一次执行" : ""}
-                </span>
-              )}
+              {(agentBatches ?? 0) >= 3 &&
+                (() => {
+                  // Image #63: the count alone left "处理哪儿?" unanswered —
+                  // clicking the warn RINGS every unconfirmed proposed node
+                  // and brings their bbox to canvas center: rings sitting
+                  // off-fold still leave "在哪儿" unanswered.
+                  const locate = () => {
+                    onSelect?.(
+                      alive
+                        .filter((n) => n.state === "proposed")
+                        .map((n) => n.id),
+                    );
+                    // double rAF: the .sel rings land after React repaints.
+                    requestAnimationFrame(() =>
+                      requestAnimationFrame(() => {
+                        const cv = canvasRef.current;
+                        if (!cv) return;
+                        const boxes = [
+                          ...cv.querySelectorAll<HTMLElement>("[data-mm-id]"),
+                        ]
+                          .filter((el) => el.classList.contains("sel"))
+                          .map((el) => el.getBoundingClientRect());
+                        if (boxes.length === 0) return;
+                        const cr = cv.getBoundingClientRect();
+                        const cx =
+                          (Math.min(...boxes.map((b) => b.left)) +
+                            Math.max(...boxes.map((b) => b.right))) /
+                          2;
+                        const cy =
+                          (Math.min(...boxes.map((b) => b.top)) +
+                            Math.max(...boxes.map((b) => b.bottom))) /
+                          2;
+                        cv.scrollTo({
+                          left: cv.scrollLeft + cx - (cr.left + cr.width / 2),
+                          top: cv.scrollTop + cy - (cr.top + cr.height / 2),
+                          behavior: "smooth",
+                        });
+                      }),
+                    );
+                  };
+                  const pending = alive.filter((n) => n.state === "proposed").length;
+                  return (
+                    <span
+                      className={"mm-tb-warn" + (armed ? " on" : "")}
+                      role="button"
+                      tabIndex={0}
+                      title="选中所有还没确认的提案节点 — 看看模型到底改了哪里"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        locate();
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          locate();
+                        }
+                      }}
+                    >
+                      ⚠ 先处理这 {agentBatches} 批未确认改动
+                      {armed
+                        ? " — 再点一次执行"
+                        : `（${pending} 个节点 · 点击圈出）`}
+                    </span>
+                  );
+                })()}
               <button
                 type="button"
                 onClick={guard(mergeSel)}
@@ -1270,7 +1281,16 @@ export default function MindMapCard({
               </svg>
 
               <div
-                className={"mm-croot" + (selSet.has(root.id) ? " sel" : "")}
+                // Same state-class contract as renderRow: the root is a
+                // node too (distill roots start proposed) — .confirmed
+                // feeds the counts, the honesty border, and the rings.
+                className={[
+                  "mm-croot",
+                  root.state === "confirmed" ? "confirmed" : "",
+                  selSet.has(root.id) ? "sel" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 data-mm-id={root.id}
                 style={{ left: `${CX}px`, top: `${CY}px` }}
                 onClick={(e) => {
@@ -1337,7 +1357,6 @@ export default function MindMapCard({
             </span>
           </div>
         </>
-      )}
     </div>
   );
 }

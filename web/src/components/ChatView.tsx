@@ -13,6 +13,7 @@ import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
 import { parseNodes } from "../mindmap";
 import type { MapNode, MindmapSnap } from "../mindmap";
+import { buildSelAsk, SEL_MARKER_RE, stripWireForDisplay } from "../selask";
 // (MindMapCard moved to App — the map renders in its own pane, #51)
 import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
@@ -153,10 +154,12 @@ type Block =
 // server's diff (pkg/server/filecards.go), so gitBadge applies as-is.
 type FileCard = { path: string; xy: string; kind: string; staged: boolean };
 
-// §8 LYON_MINDMAP_ASK (default ON, draft 按 on 写): should a merged map
-// edit fire a turn, or only land in chat? The flag is lyond's env — read
-// once from the settings env catalog for the whole tab; any failure
-// falls back to the spec default (on).
+// §8 LYON_MINDMAP_ASK (default ON, draft 按 on 写): the GLOBAL kill
+// switch for auto-ask rounds — read once from the settings env catalog
+// for the whole tab; any failure falls back to the spec default (on).
+// The PER-SESSION arm rides on top: flushMmEdit also requires the
+// session's mode == "mindmap" (Image #61) — env off kills every mode,
+// mindmap mode is where the channel actually lives.
 let mmAskFlag: Promise<boolean> | null = null;
 const mindmapAskOn = (): Promise<boolean> =>
   (mmAskFlag ??= settingsClient
@@ -707,8 +710,10 @@ export default function ChatView(props: {
   onMindmap?: (s: MindmapSnap | null, sid: string) => void;
   /** M2 edit-channel commands from the pane: a seq'd request carrying
    *  the RPC's fresh nodes (rev set) or a bare refetch (rev undefined —
-   *  the optimistic apply lost a §5 conflict). seq bumps per command. */
-  mmCmd?: { seq: number; rev?: number; nodesJson?: string } | null;
+   *  the optimistic apply lost a §5 conflict). seq bumps per command.
+   *  sid tags the session the command belongs to (Image #69: a stale
+   *  cmd from the previous seat must never paint this pane). */
+  mmCmd?: { seq: number; sid: string; rev?: number; nodesJson?: string } | null;
   /** Jump request from the mindmap pane: seq changes on every click so
    *  re-jumping the same turn re-fires. */
   jumpTo?: { turn: number; seq: number } | null;
@@ -721,6 +726,11 @@ export default function ChatView(props: {
    *  per ask so the same text can re-fire. ChatView dispatches it through
    *  the normal prompt path (queue-aware). */
   selAsk?: { seq: number; text: string } | null;
+  /** The session's execution mode (App's dock). Gates the AUTO-ask only:
+   *  map edits dispatch a round in mindmap mode, land as a notice
+   *  otherwise (Image #61). Manual selAsk is untouched — it is the user
+   *  asking, not the map talking back. */
+  mode?: string;
   /** A batch of agent-origin map_ops just landed — App counts unconfirmed
    *  batches for the toolbar's A5 warning (先处理未确认改动). */
   onAgentBatch?: () => void;
@@ -790,6 +800,10 @@ export default function ChatView(props: {
   // from history must never re-fire a turn. LYON_MINDMAP_ASK=off lands
   // the merged line as a feed notice instead (只入 chat 不发轮).
   const mmEditBuf = useRef<string[]>([]);
+  // Live mode for mount-time closures (flushMmEdit — see the gate below).
+  // Same render-assignment pattern as dispatchRef at the bottom.
+  const modeRef = useRef(props.mode);
+  modeRef.current = props.mode;
   const mmEditTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetMmEdit = () => {
     if (mmEditTimer.current) clearTimeout(mmEditTimer.current);
@@ -845,13 +859,24 @@ export default function ChatView(props: {
     if (edits.length === 0) return;
     const summary = edits.join("；");
     void mindmapAskOn().then((ask) => {
-      if (!ask) {
+      // Image #61: two gates. The env flag is the server-wide kill
+      // switch; the session mode is the per-session arm — outside
+      // mindmap mode the map observes, it does not prompt the agent.
+      // modeRef, NOT props.mode: flushMmEdit is invoked from the watch
+      // effect's mount-time closure (deps don't include props), so the
+      // direct read froze at the seat's opening mode and the gate never
+      // opened on a default-opened seat.
+      const armed = ask && modeRef.current === "mindmap";
+      if (!armed) {
         setBlocks((b) => [
           ...b,
           {
             kind: "notice",
             text: `思维导图编辑：${summary}`,
-            detail: "LYON_MINDMAP_ASK=off — 只入 chat，未发轮",
+            detail:
+              modeRef.current === "mindmap"
+                ? "LYON_MINDMAP_ASK=off — 只入 chat，未发轮"
+                : "mindmap 模式外 — 只入 chat，未发轮（切到 mindmap 模式才追问）",
           },
         ]);
         return;
@@ -876,6 +901,16 @@ export default function ChatView(props: {
       ev.attrs["nodes"],
     );
     if (!live || upd) return;
+    // §2: only HUMAN edits ride the map→chat channel. An agent-origin
+    // batch landing is the answer to a selection ask — the agent must
+    // never auto-prompt itself about its own write — so it counts
+    // toward A5's pending batch tally instead (one event = one batch).
+    const origin = ev.attrs["origin"] || "";
+    if (origin === "agent") {
+      props.onAgentBatch?.();
+      return;
+    }
+    if (origin !== "user") return; // ""/unknown: observe the map only
     const parts = summarizeMmEdit(ev.attrs["ops"], parseNodes(ev.attrs["nodes"]));
     if (parts.length === 0) return;
     mmEditBuf.current.push(...parts);
@@ -933,8 +968,9 @@ export default function ChatView(props: {
         opsJson: JSON.stringify(ops),
       })
       .then((res) => {
+        // A5 count rides the origin="agent" event in applyMindmapEv
+        // (exactly one per applied batch, no-ops and rejects don't count).
         applyMindmap(Number(res.revision), undefined, undefined, res.nodesJson);
-        props.onAgentBatch?.();
       })
       .catch((e) => setErr(errText(e)));
   };
@@ -1721,6 +1757,12 @@ export default function ChatView(props: {
   // /remember): a busy seat queues, an idle one submits.
   const dispatchPrompt = async (prompt: string) => {
     setErr("");
+    // §7.3 arm: the reply collector matches the user_message echo against
+    // this exact text — arming only in the float-bar effect left a
+    // composer-typed selection ask uncollected, so its map_ops reply
+    // fell on the floor (Image #64 选中提问无效).
+    if (SEL_MARKER_RE.test(prompt))
+      selAskRef.current = { text: prompt, collecting: false, buf: "", done: false };
     try {
       if (busy) {
         try {
@@ -1772,17 +1814,25 @@ export default function ChatView(props: {
   dispatchRef.current = dispatchPrompt;
 
   const send = async () => {
-    const prompt = input.trim();
-    if (!prompt) return;
+    const typed = input.trim();
+    if (!typed) return;
     setInput("");
     setErr("");
     // A slash token (with or without args) dispatches instead of sending:
     // "/rollback" alone or "/rollback anything" both reach execCommand.
-    if (prompt.startsWith("/")) {
-      await execCommand(prompt);
+    if (typed.startsWith("/")) {
+      await execCommand(typed);
       return;
     }
-    setHist((h) => [...h, prompt]); // ↑ browses what this seat actually sent
+    // §7.3: a live selection marks the composer's line exactly like the
+    // float bar does (Image #64 — typed bare, the model saw no selection
+    // at all). Already-marked text (↑ recall of a past ask) is not
+    // wrapped twice.
+    const prompt =
+      props.mmSelIds && props.mmSelIds.length > 0 && !SEL_MARKER_RE.test(typed)
+        ? buildSelAsk(props.mmSelIds, typed)
+        : typed;
+    setHist((h) => [...h, typed]); // ↑ browses what the human typed
     setHistIdx(-1);
     await dispatchPrompt(prompt);
   };
@@ -1845,7 +1895,10 @@ export default function ChatView(props: {
   // snapshot instead of showing a half-stale map.
   useEffect(() => {
     const cmd = props.mmCmd;
-    if (!cmd) return;
+    // Image #69: commands are session-tagged — a cmd left over from the
+    // outgoing session must not paint this fresh pane (child effects run
+    // BEFORE App's switch reset, so the tag is the only reliable guard).
+    if (!cmd || cmd.sid !== props.sessionId) return;
     void (async () => {
       if (cmd.rev === undefined) {
         try {
@@ -2074,14 +2127,20 @@ export default function ChatView(props: {
       {queued.length > 0 && (
         <div className="queue-list">
           <div className="queue-head">queued ({queued.length}):</div>
-          {queued.map((q, i) => (
-            <div className="queue-row" key={`${i}:${q}`}>
-              <span className="queue-num">{i + 1}›</span>
-              <span className="queue-text" title={q}>
-                {oneLine(q)}
-              </span>
-            </div>
-          ))}
+          {queued.map((q, i) => {
+            // Parked prompts keep their full wire (the re-send needs it);
+            // the row shows only the human line — marker → chips gone,
+            // discipline suffix stripped (Image #65).
+            const shown = oneLine(stripWireForDisplay(q).body);
+            return (
+              <div className="queue-row" key={`${i}:${q}`}>
+                <span className="queue-num">{i + 1}›</span>
+                <span className="queue-text" title={shown}>
+                  {shown}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
       {busy && input.trim() && (
@@ -2138,8 +2197,8 @@ export default function ChatView(props: {
       {props.mmSelIds && props.mmSelIds.length > 0 && (
         <div className="mm-selhint">
           <span className="mm-selhint-count">
-            对 {props.mmSelIds.length} 个节点提问 — 选区浮条在图顶部（改写 /
-            矛盾吗 / 解释 / 自由输入）
+            对 {props.mmSelIds.length} 个节点提问 — 输入框直接发送即带选区（浮条：改写
+            / 矛盾吗 / 解释）
           </span>
           <button
             type="button"
@@ -2341,14 +2400,14 @@ function BlockView({
 }) {
   switch (block.kind) {
     case "user": {
-      // §7.3: the toolbar's marker rides the prompt text itself (ids in
-      // the wire string, labels from the snapshot) — strip it from the
-      // prose, render the ids as clickable chips instead.
-      const m = /^\[导图选区 (\d+) 个节点\|([^\]]+)\]\s*/.exec(block.text);
-      if (m && mmNodes) {
-        const ids = m[2].split(",").filter(Boolean);
-        const byId = new Map(mmNodes.map((n) => [n.id, n]));
-        const rest = block.text.slice(m[0].length);
+      // §7.3: the marker rides the prompt text itself (ids in the wire
+      // string, labels from the snapshot) — strip ALL wire-only text
+      // before rendering: the marker becomes clickable label chips, and
+      // the 【系统 ·…】 discipline suffix never shows (Image #65: raw
+      // system prompt in the feed reads as noise).
+      const { marked, ids, body } = stripWireForDisplay(block.text);
+      if (marked) {
+        const byId = new Map((mmNodes ?? []).map((n) => [n.id, n]));
         return (
           <div className="blk-user">
             <div className="mm-usrchips">
@@ -2364,13 +2423,13 @@ function BlockView({
                 </button>
               ))}
             </div>
-            <div className="user-text">{rest}</div>
+            <div className="user-text">{body}</div>
           </div>
         );
       }
       return (
         <div className="blk-user">
-          <div className="user-text">{block.text}</div>
+          <div className="user-text">{body}</div>
         </div>
       );
     }

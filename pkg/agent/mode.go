@@ -20,6 +20,15 @@ const (
 	ModeDefault Mode = "default" // configured behavior: approval as wired
 	ModePlan    Mode = "plan"    // read-only exploration: mutations blocked
 	ModeBypass  Mode = "bypass"  // approvals auto-approved, audit still logs
+	// ModeMindmap arms the map: it is the ONLY mode where the distiller
+	// draws (Image #71 — default/plan/bypass sessions never grow a map),
+	// and it arms the AUTO-ask channel (Image #61): a merged map edit
+	// dispatches a chat round — in every other mode those edits land as
+	// a local notice only. Execution/approvals behave exactly like
+	// default; the ask channel itself is web-enforced (ChatView's
+	// flushMmEdit), since only the web card can edit the map. Manual
+	// selection asks stay available in all modes (user-typed intent).
+	ModeMindmap Mode = "mindmap"
 )
 
 // planSuffix is appended to the system prompt while plan mode is on, so
@@ -48,9 +57,9 @@ func (s *Session) Mode() Mode {
 // unknown names are rejected without changing anything.
 func (s *Session) SetMode(m Mode) (Mode, error) {
 	switch m {
-	case ModeDefault, ModePlan, ModeBypass:
+	case ModeDefault, ModePlan, ModeBypass, ModeMindmap:
 	default:
-		return s.Mode(), fmt.Errorf("unknown mode %q (want default|plan|bypass)", m)
+		return s.Mode(), fmt.Errorf("unknown mode %q (want default|plan|bypass|mindmap)", m)
 	}
 	prev := s.Mode()
 	if prev == m {

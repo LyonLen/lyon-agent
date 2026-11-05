@@ -642,3 +642,72 @@ func TestApprovalConcurrentParks(t *testing.T) {
 		}
 	}
 }
+
+// TestConnectApprovalKeepalive: with x-lyon-keepalive set, a quiet
+// WatchPending stream keeps beating exec-0 no-ops every 100ms — the opt-in
+// contract from WatchEvents, needed because Chrome does not complete the
+// first read on a held-open application/connect+json chunked response
+// until the stream shows ~1s of continued flow. Without beats the web
+// dialog never renders and a parked approval hangs its run forever
+// (#72/#73). Without the header the stream must stay silent after the
+// open marker (curl/TUI/tests don't opt in).
+func TestConnectApprovalKeepalive(t *testing.T) {
+	_, apprClient := newApprovalFixture(t, nil)
+	t.Run("beats with header", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req := connect.NewRequest(&lyonv1.WatchPendingRequest{})
+		req.Header().Set("x-lyon-keepalive", "1")
+		stream, err := apprClient.WatchPending(ctx, req)
+		if err != nil {
+			t.Fatalf("WatchPending: %v", err)
+		}
+		// Opening marker is instant, beats follow every 100ms: three
+		// no-op frames should land in well under a beat budget. A lone
+		// flush cannot satisfy Chrome's ~1s-of-flow condition.
+		start := time.Now()
+		for frames := 0; frames < 3; frames++ {
+			if !stream.Receive() {
+				t.Fatalf("stream ended after %d frames: %v", frames, stream.Err())
+			}
+			ev := stream.Msg()
+			if ev.ToolName != "" || ev.ExecId != 0 {
+				t.Fatalf("non-noop frame on a quiet stream: %+v", ev)
+			}
+		}
+		if d := time.Since(start); d > 900*time.Millisecond {
+			t.Fatalf("3 no-op frames took %v — keepalive beats missing or too slow", d)
+		}
+	})
+	t.Run("silent without header", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		stream, err := apprClient.WatchPending(ctx, connect.NewRequest(&lyonv1.WatchPendingRequest{}))
+		if err != nil {
+			t.Fatalf("WatchPending: %v", err)
+		}
+		if !stream.Receive() {
+			t.Fatalf("open marker missing: %v", stream.Err())
+		}
+		if ev := stream.Msg(); ev.ToolName != "" || ev.ExecId != 0 {
+			t.Fatalf("first frame should be the exec-0 flush: %+v", ev)
+		}
+		got := make(chan *lyonv1.WatchPendingResponse, 1)
+		go func() {
+			if stream.Receive() {
+				got <- stream.Msg()
+			} else {
+				close(got)
+			}
+		}()
+		select {
+		case ev, ok := <-got:
+			if !ok {
+				t.Fatalf("stream ended while waiting for silence: %v", stream.Err())
+			}
+			t.Fatalf("headerless stream must stay silent, got: %+v", ev)
+		case <-time.After(500 * time.Millisecond):
+			// silence as contracted
+		}
+	})
+}

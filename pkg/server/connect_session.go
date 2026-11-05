@@ -244,7 +244,7 @@ func (c *sessionService) GetStats(_ context.Context, req *connect.Request[lyonv1
 func (c *sessionService) SetMode(_ context.Context, req *connect.Request[lyonv1.SetModeRequest]) (*connect.Response[lyonv1.SetModeResponse], error) {
 	msg := req.Msg
 	if msg.Mode == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mode is required (default|plan|bypass)"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mode is required (default|plan|bypass|mindmap)"))
 	}
 	// acquire: a mode switch on a parked seat must land in that seat's dump,
 	// which means the conversation has to be live long enough to mirror it.

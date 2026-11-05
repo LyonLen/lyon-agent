@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -31,7 +32,7 @@ var errApprovalStub = connect.NewError(connect.CodeUnimplemented,
 // empty tool_name is the removal signal — approval.proto). Each parked
 // approval is one message; a lane that cannot keep up is dropped by the
 // bridge and this stream simply ends, letting the client re-snapshot.
-func (s *approvalService) WatchPending(ctx context.Context, _ *connect.Request[lyonv1.WatchPendingRequest], stream *connect.ServerStream[lyonv1.WatchPendingResponse]) error {
+func (s *approvalService) WatchPending(ctx context.Context, req *connect.Request[lyonv1.WatchPendingRequest], stream *connect.ServerStream[lyonv1.WatchPendingResponse]) error {
 	b := s.s.appr
 	if b == nil {
 		return errApprovalStub
@@ -52,10 +53,27 @@ func (s *approvalService) WatchPending(ctx context.Context, _ *connect.Request[l
 			return err
 		}
 	}
+	// Chrome keepalive (opt-in via x-lyon-keepalive): same held-open quirk
+	// as WatchEvents (see that handler) — the open burst lands, then this
+	// stream falls silent while the bridge waits, and Chrome never
+	// completes the first read until the stream shows ~1s of continued
+	// flow. The web dialog would never render and the parked tool hung
+	// its run forever (#72/#73). The beat is the same exec-0 no-op every
+	// client already folds into its ignore branch.
+	var ka <-chan time.Time
+	if req.Header().Get("x-lyon-keepalive") == "1" {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		ka = t.C
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-ka:
+			if err := stream.Send(&lyonv1.WatchPendingResponse{}); err != nil {
+				return err
+			}
 		case ev, ok := <-ch:
 			if !ok {
 				return nil // slow-kick: end cleanly, the client re-snapshots

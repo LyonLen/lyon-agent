@@ -61,6 +61,9 @@ func TestCommandCrossesRoot(t *testing.T) {
 		{"redirect outside", "echo hi>" + outAbs, true},
 		{"var path", "cat $FILE", true},
 		{"file url", "cat file:///D:/x.txt", true},
+		{"null dev stderr", "ls .lyon 2>/dev/null", false},
+		{"null dev stdin", "wc -l </dev/null", false},
+		{"null dev piped", `go vet ./... 2>/dev/null | head`, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,8 +92,12 @@ func TestPathAwareApprove(t *testing.T) {
 	if !gate(ctx, mk("run_shell", `{"command":"go test ./..."}`)) {
 		t.Fatal("in-root command must pass")
 	}
+	// A stderr redirect into /dev/null is not a cross-root touch.
+	if !gate(ctx, mk("run_shell", `{"command":"ls .lyon 2>/dev/null"}`)) {
+		t.Fatal("null-device redirect must pass")
+	}
 	if asked != 0 {
-		t.Fatalf("in-root command asked the human %d times", asked)
+		t.Fatalf("in-root commands asked the human %d times", asked)
 	}
 	// Cross-root shell parks on the human and honors the approval.
 	if !gate(ctx, mk("run_shell", `{"command":"type D:\\other\\x.txt"}`)) {

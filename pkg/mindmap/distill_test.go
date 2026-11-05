@@ -317,6 +317,65 @@ func TestHookIgnoresOtherEvents(t *testing.T) {
 	}
 }
 
+// ── Image #71: only mindmap mode draws ─────────────────────────────
+
+// A default-mode session must never grow a map: no ask, no publish,
+// no state. (The screenshot case — a running default session whose
+// map kept drawing itself.)
+func TestHookDefaultModeNeverDraws(t *testing.T) {
+	_, sess, mock, _ := newDistillEnv(t, nil)
+	sid := "defaultmode000001"
+	sess.SetSeat(sid, time.Now())
+	published := false
+	Open().SetPublisher(func(string, agent.Event) { published = true })
+	t.Cleanup(func() { Open().SetPublisher(nil) })
+
+	Hook(sess, agent.Event{Type: agent.EventPromptEnd}) // sess.Mode() == default
+	time.Sleep(150 * time.Millisecond)                  // a wrongly-spawned round would reach the mock by now
+
+	if mock.Calls() != 0 {
+		t.Errorf("default mode distilled: %d mock calls, want 0", mock.Calls())
+	}
+	if published {
+		t.Error("mindmap event published from default mode")
+	}
+	if rev, nodes, err := Open().State(sid); err != nil || rev != 0 || len(nodes) != 0 {
+		t.Errorf("default mode touched state: rev=%d nodes=%d err=%v", rev, len(nodes), err)
+	}
+}
+
+// Flip the session to mindmap mode and the same event distills — the
+// gate is the mode, not a missing hook.
+func TestHookMindmapModeDraws(t *testing.T) {
+	reply := `{"title":"存储方案","ops":[
+		{"op":"add","id":"root","parent_id":"","label":"存储方案","kind":"branch","source_turn":1}
+	]}`
+	_, sess, mock, _ := newDistillEnv(t, []mockapi.Turn{{Text: []string{reply}}})
+	sid := "mindmapmode00001"
+	sess.SetSeat(sid, time.Now())
+	if _, err := sess.SetMode(agent.ModeMindmap); err != nil {
+		t.Fatalf("SetMode: %v", err)
+	}
+	done := make(chan struct{}, 1)
+	Open().SetPublisher(func(string, agent.Event) {
+		select {
+		case done <- struct{}{}:
+		default:
+		}
+	})
+	t.Cleanup(func() { Open().SetPublisher(nil) })
+
+	Hook(sess, agent.Event{Type: agent.EventPromptEnd})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("mindmap mode did not distill within 5s (no publish)")
+	}
+	if mock.Calls() == 0 {
+		t.Error("publish landed but the mock never saw the ask")
+	}
+}
+
 // ── happy path: diff lands, event publishes, audit records ────────
 
 func TestDistillHappyPathPublishes(t *testing.T) {

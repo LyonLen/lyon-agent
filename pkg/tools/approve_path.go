@@ -101,7 +101,10 @@ func partCrossesRoot(root, p string) bool {
 		return true // a UNC share is outside a local root (a UNC root is rare enough to ask)
 	}
 	if strings.HasPrefix(p, "/") {
-		return true // the workspace is a Windows path; a bare /... can only be outside it
+		// Pseudo-device targets carry no data: `2>/dev/null` (or a
+		// </dev/null read) must not park an otherwise in-root command —
+		// every stderr-silencing probe round tripped that card.
+		return !isNullDeviceSpell(p)
 	}
 	if strings.HasPrefix(p, "~") || isEnvExpansion(p) {
 		return true // $HOME, %USERPROFILE%, ~ — statically unresolvable, so ask
@@ -190,6 +193,22 @@ func msysToWindows(p string) (string, bool) {
 		return "", false
 	}
 	return string(rune(up)) + ":" + p[2:], true
+}
+
+// isNullDeviceSpell reports the canonical /dev spellings a shell
+// redirects into or reads EOF from — nothing leaks through them, so they
+// never count as reaching outside the root. Every other absolute path
+// still asks.
+func isNullDeviceSpell(p string) bool {
+	switch {
+	case strings.EqualFold(p, "/dev/null"),
+		strings.EqualFold(p, "/dev/stdin"),
+		strings.EqualFold(p, "/dev/stdout"),
+		strings.EqualFold(p, "/dev/stderr"),
+		strings.EqualFold(p, "/dev/tty"):
+		return true
+	}
+	return false
 }
 
 // isEnvExpansion reports whether p starts with a shell variable

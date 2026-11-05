@@ -63,8 +63,10 @@ export default function App() {
   const [mmJump, setMmJump] = useState<{ turn: number; seq: number } | null>(null);
   // M2 edit channel: the pane's UpdateMindmap response (rev + nodes →
   // ChatView applies under the revision guard) or a conflict refetch
-  // (no rev) — seq bumps so duplicate commands still re-fire.
-  const [mmCmd, setMmCmd] = useState<{ seq: number; rev?: number; nodesJson?: string } | null>(null);
+  // (no rev) — seq bumps so duplicate commands still re-fire. sid tags
+  // the owning session (Image #69: the incoming ChatView must be able
+  // to reject a cmd that belongs to the outgoing seat).
+  const [mmCmd, setMmCmd] = useState<{ seq: number; sid: string; rev?: number; nodesJson?: string } | null>(null);
   const mmSeq = useRef(0);
   const mmAutoOpened = useRef<string | null>(null);
   // §7.3 selection-ask: ids live here (both panes render from one truth),
@@ -122,12 +124,17 @@ export default function App() {
   // first time the session's snapshot carries nodes — focus stays in the
   // composer — and only once per session so a manual close sticks until
   // the session is re-selected (its saved layout may restore it anyway).
+  // Image #71: only a mindmap-mode seat gets the shove — other modes can
+  // still VIEW a map (manual /mindmap), they just don't summon it.
+  // sessions rides the deps because its mode arrives with the list: a
+  // slow list must not leave the gate stuck on the "default" fallback.
   useEffect(() => {
     if (!selectedId || mmAutoOpened.current === selectedId) return;
     if (!mindmap || mindmap.nodes.length === 0) return;
+    if ((sessions.find((s) => s.id === selectedId)?.mode ?? "default") !== "mindmap") return;
     mmAutoOpened.current = selectedId;
     if (!ws.hasPane("mindmap")) ws.openPane("mindmap", { focus: false });
-  }, [mindmap, selectedId, ws]);
+  }, [mindmap, selectedId, sessions, ws]);
 
   const fileTabs = useFileTabs(ws.root, selectedId);
   // External directory navigation for the files pane (markdown links,
@@ -139,8 +146,15 @@ export default function App() {
   const selectedRef = useRef(selectedId);
   const pendingRef = useRef(pending);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When the selection last CHANGED — refresh() must not apply a stale
+  // list (requested before this selection) to it: "+ new session" during
+  // the initial load saw its fresh seat cleared by that very first
+  // response, which couldn't contain the id yet ("click a ghost" guard
+  // firing on pre-selection data).
+  const selectedAtRef = useRef(0);
   useEffect(() => {
     selectedRef.current = selectedId;
+    selectedAtRef.current = Date.now();
   }, [selectedId]);
   // Plan/steps are App state (the panes outlive ChatView's key remount), so
   // a fresh selection must start clean — otherwise a new session inherited
@@ -151,6 +165,10 @@ export default function App() {
     setSteps([]);
     setMm(null);
     setMmJump(null);
+    // Image #69: the pane's last command (rev + nodesJson) is the OLD
+    // session's map — drop it so it can never re-apply on the new seat
+    // (the sid tag in ChatView is the primary guard; this is the belt).
+    setMmCmd(null);
   }, [selectedId]);
   useEffect(() => {
     pendingRef.current = pending;
@@ -168,6 +186,7 @@ export default function App() {
   // fetch both concurrently, each with its own error so one failing
   // channel doesn't blank the other.
   const refresh = useCallback(async () => {
+    const startedAt = Date.now();
     const [live, arch] = await Promise.allSettled([
       sessionClient.listSessions({}),
       dashboardClient.listSnapshots({}),
@@ -180,9 +199,11 @@ export default function App() {
       // deleted under us (the "click a ghost" hole): clear the selection
       // instead of parking the chat on not_found. Create/restore never
       // trip this — their session is already in the store when the id
-      // becomes selected.
+      // becomes selected. A response whose request predates the current
+      // selection is stale by definition (it cannot contain the id) —
+      // skip it, or a fast "+ new session" during load clears itself.
       const sel = selectedRef.current;
-      if (sel && !list.some((s) => s.id === sel)) {
+      if (sel && startedAt > selectedAtRef.current && !list.some((s) => s.id === sel)) {
         setSelectedId("");
         flash("session gone from the list (reaped?) — list refreshed");
       }
@@ -264,7 +285,16 @@ export default function App() {
     void (async () => {
       while (live) {
         try {
-          const stream = approvalClient.watchPending({});
+          const stream = approvalClient.watchPending(
+            {},
+            {
+              // Chrome won't complete the first read on a held-open
+              // connect+json chunked stream until ~1s of continued flow;
+              // without beats the approval dialog never renders and the
+              // parked tool hangs forever (#72/#73).
+              headers: { "x-lyon-keepalive": "1" },
+            },
+          );
           for await (const ev of stream) {
             if (!live) return;
             if (ev.toolName === "") {
@@ -398,7 +428,11 @@ export default function App() {
   };
 
   // pickMode sets an explicit mode (the bottom-left dock menu); cycleMode
-  // walks default → plan → bypass → default on top of it (TUI shift+tab).
+  // walks default → plan → bypass → mindmap → default on top of it (TUI
+  // shift+tab cycles only the first three — modeui.go's cycleMode).
+  // Picking mindmap (Image #61) opens the map pane with it: that mode is
+  // where the map's edits start auto-prompting the agent, so the thing
+  // the mode is about should be in front.
   const pickMode = async (mode: string) => {
     if (!selectedId) {
       flash("select a session first");
@@ -406,7 +440,19 @@ export default function App() {
     }
     try {
       await sessionClient.setMode({ sessionId: selectedId, mode });
-      flash(`mode → ${mode}`);
+      // Patch locally before the refresh round-trip: the chip (and every
+      // mode gate in ChatView) must flip the instant SetMode lands —
+      // waiting on refresh left the stale mode visible for ~a round trip,
+      // and a quick map edit right after picking mindmap missed the arm.
+      setSessions((prev) =>
+        prev.map((s) => (s.id === selectedId ? { ...s, mode } : s)),
+      );
+      if (mode === "mindmap") {
+        if (!ws.hasPane("mindmap")) ws.openPane("mindmap");
+        flash("mode → mindmap — 图上编辑会自动追问");
+      } else {
+        flash(`mode → ${mode}`);
+      }
       await refresh();
     } catch (e) {
       flash(errText(e));
@@ -416,7 +462,13 @@ export default function App() {
   const cycleMode = async () => {
     const cur = sessions.find((s) => s.id === selectedId)?.mode ?? "default";
     const next =
-      cur === "default" ? "plan" : cur === "plan" ? "bypass" : "default";
+      cur === "default"
+        ? "plan"
+        : cur === "plan"
+          ? "bypass"
+          : cur === "bypass"
+            ? "mindmap"
+            : "default";
     await pickMode(next);
   };
 
@@ -572,7 +624,7 @@ export default function App() {
       <div className="mode-dock" ref={modeDockRef}>
         {modeMenu && (
           <div className="mode-menu">
-            {(["default", "plan", "bypass"] as const).map((m) => (
+            {(["default", "plan", "bypass", "mindmap"] as const).map((m) => (
               <button
                 key={m}
                 className={"mode-item" + (curMode === m ? " active" : "")}
@@ -589,7 +641,11 @@ export default function App() {
         )}
         <button
           className={`mode-chip ${curMode}`}
-          title="execution mode — click to pick, shift+tab cycles"
+          title={
+            curMode === "mindmap"
+              ? "mindmap — 图上编辑会自动追问（其他模式只入 chat 不发轮）"
+              : "execution mode — click to pick, shift+tab cycles"
+          }
           onClick={() => setModeMenu((v) => !v)}
         >
           {curMode}
@@ -712,6 +768,7 @@ export default function App() {
               mmSelIds={mmSel}
               onMmSelect={setMmSel}
               selAsk={selAsk}
+              mode={curMode}
               onAgentBatch={() => setMmAgentBatches((c) => c + 1)}
             />
             {chatFooter}
@@ -741,9 +798,11 @@ export default function App() {
                 sessionId={selectedId}
                 onJump={(turn) => setMmJump({ turn, seq: ++mmSeq.current })}
                 onApplied={(rev, nodesJson) =>
-                  setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1, rev, nodesJson }))
+                  setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1, sid: selectedId, rev, nodesJson }))
                 }
-                onResync={() => setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1 }))}
+                onResync={() =>
+                  setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1, sid: selectedId }))
+                }
                 selected={mmSel}
                 onSelect={setMmSel}
                 onAsk={(text) => setSelAsk((s) => ({ seq: (s?.seq ?? 0) + 1, text }))}

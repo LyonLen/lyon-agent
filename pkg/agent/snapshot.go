@@ -309,7 +309,7 @@ func (s *Session) Restore(snap Snapshot) {
 	// unknown value from a newer build falls back to the current mode —
 	// a dump must never make a session unusable.
 	if snap.Mode != "" {
-		if m := Mode(snap.Mode); m == ModeDefault || m == ModePlan || m == ModeBypass {
+		if m := Mode(snap.Mode); m == ModeDefault || m == ModePlan || m == ModeBypass || m == ModeMindmap {
 			s.mode.Store(&m)
 		}
 	}

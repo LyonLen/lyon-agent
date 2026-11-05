@@ -41,6 +41,17 @@ func TestModeCommand(t *testing.T) {
 		t.Fatal("failed switch must not change the mode")
 	}
 
+	// /mode mindmap: accepted (not in the shift+tab cycle), cyan badge.
+	m.slash("/mode mindmap")
+	if !strings.Contains(m.cmdOutText(), "mode → mindmap") ||
+		!strings.Contains(m.headerLine(), "[mindmap]") {
+		t.Fatalf("switch to mindmap: out=%s head=%q", m.cmdOutText(), stripColor(m.headerLine()))
+	}
+	if m.sess.Mode() != agent.ModeMindmap {
+		t.Fatalf("engine mode = %s", m.sess.Mode())
+	}
+	m.slash("/mode plan") // restore the state the rest of the test expects
+
 	m.slash("/mode default")
 	if m.sess.Mode() != agent.ModeDefault ||
 		strings.Contains(m.headerLine(), "[plan]") {
