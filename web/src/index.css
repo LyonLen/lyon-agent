@@ -282,6 +282,13 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 }
 .ws-input:focus { border-color: var(--accent); }
 
+/* files breadcrumb trail — sits under the 文件 tab (git has no path) */
+.files-crumbs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  padding: 4px 8px 0;
+}
+.crumb-sep { color: var(--dim); user-select: none; }
+
 /* VS Code welcome-style action rows */
 .ws-dlg { width: min(460px, 92vw); }
 .ws-opt {

@@ -28,17 +28,21 @@ const lyondProxy = (target: string) => ({
   },
 });
 
+// LYOND_PROXY_TARGET lets the joint smoke (web/e2e) point dev at an
+// isolated lyond without touching the developer's own instance.
+const LYOND = process.env.LYOND_PROXY_TARGET || "http://127.0.0.1:8080";
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5183,
+    port: Number(process.env.PORT) || 5183,
     proxy: {
-      "/lyon.v1": lyondProxy("http://127.0.0.1:8080"),
-      "/v1": lyondProxy("http://127.0.0.1:8080"),
-      "/healthz": lyondProxy("http://127.0.0.1:8080"),
+      "/lyon.v1": lyondProxy(LYOND),
+      "/v1": lyondProxy(LYOND),
+      "/healthz": lyondProxy(LYOND),
       // Terminal WebSocket (terminal.go): ws:true so the upgrade proxies;
       // the bearer token rides ?token= (browser WS cannot set headers).
-      "/terminal": { ...lyondProxy("http://127.0.0.1:8080"), ws: true },
+      "/terminal": { ...lyondProxy(LYOND), ws: true },
     },
   },
 });

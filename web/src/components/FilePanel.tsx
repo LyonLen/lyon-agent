@@ -469,15 +469,6 @@ export default function FilePanel({
             ✎
           </button>
         )}
-        {crumbs.map((seg, i) => (
-          <button
-            key={i}
-            className="ghost"
-            onClick={() => gotoDir(crumbs.slice(0, i + 1).join("/"))}
-          >
-            /{seg}
-          </button>
-        ))}
       </div>
       {editingWs && (
         <div className="file-inline">
@@ -513,6 +504,22 @@ export default function FilePanel({
         </button>
       </div>
       {mode === "browse" && (
+        <>
+          {crumbs.length > 0 && (
+            <div className="files-crumbs">
+              {crumbs.map((seg, i) => (
+                <span key={i}>
+                  {i > 0 && <span className="crumb-sep">›</span>}
+                  <button
+                    className="ghost"
+                    onClick={() => gotoDir(crumbs.slice(0, i + 1).join("/"))}
+                  >
+                    {seg}
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         <div className="files-actions">
           <button
             className="ghost"
@@ -535,6 +542,7 @@ export default function FilePanel({
             <span className="files-hint">drag files in to upload</span>
           )}
         </div>
+        </>
       )}
       {err && (
         <div className="file-err">

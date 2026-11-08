@@ -260,7 +260,10 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
 function appendText(blocks: Block[], delta: string): void {
   const last = blocks[blocks.length - 1];
   if (last && last.kind === "text") {
-    last.text += delta;
+    // COW, never mutate: the block object is shared with the previous
+    // render's array, and React StrictMode double-invokes updaters — an
+    // in-place append applied every delta twice.
+    blocks[blocks.length - 1] = { ...last, text: last.text + delta };
     return;
   }
   blocks.push({ kind: "text", text: delta });
@@ -281,9 +284,12 @@ function reduceMut(blocks: Block[], ev: SessionEvent): void {
       const ts = ev.ts ? timestampDate(ev.ts).getTime() : Date.now();
       const last = blocks[blocks.length - 1];
       if (last && last.kind === "thinking") {
-        last.text += ev.thinking;
-        last.t1 = ts;
-        last.lc = Date.now();
+        blocks[blocks.length - 1] = {
+          ...last,
+          text: last.text + ev.thinking,
+          t1: ts,
+          lc: Date.now(),
+        };
         return;
       }
       blocks.push({ kind: "thinking", text: ev.thinking, t0: ts, t1: ts, lc: Date.now() });
@@ -331,7 +337,7 @@ function reduceMut(blocks: Block[], ev: SessionEvent): void {
         for (let j = blocks.length - 1; j >= 0; j--) {
           const b = blocks[j];
           if (b.kind === "subtask" && b.subId === ev.subId) {
-            b.steps += 1;
+            blocks[j] = { ...b, steps: b.steps + 1 };
             break;
           }
         }
@@ -343,7 +349,7 @@ function reduceMut(blocks: Block[], ev: SessionEvent): void {
       const i = lastToolIndex(blocks, (b) => b.execId === ev.execId);
       if (i < 0) return;
       const t = blocks[i] as Extract<Block, { kind: "tool" }>;
-      t.output += ev.text + ev.detail;
+      blocks[i] = { ...t, output: t.output + ev.text + ev.detail };
       return;
     }
     case "tool_exec_end": {
@@ -428,11 +434,14 @@ function reduceMut(blocks: Block[], ev: SessionEvent): void {
         for (let i = blocks.length - 1; i >= 0; i--) {
           const b = blocks[i];
           if (b.kind === "subtask" && b.subId === ev.subId) {
-            b.status = ev.isError ? ("failed" as const) : ("done" as const);
-            b.durationMs = Number(ev.durationMs);
-            b.error = ev.isError ? ev.error : "";
-            b.answer = ev.isError ? "" : ev.text || "";
-            b.calls = ev.isError ? "" : ev.detail || "";
+            blocks[i] = {
+              ...b,
+              status: ev.isError ? ("failed" as const) : ("done" as const),
+              durationMs: Number(ev.durationMs),
+              error: ev.isError ? ev.error : "",
+              answer: ev.isError ? "" : ev.text || "",
+              calls: ev.isError ? "" : ev.detail || "",
+            };
             return;
           }
         }
@@ -480,8 +489,7 @@ function reduceMut(blocks: Block[], ev: SessionEvent): void {
         const b = blocks[i];
         if (b.kind === "text") {
           if (!b.turnMs && !b.endedAt) {
-            b.turnMs = ms;
-            b.endedAt = at;
+            blocks[i] = { ...b, turnMs: ms, endedAt: at };
           }
           break;
         }
@@ -513,7 +521,7 @@ function reduceMut(blocks: Block[], ev: SessionEvent): void {
         const b = blocks[i];
         if (b.kind !== "thinking") continue;
         if (b.tokens !== undefined) return;
-        b.tokens = Number(out);
+        blocks[i] = { ...b, tokens: Number(out) };
         return;
       }
       return;
@@ -1962,14 +1970,50 @@ export default function ChatView(props: {
     }
   };
 
-  // Fan-out ordinals: first-appearance order of each SubID across task
-  // cards and inner steps — the chip number that ties a sub row to its
-  // task ("sub 2" belongs to the card chipped 2).
-  const subOrd = new Map<string, number>();
-  for (const b of blocks) {
-    const sid = b.kind === "subtask" ? b.subId : b.kind === "tool" ? b.subId : "";
-    if (sid && !subOrd.has(sid)) subOrd.set(sid, subOrd.size + 1);
-  }
+  // Prop handlers change identity on every App render (divider drags
+  // fire per mousemove) — route them through a ref so the feed memo
+  // below keeps stable callback identities.
+  const chatProps = useRef(props);
+  chatProps.current = props;
+  const stOpenFile = useCallback((p: string) => chatProps.current.onOpenFile?.(p), []);
+  const stOpenDiff = useCallback((p: string) => chatProps.current.onOpenDiff?.(p), []);
+  const stMmSelect = useCallback(
+    (ids: string[] | null) => chatProps.current.onMmSelect?.(ids),
+    [],
+  );
+
+  // The transcript is the expensive part of this component: typing and
+  // divider drags re-render ChatView constantly, so the feed JSX is
+  // cached until its DATA changes (identical elements make React bail
+  // out of the subtree). Fan-out ordinals ride inside: first-appearance
+  // order of each SubID — the chip that ties a sub row to its task.
+  const feedRows = useMemo(() => {
+    const subOrd = new Map<string, number>();
+    for (const b of blocks) {
+      const sid = b.kind === "subtask" ? b.subId : b.kind === "tool" ? b.subId : "";
+      if (sid && !subOrd.has(sid)) subOrd.set(sid, subOrd.size + 1);
+    }
+    return blocks.map((b, i) => (
+      <BlockView
+        key={`${i}:${b.kind}`}
+        block={b}
+        thinkOpen={thinkOpen}
+        ord={
+          b.kind === "subtask" || (b.kind === "tool" && b.subId)
+            ? subOrd.get(b.subId ?? "")
+            : undefined
+        }
+        live={busy && i === lastThinking(blocks)}
+        autoOpen={busy && i === lastThinking(blocks) && !textAfter(blocks, i)}
+        ticking={busy && i === blocks.length - 1}
+        hinted={i === lastThinking(blocks)}
+        onOpenFile={stOpenFile}
+        onOpenDiff={stOpenDiff}
+        mmNodes={mindmap?.nodes ?? null}
+        onMmSelect={stMmSelect}
+      />
+    ));
+  }, [blocks, busy, thinkOpen, mindmap, stOpenFile, stOpenDiff, stMmSelect]);
 
   // Click-jump (§7.1 core): the map's source_turn counts user turns, and
   // the feed's children mirror blocks 1:1 — so the Nth user block is the
@@ -2044,42 +2088,7 @@ export default function ChatView(props: {
           if (e.deltaY < 0) stickRef.current = false;
         }}
       >
-        {blocks.map((b, i) => (
-          <BlockView
-            key={`${i}:${b.kind}`}
-            block={b}
-            thinkOpen={thinkOpen}
-            ord={
-              (b.kind === "subtask" || (b.kind === "tool" && b.subId))
-                ? subOrd.get(b.kind === "subtask" ? b.subId : b.subId)
-                : undefined
-            }
-            // The newest thinking block while the seat streams is the run
-            // the reader came to watch: BlockView shows its body even under
-            // a closed fold (#47) — but only until it has served its
-            // purpose. Two gates: a long chain-of-thought self-folds
-            // (LIVE_THINK_MAX_LINES), and once the run's conclusion text
-            // lands after this row the thinking folds too (#40) — the
-            // answer is what to read now. With no conclusion text yet the
-            // row stays open, so there is always something to read.
-            live={busy && i === lastThinking(blocks)}
-            autoOpen={
-              busy &&
-              i === lastThinking(blocks) &&
-              !textAfter(blocks, i)
-            }
-            // The duration clock only ticks on the feed's TRAILING block:
-            // the moment a tool row lands after this thinking, the call is
-            // over — a timer that keeps counting through run_shell made a
-            // 656ms think look like a 4.77s one (#36).
-            ticking={busy && i === blocks.length - 1}
-            hinted={i === lastThinking(blocks)}
-            onOpenFile={props.onOpenFile}
-            onOpenDiff={props.onOpenDiff}
-            mmNodes={mindmap?.nodes ?? null}
-            onMmSelect={props.onMmSelect}
-          />
-        ))}
+        {feedRows}
         {blocks.length === 0 && (
           <div className="placeholder">
             live events appear here — submit a prompt below
