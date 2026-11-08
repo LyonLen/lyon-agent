@@ -14,6 +14,7 @@ import type { TodoItem } from "../todos";
 import { parseNodes } from "../mindmap";
 import type { MapNode, MindmapSnap } from "../mindmap";
 import { buildSelAsk, SEL_MARKER_RE, stripWireForDisplay } from "../selask";
+import { classifySteer } from "../steer";
 // (MindMapCard moved to App — the map renders in its own pane, #51)
 import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
@@ -1770,6 +1771,32 @@ export default function ChatView(props: {
       selAskRef.current = { text: prompt, collecting: false, buf: "", done: false };
     try {
       if (busy) {
+        // Mid-run steering (steer.ts — mirror of pkg/agent/steer.go): the
+        // intent decides the mechanism. Stop fires immediately; redirect
+        // stops the run and jumps the parked queue (the prompt_end re-send
+        // below runs it next); supplement parks WITHOUT gap-injection —
+        // the working task must not see it mid-flight; everything else
+        // enqueues at the next turn gap like before.
+        const intent = classifySteer(prompt);
+        if (intent === "stop") {
+          await sessionClient.interrupt({ sessionId: props.sessionId });
+          note("已停止当前任务");
+          props.onChanged();
+          return;
+        }
+        if (intent === "redirect" || intent === "supplement") {
+          if (intent === "redirect") {
+            await sessionClient.interrupt({ sessionId: props.sessionId });
+            // Urgent: jump older parked lines — a switch means "now".
+            setQueued((q) => [prompt, ...q]);
+            note("换方向 — 当前任务停止后处理新问题");
+          } else {
+            setQueued((q) => [...q, prompt]);
+            note("补充 — 已收录，当前任务完成后处理");
+          }
+          props.onChanged();
+          return;
+        }
         try {
           await sessionClient.enqueuePrompt({
             sessionId: props.sessionId,

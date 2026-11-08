@@ -438,55 +438,45 @@ export default function FilePanel({
           </button>
         ))}
       </div>
-      <div className="files-actions">
+      <div className="files-tabs panel-tabs">
         <button
-          className="ghost"
-          onClick={() => {
-            setNewKind("file");
-            setNewName("");
-            setRenaming("");
-          }}
+          className={"tab" + (mode === "browse" ? " active" : "")}
+          onClick={() => setMode("browse")}
         >
-          + file
+          文件
         </button>
         <button
-          className="ghost"
-          onClick={() => {
-            setNewKind("dir");
-            setNewName("");
-            setRenaming("");
-          }}
-        >
-          + dir
-        </button>
-        <button
-          className="ghost"
-          title={hideDot ? "show dotfiles (. prefix)" : "hide dotfiles (. prefix)"}
-          onClick={toggleHideDot}
-        >
-          {hideDot ? "show ." : "hide ."}
-        </button>
-        <button
-          className={"ghost" + (mode === "scm" ? " on" : "")}
+          className={"tab" + (mode === "scm" ? " active" : "")}
           title="source control — changes, commit, sync, graph"
-          onClick={() => setMode((m) => (m === "scm" ? "browse" : "scm"))}
+          onClick={() => setMode("scm")}
         >
           git
         </button>
-        {moving ? (
-          <span className="move-banner">
-            moving <b>{moving.name}</b> →{" "}
-            <button className="ghost" onClick={dropMoving}>
-              drop here
-            </button>
-            <button className="ghost" onClick={() => setMoving(null)}>
-              cancel
-            </button>
-          </span>
-        ) : (
-          <span className="files-hint">drag files in to upload</span>
-        )}
       </div>
+      {mode === "browse" && (
+        <div className="files-actions">
+          <button
+            className="ghost"
+            title={hideDot ? "show dotfiles (. prefix)" : "hide dotfiles (. prefix)"}
+            onClick={toggleHideDot}
+          >
+            {hideDot ? "show ." : "hide ."}
+          </button>
+          {moving ? (
+            <span className="move-banner">
+              moving <b>{moving.name}</b> →{" "}
+              <button className="ghost" onClick={dropMoving}>
+                drop here
+              </button>
+              <button className="ghost" onClick={() => setMoving(null)}>
+                cancel
+              </button>
+            </span>
+          ) : (
+            <span className="files-hint">drag files in to upload</span>
+          )}
+        </div>
+      )}
       {err && (
         <div className="file-err">
           <span className="err">{err}</span>

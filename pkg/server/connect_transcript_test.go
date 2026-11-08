@@ -115,8 +115,10 @@ func TestConnectPromptEcho(t *testing.T) {
 			text.WriteString(ev.Text)
 		}
 	}
-	if text.String() != "Hello" {
-		t.Fatalf("assembled text = %q, want %q", text.String(), "Hello")
+	// The reply ends with the harness reply stamp (session.go): the
+	// completion time rides a trailing text delta.
+	if got := text.String(); !strings.HasPrefix(got, "Hello\n\n— ") {
+		t.Fatalf("assembled text = %q, want %q + reply stamp", got, "Hello")
 	}
 }
 

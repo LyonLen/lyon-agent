@@ -2539,18 +2539,34 @@ func (m *tuiModel) submit() tea.Cmd {
 		return m.slash(line)
 	}
 	if m.busy {
-		// Park the draft: enter never drops a keystroke while a prompt
-		// runs. The line goes straight to the session too (#2) — it lands
-		// at the next turn gap of the running prompt; the local park is
-		// only the display mirror (removed when queue_injected arrives).
-		// If the run ends first, Enqueue's entry was dropped there and
-		// kickQueued sends the parked line the old way — never both.
+		// Mid-run steering (pkg/agent/steer.go): the intent decides the
+		// mechanism. Stop fires immediately; redirect stops the run and
+		// jumps the parked queue (kickQueued runs it at prompt_end);
+		// supplement parks WITHOUT gap-injection — the working task must
+		// not see it mid-flight; everything else injects at the next turn
+		// gap like before (#2), with the system prompt's steering protocol
+		// telling the model how to fold it in.
 		m.ti.SetValue("")
 		m.updateSuggestions()
-		m.queued = append(m.queued, line)
-		_ = m.sess.Enqueue(line) // idle/closed race: the parked copy still goes out at prompt_end
-		m.status = tr(fmt.Sprintf("queued (%d) — injects at the next gap of the running prompt", len(m.queued)),
-			fmt.Sprintf("已排队 (%d) — 将插入当前提问的下一个间隙", len(m.queued)))
+		switch agent.ClassifySteer(line) {
+		case agent.SteerStop:
+			m.sess.Interrupt()
+			m.status = tr("stopping the current run…", "正在停止当前任务…")
+		case agent.SteerRedirect:
+			m.sess.Interrupt()
+			m.queued = append([]string{line}, m.queued...) // urgent: runs before older parked lines
+			m.status = tr("redirect — the current run stops, this runs next",
+				"换方向 — 当前任务停止后处理新问题")
+		case agent.SteerSupplement:
+			m.queued = append(m.queued, line)
+			m.status = tr("supplement — recorded, runs after the current task",
+				"补充 — 已收录，当前任务完成后处理")
+		default: // SteerFold: the parked line is only the display mirror
+			m.queued = append(m.queued, line)
+			_ = m.sess.Enqueue(line) // idle/closed race: the parked copy still goes out at prompt_end
+			m.status = tr(fmt.Sprintf("queued (%d) — injects at the next gap of the running prompt", len(m.queued)),
+				fmt.Sprintf("已排队 (%d) — 将插入当前提问的下一个间隙", len(m.queued)))
+		}
 		m.refresh()
 		return nil
 	}
