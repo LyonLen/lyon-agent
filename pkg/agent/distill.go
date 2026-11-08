@@ -249,7 +249,7 @@ func (s *Session) distill(ctx context.Context, trigger string) (DistillReport, e
 		s.fireDistill(trigger, "no-facts", nil)
 		return DistillReport{}, nil
 	}
-	rep := s.applyDistill(memory.Open(s.eng.cfg.Workspace), facts)
+	rep := s.applyDistill(memory.Open(s.Workspace()), facts)
 	s.fireDistill(trigger, fmt.Sprintf("saved=%d", rep.Saved), nil)
 	return rep, nil
 }

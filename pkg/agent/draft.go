@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,7 +96,56 @@ func (s *Session) notifyDirty() {
 
 // Workspace is the session's confinement root — the same workspace its
 // snapshot store lives under.
-func (s *Session) Workspace() string { return s.eng.cfg.Workspace }
+// Workspace reports the session's workspace root — the per-session
+// override when one is set (workspace selection), else the engine's.
+func (s *Session) Workspace() string {
+	if w := s.ws.Load(); w != nil && *w != "" {
+		return *w
+	}
+	return s.eng.cfg.Workspace
+}
+
+// SetWorkspace points this session at another workspace root: tools,
+// memory, dumps and the file/git surfaces follow it. The root must be an
+// existing directory; "" clears the override back to the engine's.
+func (s *Session) SetWorkspace(ws string) error {
+	if ws == "" {
+		s.ws.Store(nil)
+		return nil
+	}
+	abs, err := filepath.Abs(ws)
+	if err != nil {
+		return err
+	}
+	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+		return fmt.Errorf("workspace is not a directory: %s", ws)
+	}
+	s.ws.Store(&abs)
+	// The orientation note follows the root, but its scan walks the tree
+	// (seconds on a big workspace) — the switch returns immediately and
+	// the fresh map swaps in when the scan lands (repoMap() is guarded).
+	s.mu.Lock()
+	s.repoMapText = ""
+	s.mu.Unlock()
+	s.notifyDirty()
+	go func() {
+		text := s.eng.repoMapSection(abs)
+		s.mu.Lock()
+		if s.Workspace() == abs { // a later switch owns the note now
+			s.repoMapText = text
+		}
+		s.mu.Unlock()
+	}()
+	return nil
+}
+
+// repoMap is the mu-guarded read of the orientation note: SetWorkspace
+// re-scans and swaps it while a later prompt may be assembling.
+func (s *Session) repoMap() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.repoMapText
+}
 
 // Path is the draft file's location — the seat's dump. Delete removes it
 // with the seat; an unload writes the settled state to it once more.

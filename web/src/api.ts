@@ -53,8 +53,76 @@ const authInterceptor: Interceptor = (next) => async (req) => {
   if (t) {
     req.header.set("Authorization", `Bearer ${t}`);
   }
+  if (currentWs) {
+    req.header.set("x-lyon-workspace", currentWs);
+  }
   return next(req);
 };
+
+// Per-session workspace selection: the selected session's root rides
+// every RPC as the x-lyon-workspace header so file/git/memory resolve
+// against it — a header, not a proto field (no wire regen needed).
+let currentWs = "";
+export function setWorkspace(ws: string): void {
+  currentWs = ws;
+}
+export function getWorkspace(): string {
+  return currentWs;
+}
+
+// cloneRepo clones a git repository and answers the clone's absolute
+// path — the new-session workspace chooser's "clone from git" branch.
+export async function cloneRepo(url: string, dir: string): Promise<string> {
+  const r = await v1Json<{ workspace: string }>("/v1/git/clone", { url, dir });
+  return r.workspace;
+}
+
+const WS_HISTORY_KEY = "lyon_workspace_history";
+
+// rememberWorkspace records a chosen root for the chooser defaults.
+export function rememberWorkspace(ws: string): void {
+  try {
+    localStorage.setItem("lyon_last_workspace", ws);
+    const prev = JSON.parse(localStorage.getItem(WS_HISTORY_KEY) ?? "[]") as string[];
+    const next = [ws, ...prev.filter((x) => x !== ws)].slice(0, 8);
+    localStorage.setItem(WS_HISTORY_KEY, JSON.stringify(next));
+  } catch {
+    // storage blocked: defaults just won't be remembered
+  }
+}
+
+export function workspaceHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(WS_HISTORY_KEY) ?? "[]") as string[];
+  } catch {
+    return [];
+  }
+}
+
+// fetchSessionWorkspace / saveSessionWorkspace are the JSON seam for one
+// session's workspace root (GET/POST /api/session/{id}/workspace).
+export async function fetchSessionWorkspace(id: string): Promise<string> {
+  const t = getToken();
+  const res = await fetch(`/v1/sessions/${id}/workspace`, {
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return ((await res.json()) as { workspace: string }).workspace;
+}
+
+export async function saveSessionWorkspace(id: string, ws: string): Promise<string> {
+  const t = getToken();
+  const res = await fetch(`/v1/sessions/${id}/workspace`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    },
+    body: JSON.stringify({ workspace: ws }),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return ((await res.json()) as { workspace: string }).workspace;
+}
 
 // baseUrl "" = same origin: dev goes through the vite proxy, production
 // serves these assets from lyond itself.

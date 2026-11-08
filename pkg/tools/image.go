@@ -133,7 +133,7 @@ func (v *ViewImage) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	if err := json.Unmarshal(input, &in); err != nil {
 		return nil, fmt.Errorf("invalid input: %w", err)
 	}
-	mt, data, w, h, err := loadImage(v.Root, in.Path)
+	mt, data, w, h, err := loadImage(WorkspaceRoot(ctx, v.Root), in.Path)
 	if err != nil {
 		return nil, err
 	}

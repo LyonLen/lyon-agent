@@ -55,6 +55,9 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.HandleFunc("POST /v1/sessions/{id}/messages", s.handleMessage)
 	s.mux.HandleFunc("DELETE /v1/sessions/{id}", s.handleDelete)
 	s.mux.HandleFunc("GET /v1/sessions/{id}/stats", s.handleStats)
+	s.mux.HandleFunc("GET /v1/sessions/{id}/workspace", s.handleSessionWorkspace)
+	s.mux.HandleFunc("POST /v1/sessions/{id}/workspace", s.handleSessionWorkspace)
+	s.mux.HandleFunc("POST /v1/git/clone", s.handleGitClone)
 	// Mindmap → memory extraction (M2.5, §10): bearer-covered like every
 	// other /v1 route via Handler()'s mux wrapper.
 	s.mux.HandleFunc("POST /v1/mindmap/{id}/extract", s.handleMindmapExtract)

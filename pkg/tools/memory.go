@@ -156,7 +156,7 @@ func RegisterMemory(r *Registry, workspace string) error {
 			if runes := []rune(title); len(runes) > memoryMaxTitle {
 				title = string(runes[:memoryMaxTitle])
 			}
-			st := memory.Open(workspace)
+			st := memory.Open(WorkspaceRoot(ctx, workspace))
 			name := memory.Slug(title)
 			if _, err := st.Save(memory.Fact{
 				Name:        name,
@@ -184,7 +184,7 @@ func RegisterMemory(r *Registry, workspace string) error {
 		"Search or read durable memories: query= does relevance search across scopes (preferred), title= reads one fact in full, neither lists everything compactly.",
 		true,
 		func(ctx context.Context, in memoryReadInput) (string, error) {
-			st := memory.Open(workspace)
+			st := memory.Open(WorkspaceRoot(ctx, workspace))
 			scope := strings.TrimSpace(in.Scope)
 			if scope != "" {
 				if _, err := validScopeArg(scope); err != nil {
@@ -256,7 +256,7 @@ func RegisterMemory(r *Registry, workspace string) error {
 				return "", fmt.Errorf("title is required")
 			}
 			name := memory.Slug(title)
-			st := memory.Open(workspace)
+			st := memory.Open(WorkspaceRoot(ctx, workspace))
 			scopes := []string{memory.ScopeProject, memory.ScopePersonal, memory.ScopeTeam}
 			if in.Scope != "" {
 				if _, err := validScopeArg(in.Scope); err != nil {

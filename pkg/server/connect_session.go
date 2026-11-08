@@ -175,7 +175,7 @@ func (c *sessionService) SubmitPrompt(_ context.Context, req *connect.Request[ly
 		// File-card baseline for this run (filecards.go): async git status
 		// snapshot, diffed at prompt_end. Same hub — a seat without one
 		// simply gets no card.
-		h.beginFileCards(c.s.eng.Config().Workspace)
+		h.beginFileCards(sess.Workspace())
 	}
 	if err := sess.SubmitOn(msg.Prompt, msg.Model); err != nil {
 		return nil, rpcErr(err)
@@ -352,6 +352,11 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 		if snap == nil {
 			return out // nothing known beyond the id
 		}
+		// The seat's own workspace (per-session workspace selection) —
+		// the engine default is only the "nothing known" fallback above.
+		if snap.Workspace != "" {
+			out.Workspace = snap.Workspace
+		}
 		out.Title = snap.DisplayTitle()
 		out.Mode = snap.Mode
 		if out.Mode == "" {
@@ -365,6 +370,7 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 		return out
 	}
 	sess := ref.Session
+	out.Workspace = sess.Workspace()
 	// Gauge snapshot rides along: the web footer renders the moment a
 	// session opens, long before any live turn_end would stream values.
 	ctxUsed, cost := sessionGauge(s, sess)

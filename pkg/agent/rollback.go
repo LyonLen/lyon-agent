@@ -201,7 +201,7 @@ func (s *Session) Rollback(id int) (CheckpointInfo, error) {
 	s.runner = nil // pre-checkpoint runner must not leak into the next build
 	s.compactArmed = false
 	s.lastCompactInput = 0 // progress guard tracks the restored history
-	s.memoryText = tools.MemoryFacts(s.eng.cfg.Workspace)
+	s.memoryText = tools.MemoryFacts(s.Workspace())
 	s.memoryInjected = false // buildHistory's containment check avoids re-injecting
 	// Restore the run anchors captured with this checkpoint: they belong
 	// to the same message space as raw. An empty payload (checkpoints from

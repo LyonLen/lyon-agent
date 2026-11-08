@@ -55,19 +55,19 @@ const (
 // repoMapSection returns the engine-cached orientation note for the
 // workspace, scanning on first use (and after repoMapTTL). "" when the
 // workspace is empty or yields no files.
-func (e *Engine) repoMapSection() string {
-	ws := e.cfg.Workspace
+func (e *Engine) repoMapSection(ws string) string {
 	if ws == "" {
 		return ""
 	}
 	e.repoMapMu.Lock()
 	defer e.repoMapMu.Unlock()
-	if !e.repoMapAt.IsZero() && time.Since(e.repoMapAt) < repoMapTTL {
+	if e.repoMapKey == ws && !e.repoMapAt.IsZero() && time.Since(e.repoMapAt) < repoMapTTL {
 		return e.repoMapText
 	}
 	text := buildRepoMap(ws)
 	e.repoMapText = text
 	e.repoMapAt = time.Now()
+	e.repoMapKey = ws
 	return text
 }
 

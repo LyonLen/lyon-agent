@@ -689,7 +689,7 @@ func cmdChat(args []string) int {
 	}
 
 	fmt.Println(paint(cBold, "lyon chat") + paint(cDim, fmt.Sprintf("  model=%s effort=%s workspace=%s", cfg.Model, cfg.Effort, cfg.Workspace)))
-	fmt.Println(paint(cDim, tr("commands: /stats  /model  /mode  /resume  /sessions  /new  /memory  /remember  /lang  /quit",
+	fmt.Println(paint(cDim, tr("commands: /stats  /model  /mode  /workspace  /resume  /sessions  /new  /memory  /remember  /lang  /quit",
 		"命令: /stats  /model  /mode  /resume  /sessions  /new  /memory  /remember  /lang  /quit")))
 	if snap != nil {
 		fmt.Println(paint(cDim, tr(fmt.Sprintf("restored %d messages · %s", len(snap.Messages), snap.SavedAt.Format("2006-01-02 15:04")),
@@ -740,6 +740,15 @@ func cmdChat(args []string) int {
 							paint(cCyan, "🧠 memory"), n),
 							fmt.Sprintf("%s 已存 %d 条事实 — /memory 查看",
 								paint(cCyan, "🧠 memory"), n)))
+				}
+			case "/workspace":
+				ws := strings.TrimSpace(args)
+				if ws == "" {
+					fmt.Println("workspace:", sess.Workspace())
+				} else if err := sess.SetWorkspace(ws); err != nil {
+					fmt.Fprintln(os.Stderr, paint(cRed, "workspace: "+err.Error()))
+				} else {
+					fmt.Println("workspace:", sess.Workspace())
 				}
 			case "/model":
 				for _, l := range modelLines(cfg, strings.TrimSpace(args)) {

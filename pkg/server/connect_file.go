@@ -54,7 +54,7 @@ func (f *fileService) ListDirectory(_ context.Context, req *connect.Request[lyon
 	if strings.TrimSpace(p) == "" {
 		p = "."
 	}
-	abs, err := tools.Confine(f.s.eng.Config().Workspace, p)
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), p)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -95,7 +95,7 @@ func (f *fileService) ReadTextFile(_ context.Context, req *connect.Request[lyonv
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("offset_lines and limit_lines must be >= 0 (line numbers are 1-based)"))
 	}
-	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -153,7 +153,7 @@ func (f *fileService) ReadTextFile(_ context.Context, req *connect.Request[lyonv
 
 func (f *fileService) ReadBinaryFile(_ context.Context, req *connect.Request[lyonv1.ReadBinaryFileRequest]) (*connect.Response[lyonv1.ReadBinaryFileResponse], error) {
 	msg := req.Msg
-	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -183,7 +183,7 @@ func (f *fileService) WriteFile(_ context.Context, req *connect.Request[lyonv1.W
 		return nil, connect.NewError(connect.CodeResourceExhausted,
 			fmt.Errorf("content is %d bytes; the panel write cap is %d", len(msg.Content), fileWriteCap))
 	}
-	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -224,7 +224,7 @@ func (f *fileService) WriteFile(_ context.Context, req *connect.Request[lyonv1.W
 
 func (f *fileService) Mkdir(_ context.Context, req *connect.Request[lyonv1.MkdirRequest]) (*connect.Response[lyonv1.MkdirResponse], error) {
 	msg := req.Msg
-	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -259,12 +259,12 @@ func (f *fileService) Rename(_ context.Context, req *connect.Request[lyonv1.Rena
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("new_name must be a single name (no path separators)"))
 	}
-	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	dst := filepath.Join(filepath.Dir(abs), n)
-	if dst2, err := tools.Confine(f.s.eng.Config().Workspace, dst); err != nil {
+	if dst2, err := tools.Confine(f.s.wsFor(req.Header()), dst); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	} else {
 		dst = dst2
@@ -285,7 +285,7 @@ func (f *fileService) Rename(_ context.Context, req *connect.Request[lyonv1.Rena
 
 func (f *fileService) Move(_ context.Context, req *connect.Request[lyonv1.MoveRequest]) (*connect.Response[lyonv1.MoveResponse], error) {
 	msg := req.Msg
-	src, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	src, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -293,7 +293,7 @@ func (f *fileService) Move(_ context.Context, req *connect.Request[lyonv1.MoveRe
 	if strings.TrimSpace(dirP) == "" {
 		dirP = "."
 	}
-	dstDir, err := tools.Confine(f.s.eng.Config().Workspace, dirP)
+	dstDir, err := tools.Confine(f.s.wsFor(req.Header()), dirP)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -334,7 +334,7 @@ func (f *fileService) Move(_ context.Context, req *connect.Request[lyonv1.MoveRe
 
 func (f *fileService) Delete(_ context.Context, req *connect.Request[lyonv1.DeleteRequest]) (*connect.Response[lyonv1.DeleteResponse], error) {
 	msg := req.Msg
-	ws := f.s.eng.Config().Workspace
+	ws := f.s.wsFor(req.Header())
 	abs, err := tools.Confine(ws, msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -378,7 +378,7 @@ func (f *fileService) UploadFile(_ context.Context, req *connect.Request[lyonv1.
 		return nil, connect.NewError(connect.CodeResourceExhausted,
 			fmt.Errorf("upload is %d bytes; the cap is %d", len(msg.Data), fileBinaryCap))
 	}
-	abs, err := tools.Confine(f.s.eng.Config().Workspace, msg.Path)
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}

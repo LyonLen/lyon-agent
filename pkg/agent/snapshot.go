@@ -179,7 +179,7 @@ func (s *Session) Settled() Snapshot {
 	}
 	return Snapshot{
 		Version:            snapshotVersion,
-		Workspace:          s.eng.cfg.Workspace,
+		Workspace:          s.Workspace(),
 		Model:              s.eng.model(),
 		ID:                 id,
 		CreatedAt:          created,
@@ -234,7 +234,7 @@ func (s *Session) Export() Snapshot {
 	}
 	return Snapshot{
 		Version:            snapshotVersion,
-		Workspace:          s.eng.cfg.Workspace,
+		Workspace:          s.Workspace(),
 		Model:              s.eng.model(),
 		ID:                 id,
 		CreatedAt:          created,
@@ -274,7 +274,12 @@ func (s *Session) Restore(snap Snapshot) {
 	s.runner = nil // pre-restore history must not leak into the next build
 	s.compactArmed = false
 	s.lastCompactInput = 0 // progress guard tracks the restored history
-	s.memoryText = tools.MemoryFacts(s.eng.cfg.Workspace)
+	// Re-home on the saved workspace (per-session workspace selection);
+	// a stale root silently falls back to the engine default.
+	if snap.Workspace != "" {
+		_ = s.SetWorkspace(snap.Workspace)
+	}
+	s.memoryText = tools.MemoryFacts(s.Workspace())
 	s.memoryInjected = false
 	s.mu.Lock()
 	s.turns = append([]TurnStat(nil), snap.Turns...)
@@ -331,7 +336,7 @@ func (s *Session) Restore(snap Snapshot) {
 // preserves the previously saved session. Safe mid-session like Restore
 // (callers must settle an in-flight prompt first).
 func (s *Session) Reset() {
-	s.Restore(Snapshot{Workspace: s.eng.cfg.Workspace})
+	s.Restore(Snapshot{Workspace: s.Workspace()})
 }
 
 // lyonHome is the store root: $LYON_HOME when set (containers, CI, tests —
@@ -517,7 +522,7 @@ func (s *Session) ArchiveIfNew() (bool, error) {
 	if err != nil || stored {
 		return false, err
 	}
-	if err := writeArchive(s.eng.cfg.Workspace, snap); err != nil {
+	if err := writeArchive(s.Workspace(), snap); err != nil {
 		return false, err
 	}
 	return true, nil

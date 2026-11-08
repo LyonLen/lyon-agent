@@ -53,6 +53,7 @@ type Engine struct {
 	repoMapMu   sync.Mutex
 	repoMapText string
 	repoMapAt   time.Time // zero until the first scan
+	repoMapKey  string    // workspace the cache entry belongs to
 }
 
 // modelTier is the mutable slice of the engine configuration.

@@ -98,7 +98,7 @@ func (s *Server) handleMindmapExtract(w http.ResponseWriter, r *http.Request) {
 	}
 	specs := mindmap.ExtractFacts(title, nodes)
 
-	st := memory.Open(s.eng.Config().Workspace)
+	st := memory.Open(s.wsFor(r.Header))
 	eligible := mindmapExtractEligible(nodes) && !extractAlreadyDone(st, title)
 	resp := extractResponse{
 		Eligible: eligible,
@@ -111,7 +111,7 @@ func (s *Server) handleMindmapExtract(w http.ResponseWriter, r *http.Request) {
 			if sp.Archive == nil {
 				continue
 			}
-			p := filepath.Join(s.eng.Config().Workspace, filepath.FromSlash(sp.Archive.RelPath))
+			p := filepath.Join(s.wsFor(r.Header), filepath.FromSlash(sp.Archive.RelPath))
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				writeErr(w, http.StatusInternalServerError, errors.New("archive dir: "+err.Error()))
 				return

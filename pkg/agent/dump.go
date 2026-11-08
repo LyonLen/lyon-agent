@@ -356,7 +356,7 @@ func (s *Session) makeRunDump(rec *runDump, pe Event) runDumpFile {
 
 	return runDumpFile{
 		SchemaVersion: dumpSchemaVersion,
-		Workspace:     s.eng.cfg.Workspace,
+		Workspace:     s.Workspace(),
 		Model:         rec.model,
 		Prompt:        clipRunes(rec.prompt, dumpPromptCap),
 		FirstPrompt:   clipRunes(first, dumpPromptCap),

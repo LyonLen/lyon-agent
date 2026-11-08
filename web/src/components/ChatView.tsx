@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipboardEvent as ReactClipboardEvent } from "react";
+import type { ClipboardEvent as ReactClipboardEvent, ReactNode } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { SessionEvent } from "../gen/lyon/v1/event_pb";
 import { ModeAction, type WatchPendingResponse } from "../gen/lyon/v1/approval_pb";
@@ -172,21 +172,7 @@ const mindmapAskOn = (): Promise<boolean> =>
     })
     .catch(() => true));
 
-function appendToLast(
-  blocks: Block[],
-  kind: "text" | "thinking",
-  delta: string,
-): Block[] {
-  const last = blocks[blocks.length - 1];
-  if (last && last.kind === kind) {
-    return [...blocks.slice(0, -1), { ...last, text: last.text + delta }];
-  }
-  return [...blocks, { kind, text: delta }];
-}
 
-function replaceAt(blocks: Block[], i: number, next: Block): Block[] {
-  return [...blocks.slice(0, i), next, ...blocks.slice(i + 1)];
-}
 
 // The live thinking block auto-opens so the reader can watch the run (#47),
 // but a long chain-of-thought would bury the feed: once it passes this many
@@ -260,12 +246,34 @@ function newToolBlock(ev: SessionEvent): Extract<Block, { kind: "tool" }> {
 // Fold one hub event into the block list. type_name is authoritative
 // (forward compatible with types this build doesn't know). Event
 // semantics mirror cmd/lyon/tui.go's transcript cases.
+//
+// reduceMut folds IN PLACE (push / assign): the history seed folds
+// thousands of events in one pass, and the old per-event array copy was
+// O(n^2) — long transcripts made session switches crawl. The live path
+// uses the copying reduce wrapper (React state immutability).
 function reduce(blocks: Block[], ev: SessionEvent): Block[] {
+  const next = blocks.slice();
+  reduceMut(next, ev);
+  return next;
+}
+
+function appendText(blocks: Block[], delta: string): void {
+  const last = blocks[blocks.length - 1];
+  if (last && last.kind === "text") {
+    last.text += delta;
+    return;
+  }
+  blocks.push({ kind: "text", text: delta });
+}
+
+function reduceMut(blocks: Block[], ev: SessionEvent): void {
   switch (ev.typeName) {
     case "user_message":
-      return ev.text ? [...blocks, { kind: "user", text: ev.text }] : blocks;
+      if (ev.text) blocks.push({ kind: "user", text: ev.text });
+      return;
     case "text_delta":
-      return appendToLast(blocks, "text", ev.text);
+      appendText(blocks, ev.text);
+      return;
     case "thinking_delta": {
       // Stamps ride the row: t0/t1 from the event's server TS (replay
       // computes the same duration history showed live), lc from the
@@ -273,32 +281,27 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       const ts = ev.ts ? timestampDate(ev.ts).getTime() : Date.now();
       const last = blocks[blocks.length - 1];
       if (last && last.kind === "thinking") {
-        return replaceAt(blocks, blocks.length - 1, {
-          ...last,
-          text: last.text + ev.thinking,
-          t1: ts,
-          lc: Date.now(),
-        });
+        last.text += ev.thinking;
+        last.t1 = ts;
+        last.lc = Date.now();
+        return;
       }
-      return [
-        ...blocks,
-        { kind: "thinking", text: ev.thinking, t0: ts, t1: ts, lc: Date.now() },
-      ];
+      blocks.push({ kind: "thinking", text: ev.thinking, t0: ts, t1: ts, lc: Date.now() });
+      return;
     }
     case "tool_use_start": {
       const card = newToolBlock(ev);
       if (ev.server) {
         // Server-side tool: the API already has the input and executes
         // it itself — one card carries query + result, no exec events.
-        return [
-          ...blocks,
-          { ...card, status: "server", input: ev.inputJson },
-        ];
+        blocks.push({ ...card, status: "server", input: ev.inputJson });
+        return;
       }
       // Harness tool: the API's tool_use carries no input yet — the
       // exec row below fills it in. Parallel calls each get their own
       // card, tagged by tool id.
-      return [...blocks, card];
+      blocks.push(card);
+      return;
     }
     case "tool_exec_start": {
       // Attach to the parent tool_use card via tool id; a subagent-inner
@@ -318,27 +321,30 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
         startedAt: base.startedAt ?? Date.now(),
         sub: base.sub || ev.sub,
       });
-      let next: Block[];
-      if (i >= 0) next = replaceAt(blocks, i, filled(blocks[i] as Extract<Block, { kind: "tool" }>));
-      else next = [...blocks, filled({ ...newToolBlock(ev), status: "pending" })];
+      if (i >= 0) {
+        blocks[i] = filled(blocks[i] as Extract<Block, { kind: "tool" }>);
+      } else {
+        blocks.push(filled({ ...newToolBlock(ev), status: "pending" }));
+      }
       // A fan-out inner step also ticks its task's live counter.
       if (ev.sub && ev.subId) {
-        for (let j = next.length - 1; j >= 0; j--) {
-          const b = next[j];
+        for (let j = blocks.length - 1; j >= 0; j--) {
+          const b = blocks[j];
           if (b.kind === "subtask" && b.subId === ev.subId) {
-            next = replaceAt(next, j, { ...b, steps: b.steps + 1 });
+            b.steps += 1;
             break;
           }
         }
       }
-      return next;
+      return;
     }
     case "tool_exec_output": {
-      if (ev.execId === 0n) return blocks;
+      if (ev.execId === 0n) return;
       const i = lastToolIndex(blocks, (b) => b.execId === ev.execId);
-      if (i < 0) return blocks;
+      if (i < 0) return;
       const t = blocks[i] as Extract<Block, { kind: "tool" }>;
-      return replaceAt(blocks, i, { ...t, output: t.output + ev.text + ev.detail });
+      t.output += ev.text + ev.detail;
+      return;
     }
     case "tool_exec_end": {
       const end = (base: Extract<Block, { kind: "tool" }>) => ({
@@ -349,28 +355,33 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       });
       if (ev.execId !== 0n) {
         const i = lastToolIndex(blocks, (b) => b.execId === ev.execId);
-        if (i >= 0) return replaceAt(blocks, i, end(blocks[i] as Extract<Block, { kind: "tool" }>));
+        if (i >= 0) {
+          blocks[i] = end(blocks[i] as Extract<Block, { kind: "tool" }>);
+          return;
+        }
       }
       // exec_end without a seen exec_start (replay anchor skipped it):
       // open a finished card rather than drop the completion.
-      return [...blocks, end({ ...newToolBlock(ev), status: "pending" })];
+      blocks.push(end({ ...newToolBlock(ev), status: "pending" }));
+      return;
     }
     case "server_tool_result":
-      // ⤷ results: the payload rides input; one card per server tool.
-      return [
-        ...blocks,
-        {
-          ...newToolBlock(ev),
-          status: ev.isError ? "failed" : "done",
-          input: ev.inputJson,
-        },
-      ];
+      // results: the payload rides input; one card per server tool.
+      blocks.push({
+        ...newToolBlock(ev),
+        status: ev.isError ? "failed" : "done",
+        input: ev.inputJson,
+      });
+      return;
     case "queue_injected":
       // The parked line joined the run at a turn gap — render it as the
       // prompt it now is (TUI queueInjected), not a generic notice.
-      return ev.text
-        ? [...blocks, { kind: "user", text: ev.text }]
-        : [...blocks, { kind: "notice", text: "queued prompt joined the run" }];
+      if (ev.text) {
+        blocks.push({ kind: "user", text: ev.text });
+      } else {
+        blocks.push({ kind: "notice", text: "queued prompt joined the run" });
+      }
+      return;
     case "background_end": {
       // A detached run_shell finished: status rides detail, the log tail
       // and path ride attrs so the outcome is readable without opening
@@ -379,57 +390,50 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       const detail = [ev.attrs["log"], ev.attrs["tail"]]
         .filter(Boolean)
         .join("\n");
-      const head = ev.isError
-        ? `✗ background task #${task} — ${ev.detail}`
-        : `⏳ background task #${task} — ${ev.detail}`;
-      return [
-        ...blocks,
-        { kind: "notice", text: head, ...(detail ? { detail } : {}) },
-      ];
+      const mark = ev.isError ? "\u2717" : "\u23f3";
+      blocks.push({
+        kind: "notice",
+        text: `${mark} background task #${task} \u2014 ${ev.detail}`,
+        ...(detail ? { detail } : {}),
+      });
+      return;
     }
     case "memory_injected":
-      return [
-        ...blocks,
-        { kind: "notice", text: ev.detail, detail: ev.attrs["memory"] },
-      ];
+      blocks.push({ kind: "notice", text: ev.detail, detail: ev.attrs["memory"] });
+      return;
     case "compaction":
-      return ev.detail
-        ? [...blocks, { kind: "notice", text: `compaction — ${ev.detail}` }]
-        : blocks;
+      if (ev.detail) blocks.push({ kind: "notice", text: `compaction \u2014 ${ev.detail}` });
+      return;
     case "subagent_start": {
       // Fan-out task opening (#53): its own card — the header of the
-      // main↔sub exchange. A legacy single call has no SubID and draws
+      // main/sub exchange. A legacy single call has no SubID and draws
       // nothing here (its result rides the parent tool card).
-      if (!ev.subId) return blocks;
-      return [
-        ...blocks,
-        {
-          kind: "subtask",
-          subId: ev.subId,
-          task: ev.detail,
-          model: ev.toolName,
-          status: "running",
-          durationMs: 0,
-          error: "",
-          answer: "",
-          calls: "",
-          steps: 0,
-        },
-      ];
+      if (!ev.subId) return;
+      blocks.push({
+        kind: "subtask",
+        subId: ev.subId,
+        task: ev.detail,
+        model: ev.toolName,
+        status: "running",
+        durationMs: 0,
+        error: "",
+        answer: "",
+        calls: "",
+        steps: 0,
+      });
+      return;
     }
     case "subagent_end": {
       if (ev.subId) {
         for (let i = blocks.length - 1; i >= 0; i--) {
           const b = blocks[i];
           if (b.kind === "subtask" && b.subId === ev.subId) {
-            return replaceAt(blocks, i, {
-              ...b,
-              status: ev.isError ? ("failed" as const) : ("done" as const),
-              durationMs: Number(ev.durationMs),
-              error: ev.isError ? ev.error : "",
-              answer: ev.isError ? "" : ev.text || "",
-              calls: ev.isError ? "" : ev.detail || "",
-            });
+            b.status = ev.isError ? ("failed" as const) : ("done" as const);
+            b.durationMs = Number(ev.durationMs);
+            b.error = ev.isError ? ev.error : "";
+            b.answer = ev.isError ? "" : ev.text || "";
+            b.calls = ev.isError ? "" : ev.detail || "";
+            return;
           }
         }
       }
@@ -441,13 +445,11 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       const tail = ev.isError
         ? ev.error
         : `${ev.detail} ${Number(ev.durationMs)}ms`.trim();
-      return [
-        ...blocks,
-        {
-          kind: "notice",
-          text: `🧠 subagent ${ev.toolName} ${usage} ${tail}`.trim(),
-        },
-      ];
+      blocks.push({
+        kind: "notice",
+        text: `\ud83e\udde0 subagent ${ev.toolName} ${usage} ${tail}`.trim(),
+      });
+      return;
     }
     case "files_changed": {
       // Server-side git delta (filecards.go), JSON rows in attrs.files —
@@ -457,50 +459,48 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
         const raw: unknown = JSON.parse(ev.attrs["files"] || "[]");
         if (Array.isArray(raw)) files = raw as FileCard[];
       } catch {
-        return blocks;
+        return;
       }
-      return files.length ? [...blocks, { kind: "files", files }] : blocks;
+      if (files.length) blocks.push({ kind: "files", files });
+      return;
     }
     case "error":
-      return [...blocks, { kind: "error", text: ev.error || ev.detail }];
+      blocks.push({ kind: "error", text: ev.error || ev.detail });
+      return;
     case "prompt_end": {
       // The badge is the WHOLE run's wall time (time.Since(submit) on the
       // server), pinned when the run reaches its final state — submit to
-      // final resolution, tool loop included. turn_end used to pin here,
-      // but that carries one API call: a ten-minute run showed the last
-      // leg (the "51.38s" report).
-      // One stamp per reply: a text block already carrying a badge
-      // belongs to an earlier run — a tool-only run must not re-time it.
+      // final resolution, tool loop included. One stamp per reply: a text
+      // block already carrying a badge belongs to an earlier run.
       const ms = Number(ev.durationMs || 0);
       // The completion time rides the same badge row as the duration — a
       // UI element beside the reply, never inside the reply text.
       const at = ev.ts ? timestampDate(ev.ts).getTime() : Date.now();
-      let out = blocks;
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
         if (b.kind === "text") {
-          if (!b.turnMs && !b.endedAt)
-            out = replaceAt(blocks, i, { ...b, turnMs: ms, endedAt: at });
+          if (!b.turnMs && !b.endedAt) {
+            b.turnMs = ms;
+            b.endedAt = at;
+          }
           break;
         }
       }
       if (ev.error) {
-        return [...out, { kind: "error", text: ev.error }];
+        blocks.push({ kind: "error", text: ev.error });
+        return;
       }
       // The output cap ended the reply mid-sentence: nothing failed, but
       // "done" over a truncated answer is a lie — say why it stops there.
       if (ev.stopReason === "max_tokens") {
-        return [
-          ...out,
-          {
-            kind: "notice",
-            text:
-              ev.detail ||
-              "reply cut off at the output token cap — raise max_tokens to finish",
-          },
-        ];
+        blocks.push({
+          kind: "notice",
+          text:
+            ev.detail ||
+            "reply cut off at the output token cap — raise max_tokens to finish",
+        });
       }
-      return out;
+      return;
     }
     case "turn_end": {
       // The call's output tokens land on its reasoning row: walk back to
@@ -508,19 +508,20 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       // the stream estimate (reasoning dominates output; a block already
       // stamped belongs to an earlier call — stop there).
       const out = ev.usage?.output;
-      if (!out) return blocks;
+      if (!out) return;
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
         if (b.kind !== "thinking") continue;
-        if (b.tokens !== undefined) return blocks;
-        return replaceAt(blocks, i, { ...b, tokens: Number(out) });
+        if (b.tokens !== undefined) return;
+        b.tokens = Number(out);
+        return;
       }
-      return blocks;
+      return;
     }
     default:
       // message_start / subagent_start / unknown — nothing to draw (TUI
       // draws nothing for turn boundaries either).
-      return blocks;
+      return;
   }
 }
 
@@ -537,6 +538,71 @@ function prettyInput(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+// ---- tool output coloring (lightweight heuristics, never a parser) ----
+// Captured command output is one flat <pre>; content-aware color keeps
+// diff hunks, file:line hits and error words scannable at a glance.
+
+const ANSI_RE = /\u001b\[[0-9;]*m/g;
+
+function toneWords(line: string): ReactNode[] {
+  const re =
+    /\b(error|errors|failed|failure|fatal|panic|denied|refused|timeout|not found|ok|passed|success)\b/gi;
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (let m = re.exec(line); m; m = re.exec(line)) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    const w = m[0].toLowerCase();
+    const bad = /error|fail|fatal|panic|denied|refused|timeout|not found/.test(w);
+    out.push(
+      <span key={m.index} className={bad ? "to-err" : "to-ok"}>
+        {m[0]}
+      </span>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out;
+}
+
+function outputLine(line: string): ReactNode {
+  if (/^diff --git /.test(line)) return <span className="to-diff-head">{line}</span>;
+  if (/^@@/.test(line)) return <span className="to-diff-hunk">{line}</span>;
+  if (/^(---|\+\+\+) /.test(line)) return <span className="to-diff-file">{line}</span>;
+  if (/^\+/.test(line)) return <span className="to-diff-add">{line}</span>;
+  if (/^-/.test(line)) return <span className="to-diff-del">{line}</span>;
+  // path:line[:col]: rest — the locator recedes so the payload reads
+  // first (grep/rg/compiler output shape).
+  const m = /^(\S+:\d+(?::\d+)?:)(.*)$/.exec(line);
+  if (m) {
+    return (
+      <span>
+        <span className="to-loc">{m[1]}</span>
+        {toneWords(m[2])}
+      </span>
+    );
+  }
+  return <span>{toneWords(line)}</span>;
+}
+
+// colorizeOutput wraps each line in its tone; huge dumps colorize the
+// head and render the tail plain, so a 10MB log never pays for paint.
+function colorizeOutput(text: string): ReactNode[] {
+  const clean = text.replace(ANSI_RE, "");
+  const lines = clean.split("\n");
+  const cap = 2000;
+  const out: ReactNode[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const sep = i < lines.length - 1 ? "\n" : "";
+    out.push(
+      <span key={i}>
+        {i < cap ? outputLine(lines[i]) : lines[i]}
+        {sep}
+      </span>,
+    );
+  }
+  return out;
 }
 
 // Clip to one header-width line (the folded tool row is a glance, not
@@ -1207,7 +1273,7 @@ export default function ChatView(props: {
             if (ev.costUsd !== undefined) props.onCost?.(Number(ev.costUsd));
           }
           applyMindmapEv(ev, false); // replay: snapshot only, no auto-ask re-fire
-          seeded = reduce(seeded, ev);
+          reduceMut(seeded, ev); // in place: the O(n) history fold
         }
         setBlocks(seeded);
         if (hist.events.length > 0) anchor = hist.lastSeq;
@@ -2599,7 +2665,9 @@ function BlockView({
             {outPeek && <div className="tool-out-peek">{outPeek}</div>}
           </summary>
           {block.input && <pre className="tool-input">{prettyInput(block.input)}</pre>}
-          {block.output && <pre className="tool-output">{block.output}</pre>}
+          {block.output && (
+            <pre className="tool-output">{colorizeOutput(block.output)}</pre>
+          )}
           {block.error && <div className="err">{block.error}</div>}
         </details>
       );

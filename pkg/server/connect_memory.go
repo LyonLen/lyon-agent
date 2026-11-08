@@ -11,6 +11,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"connectrpc.com/connect"
 
@@ -25,8 +26,8 @@ type memoryService struct {
 
 var _ lyonv1connect.MemoryServiceHandler = (*memoryService)(nil)
 
-func (m *memoryService) store() *memory.Store {
-	return memory.Open(m.s.eng.Config().Workspace)
+func (m *memoryService) store(h http.Header) *memory.Store {
+	return memory.Open(m.s.wsFor(h))
 }
 
 // validMemScope mirrors pkg/memory's unexported validScope — reject bad
@@ -47,10 +48,10 @@ func factProto(f memory.Fact) *lyonv1.MemoryFact {
 	}
 }
 
-func (m *memoryService) ListMemory(_ context.Context, _ *connect.Request[lyonv1.ListMemoryRequest]) (*connect.Response[lyonv1.ListMemoryResponse], error) {
+func (m *memoryService) ListMemory(_ context.Context, req *connect.Request[lyonv1.ListMemoryRequest]) (*connect.Response[lyonv1.ListMemoryResponse], error) {
 	// "" = all scopes; the store already orders project → personal → team
 	// (closest first), name-ascending within a scope.
-	facts := m.store().List("")
+	facts := m.store(req.Header()).List("")
 	out := make([]*lyonv1.MemoryFact, 0, len(facts))
 	for _, f := range facts {
 		out = append(out, factProto(f))
@@ -63,7 +64,7 @@ func (m *memoryService) UpdateMemory(_ context.Context, req *connect.Request[lyo
 	if !validMemScope(msg.Scope) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("bad memory scope %q (want team|personal|project)", msg.Scope))
 	}
-	st := m.store()
+	st := m.store(req.Header())
 	f, ok := st.Get(msg.Scope, msg.Name)
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no memory %q in scope %q", msg.Name, msg.Scope))
@@ -100,7 +101,7 @@ func (m *memoryService) DeleteMemory(_ context.Context, req *connect.Request[lyo
 	if !validMemScope(msg.Scope) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("bad memory scope %q (want team|personal|project)", msg.Scope))
 	}
-	if err := m.store().Delete(msg.Scope, msg.Name); err != nil {
+	if err := m.store(req.Header()).Delete(msg.Scope, msg.Name); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
 	return connect.NewResponse(&lyonv1.DeleteMemoryResponse{}), nil

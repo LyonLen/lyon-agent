@@ -78,8 +78,8 @@ func isNotARepo(err error) bool {
 // + change rows. Not-a-repo is a 200 with is_repo=false, not an error —
 // the panel just hides itself.
 func (g *gitService) Status(ctx context.Context,
-	_ *connect.Request[lyonv1.StatusRequest]) (*connect.Response[lyonv1.StatusResponse], error) {
-	out, err := gitRun(ctx, g.s.eng.Config().Workspace,
+	req *connect.Request[lyonv1.StatusRequest]) (*connect.Response[lyonv1.StatusResponse], error) {
+	out, err := gitRun(ctx, g.s.wsFor(req.Header()),
 		"status", "--porcelain=v1", "-b", "-uall")
 	if isNotARepo(err) {
 		return connect.NewResponse(&lyonv1.StatusResponse{}), nil
@@ -184,7 +184,7 @@ func atoiOrZero(s string) int {
 
 func (g *gitService) Log(ctx context.Context,
 	req *connect.Request[lyonv1.LogRequest]) (*connect.Response[lyonv1.LogResponse], error) {
-	ws := g.s.eng.Config().Workspace
+	ws := g.s.wsFor(req.Header())
 	n := int(req.Msg.Limit)
 	if n <= 0 {
 		n = 30
@@ -272,7 +272,7 @@ func (g *gitService) Commit(ctx context.Context,
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("commit message is empty"))
 	}
-	ws := g.s.eng.Config().Workspace
+	ws := g.s.wsFor(req.Header())
 	if _, err := gitRun(ctx, ws, "add", "-A"); err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ func (g *gitService) Diff(ctx context.Context,
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("path is empty"))
 	}
-	ws := g.s.eng.Config().Workspace
+	ws := g.s.wsFor(req.Header())
 	out, err := gitRun(ctx, ws, "diff", "HEAD", "--", path)
 	if isNotARepo(err) {
 		return connect.NewResponse(&lyonv1.DiffResponse{}), nil
@@ -332,8 +332,8 @@ func (g *gitService) Diff(ctx context.Context,
 // button when Status reported an upstream; without one git's own
 // "no upstream" stderr comes back as FailedPrecondition.
 func (g *gitService) Sync(ctx context.Context,
-	_ *connect.Request[lyonv1.SyncRequest]) (*connect.Response[lyonv1.SyncResponse], error) {
-	ws := g.s.eng.Config().Workspace
+	req *connect.Request[lyonv1.SyncRequest]) (*connect.Response[lyonv1.SyncResponse], error) {
+	ws := g.s.wsFor(req.Header())
 	pull, err := gitRun(ctx, ws, "pull", "--rebase", "--autostash")
 	if err != nil {
 		return nil, err

@@ -42,6 +42,8 @@ type Confirm = {
 export default function FilePanel({
   onOpenFile,
   nav,
+  root,
+  onRoot,
 }: {
   /** A workspace file was clicked; App opens it in a preview pane. */
   onOpenFile: (path: string, kind: FileKind) => void;
@@ -49,6 +51,11 @@ export default function FilePanel({
    *  this directory. `seq` bumps per request so replaying the same path
    *  still re-reads it. */
   nav?: { path: string; seq: number } | null;
+  /** The session's workspace root ("" = engine default); the chip shows
+   *  it and the edit affordance retargets the whole pane. */
+  root?: string;
+  /** Apply a new session workspace root; rejects surface in the err row. */
+  onRoot?: (ws: string) => Promise<void> | void;
 }) {
   const [path, setPath] = useState("");
   // browse = the file tree; scm = the source-control section (changes /
@@ -64,6 +71,10 @@ export default function FilePanel({
   const [renameTo, setRenameTo] = useState("");
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [moving, setMoving] = useState<null | { name: string; from: string }>(null);
+  // Workspace switcher: the chip label is the root's basename, the edit
+  // row retargets the session's workspace (App swaps the api header).
+  const [editingWs, setEditingWs] = useState(false);
+  const [wsInput, setWsInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
   // Context menu (sibling FileExplorer parity): right-click a row or the list
   // background. `entry` null = background (new file/folder only); `copied`
@@ -88,8 +99,10 @@ export default function FilePanel({
       live = false;
     };
   }, []);
-  const absOf = (rel: string) =>
-    wsRoot.current ? `${wsRoot.current}\\${rel.split("/").join("\\")}` : rel;
+  const absOf = (rel: string) => {
+    const base = root || wsRoot.current;
+    return base ? `${base}\\${rel.split("/").join("\\")}` : rel;
+  };
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -235,9 +248,11 @@ export default function FilePanel({
     [loadGit],
   );
 
+  // root rides the deps: a workspace switch retargets the whole pane and
+  // reloads the new root now instead of waiting for the 5s poll.
   useEffect(() => {
     void load("");
-  }, [load]);
+  }, [load, root]);
 
   // External nav requests (md links routing through App): load the dir
   // once per seq bump.
@@ -420,14 +435,40 @@ export default function FilePanel({
     void load(p);
   };
 
+  const wsName =
+    (root || "").split(/[\\/]/).filter(Boolean).pop() || "workspace";
+  const applyWs = async () => {
+    const v = wsInput.trim();
+    setEditingWs(false);
+    if (!v || !onRoot) return;
+    setErr("");
+    try {
+      await onRoot(v);
+    } catch (e) {
+      setErr(errText(e));
+    }
+  };
+
   const crumbs = path ? path.split("/") : [];
 
   return (
     <div className="files">
       <div className="files-head">
-        <button className="ghost" onClick={() => gotoDir("")}>
-          workspace
+        <button className="ghost" title={root || "workspace"} onClick={() => gotoDir("")}>
+          {wsName}
         </button>
+        {onRoot && (
+          <button
+            className="ghost"
+            title="change the session workspace root"
+            onClick={() => {
+              setWsInput(root ?? "");
+              setEditingWs(true);
+            }}
+          >
+            ✎
+          </button>
+        )}
         {crumbs.map((seg, i) => (
           <button
             key={i}
@@ -438,6 +479,24 @@ export default function FilePanel({
           </button>
         ))}
       </div>
+      {editingWs && (
+        <div className="file-inline">
+          <input
+            autoFocus
+            placeholder="K:/path/to/workspace"
+            value={wsInput}
+            onChange={(e) => setWsInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void applyWs();
+              if (e.key === "Escape") setEditingWs(false);
+            }}
+          />
+          <button onClick={() => void applyWs()}>应用</button>
+          <button className="ghost" onClick={() => setEditingWs(false)}>
+            取消
+          </button>
+        </div>
+      )}
       <div className="files-tabs panel-tabs">
         <button
           className={"tab" + (mode === "browse" ? " active" : "")}

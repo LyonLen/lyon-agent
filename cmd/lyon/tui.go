@@ -1110,6 +1110,7 @@ func buildSlashCommands() []sugItem {
 		{"/agents", tr("candidate field: list · add <id> <model> · rm <id>", "候选名单：list · add <id> <model> · rm <id>"), "evolve"},
 		{"/market", tr("task hour market: history ledger + per-class estimates", "任务工时市场：历史台账 + 分类预估"), "evolve"},
 		{"/flow", tr("workflows: list · show · match · export · save <slug>", "工作流：list · show · match · export · save <slug>"), "evolve"},
+		{"/workspace", tr("session workspace: bare shows the root, /workspace <path> retargets it", "会话工作区：裸命令查看根目录，/workspace <path> 切换"), "misc"},
 		{"/stats", tr("usage table — tokens, cache hits, tool latencies", "用量表 — token、缓存命中、工具耗时"), "misc"},
 		{"/memory", tr("layered memory store — view, toggle hot, cloud sync", "分层记忆库 — 查看、热词开关、云端同步"), "misc"},
 		{"/remember", tr("distill this session's learnings into memory now", "立即把本会话的收获提炼进记忆"), "misc"},
@@ -2693,6 +2694,17 @@ func (m *tuiModel) slash(line string) tea.Cmd {
 	switch head {
 	case "/quit", "/exit", ":q":
 		return tea.Quit
+	case "/workspace":
+		ws := strings.TrimSpace(args)
+		if ws == "" {
+			m.pushCmd("workspace: " + m.sess.Workspace())
+		} else if err := m.sess.SetWorkspace(ws); err != nil {
+			m.pushCmd(paint(cRed, "workspace: "+err.Error()))
+		} else {
+			m.pushCmd(paint(cGreen, "workspace → "+m.sess.Workspace()))
+		}
+		m.refresh()
+		return nil
 	case "/stats":
 		var b strings.Builder
 		printStats(&b, m.sess.Stats(), m.metrics, m.sess.Hooks(),

@@ -79,7 +79,7 @@ func (t *flowTool) Execute(ctx context.Context, input json.RawMessage) ([]anthro
 	}
 	ws := ""
 	if sess := SessionFromContext(ctx); sess != nil {
-		ws = sess.eng.cfg.Workspace
+		ws = sess.Workspace()
 	}
 	var out string
 	var err error

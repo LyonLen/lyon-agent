@@ -132,7 +132,7 @@ func (s *Session) modeGate(ctx context.Context, e tools.ExecEvent) error {
 	}
 	switch dec {
 	case ModeBlockAllowPath:
-		key := modePathKey(s.eng.cfg.Workspace, e.Input)
+		key := modePathKey(s.Workspace(), e.Input)
 		if key == "" {
 			return planBlock() // pathless input has nothing to vouch — fail closed
 		}
@@ -170,7 +170,7 @@ func (s *Session) grantModePath(key string) {
 // vouch. Pathless inputs (run_shell, save_memory…) never do — those
 // escape only through a mode switch, never through a file card.
 func (s *Session) modePathAllowed(input json.RawMessage) bool {
-	key := modePathKey(s.eng.cfg.Workspace, input)
+	key := modePathKey(s.Workspace(), input)
 	if key == "" {
 		return false
 	}

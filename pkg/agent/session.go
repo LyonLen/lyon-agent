@@ -166,6 +166,10 @@ type Session struct {
 	// same cache contract as skillsText/shellText. Empty when the
 	// workspace has no files (nothing is injected).
 	repoMapText string
+	// ws is the per-session workspace override (workspace selection):
+	// nil = the engine's cfg.Workspace. Read per tool execution through
+	// the WorkspaceFunc on streamCtx (tools/workspace.go).
+	ws atomic.Pointer[string]
 
 	// compactArmed defers an already-triggered compaction until the next
 	// turn has run its pending tool calls, so the summary covers their
@@ -329,9 +333,9 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		shellText:  shellEnvSection(),
 		// Frozen per session (repomap.go): captured once here so the
 		// system prompt's byte-stable suffix never shifts mid-run.
-		repoMapText: e.repoMapSection(),
+		repoMapText: e.repoMapSection(e.cfg.Workspace),
 	}
-	s.streamCtx = context.WithValue(ctx, sessionCtxKey{}, s)
+	s.streamCtx = tools.WithWorkspaceFunc(context.WithValue(ctx, sessionCtxKey{}, s), s.Workspace)
 	// D1: save_memory/forget_memory report successes through this seam
 	// (tools.WithMemoryChange) so the session can acknowledge them at the
 	// next turn boundary — tool handlers reach it via their ctx.
@@ -615,7 +619,7 @@ func (s *Session) injectQueuedGap() {
 
 	for _, line := range lines {
 		s.runner.AppendMessages(anthropic.NewBetaUserMessage(
-			tools.PromptBlocks(s.eng.cfg.Workspace, line)...))
+			tools.PromptBlocks(s.Workspace(), line)...))
 		s.eng.hooks.Fire(hooks.Record{
 			Event:  hooks.EvPromptStart,
 			Prompt: line,
@@ -762,7 +766,7 @@ func (s *Session) baseParams(msgs []anthropic.BetaMessageParam) anthropic.BetaMe
 			// (skills.go) and shell marker — all byte-stable per
 			// session, so the cache prefix holds for the whole
 			// conversation.
-			Text:         s.systemWithMode(cfg.SystemPrompt) + s.skillsText + s.shellText + s.repoMapText,
+			Text:         s.systemWithMode(cfg.SystemPrompt) + s.skillsText + s.shellText + s.repoMap(),
 			CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 		}},
 		OutputConfig: anthropic.BetaOutputConfigParam{
@@ -1501,7 +1505,7 @@ func (s *Session) buildHistory(note, prompt string) []anthropic.BetaMessageParam
 	// histMu held (tests call it single-threaded), so the field keeps its
 	// existing single-writer discipline: no atomics, no extra lock, no
 	// serialization of any concurrent path.
-	if fresh := tools.MemoryFacts(s.eng.cfg.Workspace); fresh != s.memoryText {
+	if fresh := tools.MemoryFacts(s.Workspace()); fresh != s.memoryText {
 		s.memoryText = fresh
 		s.memoryInjected = false
 	}
@@ -1550,7 +1554,7 @@ func (s *Session) buildHistory(note, prompt string) []anthropic.BetaMessageParam
 	// @path tokens resolving to workspace images become image blocks, so a
 	// user can paste a picture into any prompt (CLI, TUI, HTTP). Plain
 	// prompts come back as one verbatim text block — cache prefix unchanged.
-	blocks = append(blocks, tools.PromptBlocks(s.eng.cfg.Workspace, prompt)...)
+	blocks = append(blocks, tools.PromptBlocks(s.Workspace(), prompt)...)
 
 	// Trailing-user merge: hist ends with a user message (restored snapshot
 	// or compaction summary) → append to it. Copy its Content first — the

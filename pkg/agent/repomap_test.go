@@ -30,7 +30,7 @@ func TestRepoMapEmptyWorkspace(t *testing.T) {
 		t.Fatalf("empty workspace note = %q, want \"\"", got)
 	}
 	eng := repoMapEngine(t, ws)
-	if got := eng.repoMapSection(); got != "" {
+	if got := eng.repoMapSection(ws); got != "" {
 		t.Fatalf("section = %q, want \"\"", got)
 	}
 }

@@ -369,8 +369,8 @@ func (s *Shell) run(ctx context.Context, command string) ([]byte, int, bool, err
 	// (e.g. `sleep`) holding the output pipes and CombinedOutput blocks
 	// until they exit. WaitDelay bounds that wait after cancellation.
 	cmd.WaitDelay = time.Second
-	if s.Root != "" {
-		cmd.Dir = s.Root
+	if root := WorkspaceRoot(ctx, s.Root); root != "" {
+		cmd.Dir = root
 	}
 
 	// One writer for both streams: capture for the result, tee live

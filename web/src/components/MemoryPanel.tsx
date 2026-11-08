@@ -39,7 +39,30 @@ function isScope(s: string): s is Scope {
   return s === "project" || s === "personal" || s === "team";
 }
 
-export default function MemoryPanel() {
+// mapFacts unwraps the wire shape once — the load and the live poll
+// share one mapping.
+const mapFacts = (res: {
+  facts: Array<{
+    name: string;
+    description: string;
+    scope: string;
+    tags?: string[];
+    hot: boolean;
+    hits?: bigint | number;
+    body: string;
+  }>;
+}): MemFact[] =>
+  res.facts.map((f) => ({
+    name: f.name,
+    description: f.description,
+    scope: isScope(f.scope) ? f.scope : "project",
+    tags: f.tags ?? [],
+    hot: f.hot,
+    hits: Number(f.hits) || 0,
+    body: f.body,
+  }));
+
+export default function MemoryPanel({ root }: { root?: string } = {}) {
   const [facts, setFacts] = useState<MemFact[]>([]);
   const [err, setErr] = useState("");
   const [confirmDel, setConfirmDel] = useState(""); // scope\x00name
@@ -62,26 +85,37 @@ export default function MemoryPanel() {
     setErr("");
     try {
       const res = await memoryClient.listMemory({});
-      setFacts(
-        res.facts.map((f) => ({
-          name: f.name,
-          description: f.description,
-          scope: isScope(f.scope) ? f.scope : "project",
-          tags: f.tags ?? [],
-          hot: f.hot,
-          hits: Number(f.hits) || 0,
-          body: f.body,
-        })),
-      );
+      setFacts(mapFacts(res));
     } catch (e) {
       setFacts([]);
       setErr(errText(e));
     }
   }, []);
 
+  // root rides the deps: a workspace switch retargets the whole store
+  // and reloads now instead of waiting for a manual refresh.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, root]);
+
+  // Live store: the agent saves memories mid-run — poll and swap only on
+  // a real change (files-panel parity, 8s; the diff-guard keeps the
+  // common tick render-free).
+  useEffect(() => {
+    const iv = setInterval(() => {
+      void (async () => {
+        try {
+          const next = mapFacts(await memoryClient.listMemory({}));
+          setFacts((prev) =>
+            JSON.stringify(prev) === JSON.stringify(next) ? prev : next,
+          );
+        } catch {
+          // transient poll failure: keep the last listing; next tick retries
+        }
+      })();
+    }, 8000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Second click confirms the delete; the prompt self-expires.
   useEffect(() => {

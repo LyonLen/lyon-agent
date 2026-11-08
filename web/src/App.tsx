@@ -3,9 +3,10 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import type { Session } from "./gen/lyon/v1/session_pb";
 import type { SnapshotRef } from "./gen/lyon/v1/dashboard_pb";
 import { ModeAction, type WatchPendingResponse } from "./gen/lyon/v1/approval_pb";
-import { approvalClient, dashboardClient, errText, fileClient, getToken, sessionClient, setToken } from "./api";
+import { approvalClient, dashboardClient, errText, fileClient, getToken, sessionClient, setToken, setWorkspace, fetchSessionWorkspace, saveSessionWorkspace, rememberWorkspace } from "./api";
 import type { FileKind } from "./gen/lyon/v1/file_pb";
 import SessionList from "./components/SessionList";
+import NewSessionDlg from "./components/NewSessionDlg";
 import ChatView from "./components/ChatView";
 import PlanPane from "./components/PlanPane";
 import StepsPane from "./components/StepsPane";
@@ -380,13 +381,68 @@ export default function App() {
     );
   };
 
-  const create = async () => {
+  // Per-session workspace: the selected session's root feeds the api
+  // interceptor (x-lyon-workspace rides every RPC) and the files pane.
+  const [wsRoot, setWsRoot] = useState("");
+  useEffect(() => {
+    if (!selectedId) return;
+    let live = true;
+    fetchSessionWorkspace(selectedId)
+      .then((ws) => {
+        if (!live) return;
+        setWsRoot(ws);
+        setWorkspace(ws);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [selectedId]);
+  const changeWs = async (ws: string) => {
+    if (!selectedId) return;
+    const got = await saveSessionWorkspace(selectedId, ws);
+    setWsRoot(got);
+    setWorkspace(got);
+    rememberWorkspace(got);
+    await refresh();
+  };
+
+  const removeSession = async (id: string) => {
     try {
-      const res = await sessionClient.createSession({});
-      setSelectedId(res.session?.id ?? "");
+      await sessionClient.deleteSession({ sessionId: id });
+      if (selectedId === id) setSelectedId("");
       await refresh();
     } catch (err) {
       setListErr(errText(err));
+    }
+  };
+
+  // New-session chooser: the button opens the workspace picker (local
+  // dir or git clone); /new keeps the quick path with the remembered
+  // workspace as the root.
+  const [newDlg, setNewDlg] = useState(false);
+  const createWith = async (ws: string) => {
+    try {
+      const res = await sessionClient.createSession({});
+      const id = res.session?.id ?? "";
+      if (id && ws) {
+        await saveSessionWorkspace(id, ws).catch(() => {});
+        setWsRoot(ws);
+        setWorkspace(ws);
+      }
+      setSelectedId(id);
+      await refresh();
+      setNewDlg(false);
+    } catch (err) {
+      setListErr(errText(err));
+      throw err; // the dialog shows it too and re-enables its rows
+    }
+  };
+  const create = async () => {
+    try {
+      await createWith(localStorage.getItem("lyon_last_workspace") ?? "");
+    } catch {
+      // listErr already carries the message
     }
   };
 
@@ -727,9 +783,10 @@ export default function App() {
           selectedId={selectedId}
           restoring={restoring}
           onSelect={setSelectedId}
-          onCreate={() => void create()}
+          onCreate={() => setNewDlg(true)}
           onRefresh={() => void refresh()}
           onRestore={(p) => void restore(p)}
+          onDelete={(id) => void removeSession(id)}
         />
       ),
     },
@@ -831,7 +888,14 @@ export default function App() {
           <path d="M1.8 4.5a1 1 0 0 1 1-1h2.4l1.2 1.5h4.8a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z" />
         </svg>
       ),
-      render: () => <FilePanel onOpenFile={openPreviewFile} nav={filesNav} />,
+      render: () => (
+        <FilePanel
+          onOpenFile={openPreviewFile}
+          nav={filesNav}
+          root={wsRoot}
+          onRoot={changeWs}
+        />
+      ),
     },
     {
       kind: "steps",
@@ -906,7 +970,7 @@ export default function App() {
           <path d="M4.5 3.2a2.2 2.2 0 0 0-1.7 3.6 2.2 2.2 0 0 0 1 3.9c.5 1.1 1.9 1.5 2.9.8.4.4 1 .6 1.6.5a2.2 2.2 0 0 0 1.9-2.6 2.2 2.2 0 0 0 1.3-3.3c-.3-1-1.2-1.7-2.3-1.7-.3-1-1.3-1.7-2.4-1.5-.8.1-1.5.7-1.8 1.4z" />
         </svg>
       ),
-      render: () => <MemoryPanel />,
+      render: () => <MemoryPanel root={wsRoot} />,
     },
     {
       kind: "settings",
@@ -1003,6 +1067,13 @@ export default function App() {
   return (
     <ErrorBoundary>
     <div className="app">
+      {newDlg && (
+        <NewSessionDlg
+          current={wsRoot}
+          onCancel={() => setNewDlg(false)}
+          onCreate={(ws) => void createWith(ws)}
+        />
+      )}
       <header className="topbar">
         <span className="brand">lyon</span>
         <button
