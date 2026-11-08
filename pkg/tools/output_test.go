@@ -214,3 +214,43 @@ func TestAdaptPlainObserverNoSink(t *testing.T) {
 		t.Fatalf("starts=%d ends=%d", o.starts, o.ends)
 	}
 }
+
+// TestAdaptEmitsOnePieceResult: a tool that returns its whole result at
+// once (web_search shape — no live sink) still shows it on the execution
+// card: one final output chunk carries the result text before OnToolEnd.
+func TestAdaptEmitsOnePieceResult(t *testing.T) {
+	var chunks []string
+	obs := ObserverFuncs{
+		Output: func(e ExecEvent) { chunks = append(chunks, e.Output) },
+	}
+	a := Adapt(&funcTool{name: "oneshot", parallel: true, result: "hello one-piece result"}, AdapterConfig{Observer: obs})
+	if _, err := a.Execute(context.Background(), json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0] != "hello one-piece result" {
+		t.Fatalf("chunks = %q", chunks)
+	}
+}
+
+// TestAdaptNoResultEchoWhenStreamed: a streaming tool already painted its
+// live chunks — the returned piece must not repaint the card.
+func TestAdaptNoResultEchoWhenStreamed(t *testing.T) {
+	var chunks []string
+	obs := ObserverFuncs{Output: func(e ExecEvent) { chunks = append(chunks, e.Output) }}
+	tool := &funcTool{name: "live", parallel: true, result: "final piece", fn: func(ctx context.Context) error {
+		sink := OutputSink(ctx)
+		if sink == nil {
+			t.Error("OutputObserver must install a sink")
+			return nil
+		}
+		sink("live chunk")
+		return nil
+	}}
+	a := Adapt(tool, AdapterConfig{Observer: obs})
+	if _, err := a.Execute(context.Background(), json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0] != "live chunk" {
+		t.Fatalf("chunks = %q", chunks)
+	}
+}

@@ -54,7 +54,7 @@ type WebSearch struct {
 func (w *WebSearch) Name() string { return "web_search" }
 
 func (w *WebSearch) Description() string {
-	return "Search the web. Returns the top results as numbered title + URL pairs. Use this before web_fetch to find pages to read."
+	return "Search the web. Returns the top results as numbered title, URL and snippet (source + original text excerpt). Use this before web_fetch to find pages to read."
 }
 
 func (w *WebSearch) ParallelSafe() bool { return true }
@@ -108,14 +108,20 @@ func (w *WebSearch) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	var b strings.Builder
 	for i, r := range results {
 		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, r.Title, r.URL)
+		if r.Snippet != "" {
+			fmt.Fprintf(&b, "   %s\n", r.Snippet)
+		}
 	}
 	return TextResult(b.String()), nil
 }
 
-// SearchResult is one organic result from the scraped page.
+// SearchResult is one organic result from the scraped page. Snippet is
+// the result's own description text — the "原文" a reader needs before
+// deciding the source is worth fetching.
 type SearchResult struct {
-	Title string
-	URL   string
+	Title   string
+	URL     string
+	Snippet string
 }
 
 var (
@@ -123,6 +129,7 @@ var (
 	// b_algo block; capturing the anchor covers title and destination.
 	reBingResult = regexp.MustCompile(`(?s)<h2><a[^>]*href="([^"]+)"[^>]*>(.*?)</a>`)
 	reTag        = regexp.MustCompile(`<[^>]+>`)
+	reSnippet    = regexp.MustCompile(`(?s)<p[^>]*>(.*?)</p>`)
 )
 
 // parseBingResults extracts title/URL pairs from Bing HTML, de-duplicated,
@@ -130,9 +137,10 @@ var (
 func parseBingResults(page string) []SearchResult {
 	var out []SearchResult
 	seen := make(map[string]bool)
-	for _, m := range reBingResult.FindAllStringSubmatch(page, -1) {
-		u := strings.TrimSpace(html.UnescapeString(m[1]))
-		title := strings.TrimSpace(reTag.ReplaceAllString(m[2], ""))
+	locs := reBingResult.FindAllStringSubmatchIndex(page, -1)
+	for i, m := range locs {
+		u := strings.TrimSpace(html.UnescapeString(page[m[2]:m[3]]))
+		title := strings.TrimSpace(reTag.ReplaceAllString(page[m[4]:m[5]], ""))
 		title = strings.Join(strings.Fields(title), " ")
 		if u == "" || title == "" || seen[u] {
 			continue
@@ -141,8 +149,24 @@ func parseBingResults(page string) []SearchResult {
 		if strings.HasPrefix(u, "#") || strings.HasPrefix(u, "/") {
 			continue
 		}
+		// Snippet = the first paragraph between this result's link and the
+		// next one (or end of page). Match indices because RE2 has no
+		// lookahead: the tail must not consume the next result's <h2>.
+		tail := page[m[1]:]
+		if i+1 < len(locs) {
+			tail = page[m[1]:locs[i+1][0]]
+		}
+		snippet := ""
+		if sm := reSnippet.FindStringSubmatch(tail); sm != nil {
+			s := strings.TrimSpace(reTag.ReplaceAllString(sm[1], ""))
+			s = strings.Join(strings.Fields(html.UnescapeString(s)), " ")
+			// Chrome paragraphs after the last real result are not answers.
+			if len(s) > 0 && len(s) <= 400 {
+				snippet = s
+			}
+		}
 		seen[u] = true
-		out = append(out, SearchResult{Title: title, URL: u})
+		out = append(out, SearchResult{Title: title, URL: u, Snippet: snippet})
 		if len(out) >= 8 {
 			break
 		}

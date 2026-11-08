@@ -20,7 +20,7 @@ import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
 import OutputDrawer from "./OutputDrawer";
 import { KEY_TABLE } from "../keys";
-import { fmtDuration } from "../fmt";
+import { fmtDuration, fmtStamp } from "../fmt";
 
 // The markdown parser rides its own chunk — Suspense fallback shows the
 // raw text until it lands (Phase F split).
@@ -94,7 +94,7 @@ type Block =
   // turnMs pins the run's wall time (from prompt_end — submit to final
   // resolution) to the reply. turn_end is one API call: pinning that
   // showed a last-leg "51.38s" on a run that took ten minutes.
-  | { kind: "text"; text: string; turnMs?: number }
+  | { kind: "text"; text: string; turnMs?: number; endedAt?: number }
   // t0/t1 = first/last thinking_delta's server TS (ms epoch) — the row's
   // duration is where a run's wall time actually goes (39-minute runs
   // with millisecond tools are thinking time). lc = client receipt of the
@@ -472,14 +472,16 @@ function reduce(blocks: Block[], ev: SessionEvent): Block[] {
       // One stamp per reply: a text block already carrying a badge
       // belongs to an earlier run — a tool-only run must not re-time it.
       const ms = Number(ev.durationMs || 0);
+      // The completion time rides the same badge row as the duration — a
+      // UI element beside the reply, never inside the reply text.
+      const at = ev.ts ? timestampDate(ev.ts).getTime() : Date.now();
       let out = blocks;
-      if (ms > 0) {
-        for (let i = blocks.length - 1; i >= 0; i--) {
-          const b = blocks[i];
-          if (b.kind === "text") {
-            if (!b.turnMs) out = replaceAt(blocks, i, { ...b, turnMs: ms });
-            break;
-          }
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (b.kind === "text") {
+          if (!b.turnMs && !b.endedAt)
+            out = replaceAt(blocks, i, { ...b, turnMs: ms, endedAt: at });
+          break;
         }
       }
       if (ev.error) {
@@ -1158,7 +1160,6 @@ export default function ChatView(props: {
   useEffect(() => {
     let ac: AbortController | null = null;
     let live = true;
-    setBlocks([]);
     setErr("");
     setTodos([]);
     setMindmap(null);
@@ -1186,7 +1187,7 @@ export default function ChatView(props: {
       // subscribe time also covers events stamped between an empty batch
       // and the stream opening.
       let anchor = -1n;
-      if (hist && hist.events.length > 0) {
+      if (hist) {
         let seeded: Block[] = [];
         for (const ev of hist.events) {
           // Same fold as the stream below, minus busy: the session
@@ -1209,7 +1210,11 @@ export default function ChatView(props: {
           seeded = reduce(seeded, ev);
         }
         setBlocks(seeded);
-        anchor = hist.lastSeq;
+        if (hist.events.length > 0) anchor = hist.lastSeq;
+      } else {
+        // No batch at all: the stream's full replay rebuilds — clear
+        // first so kept blocks can never double against the replay.
+        setBlocks([]);
       }
       if (sres?.session) {
         setBusy(sres.session.busy);
@@ -1236,6 +1241,34 @@ export default function ChatView(props: {
       const WATCHDOG_MS = 1500;
       const MAX_ATTEMPTS = 4;
       const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      // kickQueued sends the next parked line — one per call, so the chain
+      // paces itself at each prompt_end. Also called on rebuild: a stream
+      // that died around prompt_end must not strand the queue — an idle
+      // seat with parked lines picks the head back up.
+      const kickQueued = (): boolean => {
+        const [head, ...rest] = queuedRef.current;
+        if (head === undefined) return false;
+        setQueued(() => rest);
+        sessionClient
+          .submitPrompt({ sessionId: props.sessionId, prompt: head })
+          .then(() => props.onChanged())
+          .catch((e) => {
+            if (!live) return;
+            // The re-send lost the race (seat reaped, another pane
+            // grabbed the run): park the head again instead of
+            // dropping it — visible in the queue, it rides the next
+            // prompt_end, while the error line explains the miss.
+            setQueued((q) => [head, ...q]);
+            setErr(errText(e));
+            setBusy(false);
+          });
+        return true;
+      };
+      // A stream that died around prompt_end left parked lines stranded:
+      // the seat is idle again, so the head runs now.
+      if (sres?.session && !sres.session.busy && kickQueued()) {
+        setBusy(true);
+      }
       for (let attempt = 1; live && attempt <= MAX_ATTEMPTS; attempt++) {
         setErr("");
         const controller = new AbortController();
@@ -1291,23 +1324,7 @@ export default function ChatView(props: {
               // TUI's kickQueued: re-send the head as the next prompt (one
               // per prompt_end, so the chain paces itself); the rest stay
               // parked. No head → the seat is genuinely idle again.
-              const [head, ...rest] = queuedRef.current;
-              if (head !== undefined) {
-                setQueued(() => rest);
-                sessionClient
-                  .submitPrompt({ sessionId: props.sessionId, prompt: head })
-                  .then(() => props.onChanged())
-                  .catch((e) => {
-                    if (!live) return;
-                    // The re-send lost the race (seat reaped, another pane
-                    // grabbed the run): park the head again instead of
-                    // dropping it — visible in the queue, it rides the next
-                    // prompt_end, while the error line explains the miss.
-                    setQueued((q) => [head, ...q]);
-                    setErr(errText(e));
-                    setBusy(false);
-                  });
-              } else {
+              if (!kickQueued()) {
                 setBusy(false);
               }
               props.onPromptEnd?.();
@@ -1489,7 +1506,7 @@ export default function ChatView(props: {
   };
   useEffect(() => {
     const el = feedRef.current;
-    if (el && stickRef.current) el.scrollTo({ top: el.scrollHeight });
+    if (el && stickRef.current && blocks.length > 0) el.scrollTo({ top: el.scrollHeight });
   }, [blocks]);
 
   // note prints a local command receipt into the status line (3s, the
@@ -1786,9 +1803,11 @@ export default function ChatView(props: {
         }
         if (intent === "redirect" || intent === "supplement") {
           if (intent === "redirect") {
-            await sessionClient.interrupt({ sessionId: props.sessionId });
-            // Urgent: jump older parked lines — a switch means "now".
+            // Park BEFORE the interrupt (urgent: jumps older parked
+            // lines) — an interrupt failure must never swallow the line;
+            // parked, it still rides the next prompt_end.
             setQueued((q) => [prompt, ...q]);
+            await sessionClient.interrupt({ sessionId: props.sessionId });
             note("换方向 — 当前任务停止后处理新问题");
           } else {
             setQueued((q) => [...q, prompt]);
@@ -1948,7 +1967,17 @@ export default function ChatView(props: {
 
   return (
     <div className={"chat" + (busy ? " streaming" : "")}>
-      <div className="chat-feed" ref={feedRef} onScroll={onFeedScroll}>
+      <div
+        className="chat-feed"
+        ref={feedRef}
+        onScroll={onFeedScroll}
+        onWheel={(e) => {
+          // Scrolling up is intent, not position: wheel-up disarms the
+          // follow before the next block can yank the view back down
+          // (the scroll event alone races the render effect).
+          if (e.deltaY < 0) stickRef.current = false;
+        }}
+      >
         {blocks.map((b, i) => (
           <BlockView
             key={`${i}:${b.kind}`}
@@ -2471,8 +2500,12 @@ function BlockView({
           <Suspense fallback={<pre>{block.text}</pre>}>
             <MarkdownView>{block.text}</MarkdownView>
           </Suspense>
-          {block.turnMs ? (
-            <div className="turn-ms">{fmtDuration(block.turnMs)}</div>
+          {block.turnMs || block.endedAt ? (
+            <div className="turn-ms">
+              {block.endedAt ? fmtStamp(block.endedAt) : null}
+              {block.endedAt && block.turnMs ? " · " : null}
+              {block.turnMs ? fmtDuration(block.turnMs) : null}
+            </div>
           ) : null}
         </div>
       );

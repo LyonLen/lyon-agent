@@ -82,8 +82,8 @@ type hubSub struct {
 }
 
 const (
-	hubRingSize  = 4096 // replay buffer per session (WatchEvents reconnect window)
-	hubSubBuffer = 1024 // per-subscriber channel depth before a kick
+	hubRingSize  = 16384 // replay buffer per session (WatchEvents reconnect window + transcript rebuild — the first run's user ask must survive long tool-heavy runs)
+	hubSubBuffer = 1024  // per-subscriber channel depth before a kick
 )
 
 // ErrRingGap means a WatchEvents from_seq anchor has already been evicted

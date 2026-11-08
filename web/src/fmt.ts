@@ -17,3 +17,10 @@ export function fmtDuration(ms: number): string {
 export function fmtCount(n: number): string {
   return Number.isFinite(n) ? n.toLocaleString("en-US") : String(n);
 }
+// fmtStamp renders a reply's completion time: "2026-11-08 17:50" (local) —
+// the timestamp badge beside the duration, UI chrome and never reply text.
+export function fmtStamp(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

@@ -202,8 +202,14 @@ func TestParseBingResults(t *testing.T) {
 	if got[0].URL != "https://go.dev/blog/go1.25" || got[0].Title != "Go 1.25 Release Notes" {
 		t.Fatalf("first result: %+v", got[0])
 	}
+	if got[0].Snippet != "snippet" {
+		t.Fatalf("first result snippet = %q, want %q", got[0].Snippet, "snippet")
+	}
 	if got[1].Title != "Other Result" {
 		t.Fatalf("second result: %+v", got[1])
+	}
+	if got[1].Snippet != "" {
+		t.Fatalf("second result snippet = %q, want empty", got[1].Snippet)
 	}
 }
 
@@ -215,7 +221,7 @@ func TestWebSearchParsesEndpoint(t *testing.T) {
 			t.Errorf("query not encoded into URL: %s", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte(`<div class="b_algo"><h2><a href="https://go.dev/doc/go1.25">Go 1.25 Release Notes</a></h2></div>`))
+		_, _ = w.Write([]byte(`<div class="b_algo"><h2><a href="https://go.dev/doc/go1.25">Go 1.25 Release Notes</a></h2><p>The official release notes for Go 1.25.</p></div>`))
 	}))
 	defer ts.Close()
 
@@ -230,6 +236,10 @@ func TestWebSearchParsesEndpoint(t *testing.T) {
 	text := out[0].OfText.Text
 	if !strings.Contains(text, "1. Go 1.25 Release Notes") || !strings.Contains(text, "https://go.dev/doc/go1.25") {
 		t.Fatalf("unexpected search output: %q", text)
+	}
+	// 出处之外还要有原文: the result's own snippet rides the output.
+	if !strings.Contains(text, "The official release notes for Go 1.25.") {
+		t.Fatalf("snippet missing from search output: %q", text)
 	}
 }
 

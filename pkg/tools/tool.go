@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -321,9 +322,12 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 	}
 	// Live output (#11): when the observer opts in, stream chunks ride
 	// the ctx down to the tool — no observer plumbing inside tools, and
-	// an observer that doesn't care never gets the sink at all.
+	// an observer that doesn't care never gets the sink at all. streamed
+	// records that paint so a one-piece result is not painted twice.
+	var streamed atomic.Bool
 	if oo, ok := a.cfg.Observer.(OutputObserver); ok {
 		ctx = WithOutputSink(ctx, func(text string) {
+			streamed.Store(true)
 			oo.OnToolOutput(ExecEvent{ExecID: ev.ExecID, Name: ev.Name, Output: text})
 		})
 	}
@@ -342,6 +346,17 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 				logx.Error("tools", "tool panicked", "tool", ev.Name, "duration_ms", ev.Duration.Milliseconds(), "panic", fmt.Sprint(r))
 			} else {
 				logx.Error("tools", "tool execution failed", "tool", ev.Name, "duration_ms", ev.Duration.Milliseconds(), "err", err)
+			}
+		}
+		// Result visibility: a tool that returned its whole result in one
+		// piece (web_search, read_file — no live sink) still shows it on
+		// the execution card — one final output chunk, only when nothing
+		// streamed (streaming tools already painted their live chunks).
+		if !streamed.Load() && err == nil {
+			if oo, ok := a.cfg.Observer.(OutputObserver); ok {
+				if txt := contentText(content); txt != "" {
+					oo.OnToolOutput(ExecEvent{ExecID: ev.ExecID, Name: ev.Name, Output: txt})
+				}
 			}
 		}
 		if a.cfg.Observer != nil {
@@ -384,6 +399,19 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 		return nil, err
 	}
 	return capResults(content, a.cfg.ResultCap), nil
+}
+
+// contentText joins the text blocks of a tool result — the single-piece
+// output of a non-streaming tool, so its execution card shows what the
+// model was given.
+func contentText(content []anthropic.BetaToolResultBlockParamContentUnion) string {
+	var b strings.Builder
+	for _, c := range content {
+		if c.OfText != nil {
+			b.WriteString(c.OfText.Text)
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // capResults truncates oversized text blocks, keeping a marker so the model

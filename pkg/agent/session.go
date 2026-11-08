@@ -880,9 +880,6 @@ func (s *Session) drive(prompt, runModel string) {
 	// len(turns)+1 the same way.
 	turnIdx := len(s.turns)
 	empty := 0 // consecutive iterator rounds with zero events
-	// textSeen records that this run actually produced reply text — the
-	// reply stamp at prompt_end is only added to a reply that exists.
-	textSeen := false
 	// lastStop is the final turn's stop reason. "max_tokens" means the
 	// response was CUT OFF mid-sentence at the output cap — the runner takes
 	// that as a completed turn, so without carrying it to prompt_end the UI
@@ -938,9 +935,6 @@ func (s *Session) drive(prompt, runModel string) {
 				for _, out := range narr.filter(*e) {
 					if out.Type == EventToolUseStart && !out.Server {
 						s.trackToolUse(out.ToolID, out.ToolName)
-					}
-					if out.Type == EventTextDelta {
-						textSeen = true
 					}
 					s.emit(out)
 				}
@@ -1093,18 +1087,6 @@ func (s *Session) drive(prompt, runModel string) {
 	s.inbox = nil
 	s.busy.Store(false)
 	s.mu.Unlock()
-	// Reply stamp (回复末尾记录时间): a successful run closes its reply
-	// with the completion time so transcripts and dumps read "when did
-	// this land". A harness text delta, not model output — the runner's
-	// history never sees it (no cache or distill pollution), while every
-	// renderer and the run dump fold it into the reply's tail.
-	if promptErr == "" && textSeen {
-		s.emit(Event{
-			Type: EventTextDelta,
-			Text: "\n\n— " + time.Now().Format("2006-01-02 15:04"),
-			TS:   time.Now(),
-		})
-	}
 
 	pe := Event{
 		Type:       EventPromptEnd,

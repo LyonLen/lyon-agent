@@ -754,6 +754,11 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			if ev.DurationMS > 0 {
 				dur = " · " + fmtDur(ev.DurationMS)
 			}
+			// 记录时间: the completion time rides this meta row next to
+			// the duration — UI chrome, never part of the reply text.
+			if !ev.TS.IsZero() {
+				dur += " · " + ev.TS.Format("2006-01-02 15:04")
+			}
 			m.pushStyled(paint(cYellow, "⚡ "+tr("budget reached", "预算耗尽")),
 				paint(cDim, tr(fmt.Sprintf("%d API calls%s — pending tools skipped, enter to continue · raise with -max-iter / LYON_MAX_ITER", ev.Iterations, dur),
 					fmt.Sprintf("%d 次 API 调用%s — 未执行的工具已跳过，enter 继续 · -max-iter / LYON_MAX_ITER 可调高", ev.Iterations, dur))))
@@ -767,6 +772,11 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			if ev.DurationMS > 0 {
 				dur = " · " + fmtDur(ev.DurationMS)
 			}
+			// 记录时间: the completion time rides this meta row next to
+			// the duration — UI chrome, never part of the reply text.
+			if !ev.TS.IsZero() {
+				dur += " · " + ev.TS.Format("2006-01-02 15:04")
+			}
 			m.pushStyled(paint(cYellow, "✂ "+tr("reply cut off", "回复被截断")),
 				paint(cDim, tr(fmt.Sprintf("%d API calls%s — the output token cap ended the answer mid-thought · raise with -max-tokens / LYON_MAX_TOKENS", ev.Iterations, dur),
 					fmt.Sprintf("%d 次 API 调用%s — 输出上限把回答截断在半句 · -max-tokens / LYON_MAX_TOKENS 可调高", ev.Iterations, dur))))
@@ -777,6 +787,11 @@ func (m *tuiModel) applyEvent(ev agent.Event) {
 			dur := ""
 			if ev.DurationMS > 0 {
 				dur = " · " + fmtDur(ev.DurationMS)
+			}
+			// 记录时间: the completion time rides this meta row next to
+			// the duration — UI chrome, never part of the reply text.
+			if !ev.TS.IsZero() {
+				dur += " · " + ev.TS.Format("2006-01-02 15:04")
 			}
 			m.pushStyled(paint(cGreen, "✓ "+tr("done", "完成")),
 				paint(cDim, tr(fmt.Sprintf("%d API calls%s", ev.Iterations, dur),
