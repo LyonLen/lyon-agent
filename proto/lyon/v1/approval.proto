@@ -31,6 +31,14 @@ message WatchPendingResponse {
   // client renders the chooser (vouch file / switch mode / deny) and
   // answers with Decide.action instead of approve/remember.
   bool mode_block = 6;
+  // reason: why the gate parked this call — the human-readable rule label
+  // (e.g. "工作区外绝对路径"). Empty when the gate carried no hit info
+  // (strict -approve) or for mode_block cards.
+  string reason = 7;
+  // matched: the exact fragment of the input the rule matched — the client
+  // highlights it inside input_json so the human sees WHAT triggered the
+  // ask, not just that one happened.
+  string matched = 8;
 }
 message WatchPendingRequest {}
 

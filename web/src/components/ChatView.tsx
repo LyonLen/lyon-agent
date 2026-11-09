@@ -613,6 +613,32 @@ function colorizeOutput(text: string): ReactNode[] {
   return out;
 }
 
+// Split text around every occurrence of the approval gate's matched
+// fragment so the card can paint the trigger red. The fragment comes from
+// the raw command text, but the card renders JSON-escaped input — try the
+// plain spelling first, then the JSON-escaped one (`D:\x` → `D:\\x`).
+// Returns null when the fragment cannot be located (format drift): the
+// card falls back to the plain pre rather than mangling the display.
+function splitOnMatch(text: string, frag: string): [string, string][] | null {
+  if (!frag) return null;
+  const candidates = [frag, JSON.stringify(frag).slice(1, -1)];
+  for (const needle of candidates) {
+    if (!needle || !text.includes(needle)) continue;
+    const parts: [string, string][] = [];
+    let rest = text;
+    for (;;) {
+      const i = rest.indexOf(needle);
+      if (i < 0) break;
+      if (i > 0) parts.push([rest.slice(0, i), ""]);
+      parts.push([needle, "hit"]);
+      rest = rest.slice(i + needle.length);
+    }
+    if (rest) parts.push([rest, ""]);
+    return parts;
+  }
+  return null;
+}
+
 // Clip to one header-width line (the folded tool row is a glance, not
 // a document — the <details> body still holds the full input/output).
 function clipLine(s: string, n = 90): string {
@@ -2134,19 +2160,44 @@ export default function ChatView(props: {
                     <span className="appr-q">{isMode ? "plan 拦截" : "approve?"}</span>
                     <span className="tool-name">{p.toolName}</span>
                   </span>
-                  {i === sel && (
-                    <span className="appr-hint">
-                      {isMode
-                        ? hasPath
+                  {isMode ? (
+                    i === sel && (
+                      <span className="appr-hint">
+                        {hasPath
                           ? "f 仅该文件 · d 切 default · b 切 bypass · n 拒绝"
-                          : "d 切 default · b 切 bypass · n 拒绝"
-                        : "y approve · n deny · a always · ↑↓ switch"}
-                    </span>
+                          : "d 切 default · b 切 bypass · n 拒绝"}
+                      </span>
+                    )
+                  ) : (
+                    // The ask's reason sits where the key hint used to —
+                    // the keys moved onto the buttons (approve(y)…), so
+                    // the y/n/a list is no longer duplicated here.
+                    p.reason && (
+                      <span className="appr-hint appr-reason">
+                        匹配 {p.reason}
+                      </span>
+                    )
                   )}
                 </div>
-                {p.inputJson && (
-                  <pre className="appr-input">{prettyInput(p.inputJson)}</pre>
-                )}
+                {p.inputJson &&
+                  (() => {
+                    const shown = prettyInput(p.inputJson);
+                    const parts = splitOnMatch(shown, p.matched);
+                    return (
+                      <pre className="appr-input">
+                        {parts
+                          ? parts.map(([t, cls], n) => (
+                              <span
+                                key={n}
+                                className={cls === "hit" ? "appr-hit" : undefined}
+                              >
+                                {t}
+                              </span>
+                            ))
+                          : shown}
+                      </pre>
+                    );
+                  })()}
                 <div className="appr-actions">
                   {isMode ? (
                     <>
@@ -2178,12 +2229,14 @@ export default function ChatView(props: {
                     </>
                   ) : (
                     <>
-                      <button onClick={() => decide(true, false)}>approve</button>
+                      <button onClick={() => decide(true, false)}>
+                        approve(y)
+                      </button>
                       <button className="ghost" onClick={() => decide(false, false)}>
-                        deny
+                        deny(n)
                       </button>
                       <button className="ghost" onClick={() => decide(true, true)}>
-                        always
+                        always(a)
                       </button>
                     </>
                   )}
@@ -2313,7 +2366,9 @@ export default function ChatView(props: {
               ? modeHasPath(pendings[sel])
                 ? "plan 拦截 — f 仅该文件 · d default · b bypass · n 拒绝"
                 : "plan 拦截 — d default · b bypass · n 拒绝"
-              : "approval pending — y approve · n deny · a always"}
+              : pendings.length > 1
+                ? "approval pending — ↑↓ switch"
+                : "approval pending"}
           </span>
         ) : busy ? (
           <span className="sl-hint">

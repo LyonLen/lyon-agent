@@ -15,3 +15,7 @@ tmp/
 # local agent-tool settings (per-checkout, not a repo convention)
 .claude/settings.json
 graphify-out/
+# local DingTalk doc dumps (carry accessToken / editor state) — never commit
+dt-backup-*.json
+# TypeScript incremental build metadata
+*.tsbuildinfo

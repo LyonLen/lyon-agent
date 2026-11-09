@@ -67,10 +67,44 @@ func TestCommandCrossesRoot(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := commandCrossesRoot(root, tc.cmd); got != tc.want {
+			hit, got := commandCrossesRoot(root, tc.cmd)
+			if got != tc.want {
 				t.Errorf("commandCrossesRoot(%q) = %v, want %v", tc.cmd, got, tc.want)
+				return
+			}
+			if got && (hit.Rule == "" || hit.Frag == "") {
+				t.Errorf("crossing hit for %q must carry rule+frag, got %+v", tc.cmd, hit)
 			}
 		})
+	}
+}
+
+// TestCommandCrossesRootHit: the labels and fragments the approval card
+// renders — the git --format case that parked a real card (the %H…
+// percent-expansion look-alike) must name its rule and carry the exact
+// fragment the web will highlight.
+func TestCommandCrossesRootHit(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		cmd      string
+		wantRule string
+		wantFrag string
+	}{
+		{"git log -1 --format='%H%n%ad%n%s'", "环境变量/家目录展开", "%H%n%ad%n%s"},
+		{`type D:\other-repo\x.txt`, "工作区外绝对路径", `D:\other-repo\x.txt`},
+		{"cat ~/notes.md", "环境变量/家目录展开", "~/notes.md"},
+		{"cat ../secrets.txt", "相对路径越界 (..)", "../secrets.txt"},
+		{`type \\server\share\f.txt`, "UNC 共享路径", `\\server\share\f.txt`},
+	}
+	for _, tc := range cases {
+		hit, ok := commandCrossesRoot(root, tc.cmd)
+		if !ok {
+			t.Errorf("%q did not cross", tc.cmd)
+			continue
+		}
+		if hit.Rule != tc.wantRule || hit.Frag != tc.wantFrag {
+			t.Errorf("%q hit = %+v, want rule=%q frag=%q", tc.cmd, hit, tc.wantRule, tc.wantFrag)
+		}
 	}
 }
 
@@ -128,5 +162,37 @@ func TestPathAwareApprove(t *testing.T) {
 	}
 	if lone(ctx, mk("run_shell", `{"command":"type C:\\x.txt"}`)) {
 		t.Fatal("cross-root command must fail closed with next=nil")
+	}
+}
+
+// TestPathAwareApproveCarriesHit: the hit rides the context into next —
+// that is how the approval bridge learns WHICH rule parked the card.
+func TestPathAwareApproveCarriesHit(t *testing.T) {
+	root := t.TempDir()
+	var got Hit
+	var ok bool
+	gate := PathAwareApprove(root, func(c context.Context, _ ExecEvent) bool {
+		got, ok = HitFromContext(c)
+		return true
+	})
+	gate(context.Background(), ExecEvent{
+		Name:  "run_shell",
+		Input: json.RawMessage(`{"command":"git log -1 --format='%H%n%ad%n%s'"}`),
+	})
+	if !ok {
+		t.Fatal("cross-root ask must carry a hit on the context")
+	}
+	if got.Rule != "环境变量/家目录展开" || got.Frag != "%H%n%ad%n%s" {
+		t.Fatalf("hit = %+v, want env-expansion rule with the format fragment", got)
+	}
+
+	// An in-root command never reaches next, so no hit is observable there.
+	ok = false
+	gate(context.Background(), ExecEvent{
+		Name:  "run_shell",
+		Input: json.RawMessage(`{"command":"ls"}`),
+	})
+	if ok {
+		t.Fatal("in-root command must not surface a hit")
 	}
 }

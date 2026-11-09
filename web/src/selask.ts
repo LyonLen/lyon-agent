@@ -14,7 +14,8 @@ export const SEL_DISCIPLINE =
   "1. 需要改图时：只输出一个 ```map_ops 代码块，内容是 JSON 数组（每项带 op 字段，可用 rewrite/set_parent/add/park/delete/confirm/merge），代码块之外不写任何改动指令。\n" +
   "2. 不需要改图时：直接散文回答，不要输出 map_ops 代码块。\n" +
   "3. 改动落在选区上：rewrite/confirm/park/delete/merge/set_parent 只针对方括号里的选区 id；add 的新节点挂在选区节点下、提案态。\n" +
-  "4. 选区外的既有节点一律不动；已确认/已固定节点不要改（服务器会整批拒绝）。";
+  "4. 选区外的既有节点一律不动；已确认/已固定节点不要改（服务器会整批拒绝）。\n" +
+  "5. 节点只承载主题内容：流程旁注、机制/上限发现、操作记录（回滚、墓碑、rev、parent_id）、确认/停靠状态日志、归档路径、日期播报都不入图——要说明就写在散文回复里。";
 
 /** 期望落图 flag — rides only verbs that must mutate (改写): ChatView's
  *  reply parser uses it to decide whether a prose-only answer earns the

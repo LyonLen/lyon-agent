@@ -164,6 +164,11 @@ export default function MindMapCard({
   scaleRef.current = scale; // live value for the wheel handler
   const [panning, setPanning] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  // The whole card as a wheel target (head/legend/footer included) — see
+  // the ctrl+wheel effect below. State, not a bare ref: the card can
+  // mount before its map arrives (returns null), and a ref alone would
+  // leave the effect with nothing to re-run on.
+  const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null);
   const centeredRef = useRef(false);
   // Canvas pixel box — the docked toolbar and pane resizes change it,
   // and the fit pass below must re-run when they do.
@@ -360,29 +365,38 @@ export default function MindMapCard({
   // rebased so the point under the pointer stays put); plain wheel keeps
   // native scroll. Native listener with passive:false — React's onWheel
   // can't reliably preventDefault the browser's page zoom.
+  //
+  // The target is the WHOLE card, not just the canvas: a wheel over the
+  // head/legend/footer used to fall through to the browser and zoom the
+  // entire page — the "sometimes page-zoom, sometimes map-zoom" flake.
+  // cardEl re-attaches when the card mounts after its map arrives (the
+  // old deps [open] — a const true — never fired again, so a mapless
+  // first mount never got a listener at all).
   useEffect(() => {
-    const el = canvasRef.current;
+    const el = cardEl;
     if (!el) return;
     const onWheel = (ev: WheelEvent) => {
       if (!ev.ctrlKey && !ev.metaKey) return;
       ev.preventDefault();
       ev.stopPropagation();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
       const prev = scaleRef.current;
       const next = Math.min(
         2.5,
         Math.max(0.4, prev * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)),
       );
       if (next === prev) return;
-      const r = el.getBoundingClientRect();
+      const r = canvas.getBoundingClientRect();
       const cx = ev.clientX - r.left;
       const cy = ev.clientY - r.top;
-      el.scrollLeft = ((el.scrollLeft + cx) * next) / prev - cx;
-      el.scrollTop = ((el.scrollTop + cy) * next) / prev - cy;
+      canvas.scrollLeft = ((canvas.scrollLeft + cx) * next) / prev - cx;
+      canvas.scrollTop = ((canvas.scrollTop + cy) * next) / prev - cy;
       setZoom(next);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [open]);
+  }, [cardEl]);
 
   // Tombstones are deletions (negative signal) — out of the render and
   // out of every count.
@@ -935,7 +949,7 @@ export default function MindMapCard({
   if (!root) return null;
 
   return (
-    <div className="mindmap-card">
+    <div className="mindmap-card" ref={setCardEl}>
       <div className="mm-head">
         <span className="mm-glyph" aria-hidden="true">🧠</span>
         <div className="mm-titles">

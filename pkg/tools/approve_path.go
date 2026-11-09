@@ -8,6 +8,30 @@ import (
 	"unicode"
 )
 
+// Hit is why the path-aware gate asked: the rule that fired and the
+// fragment of the command text it matched. PathAwareApprove stashes it on
+// the context so the approval bridge can put both on the wire — the web
+// card shows the rule and highlights the fragment, answering "匹配中了
+// 什么" instead of parking a bare "approve?".
+type Hit struct {
+	Rule string // human label, e.g. "工作区外绝对路径"
+	Frag string // the command fragment to highlight, e.g. `D:\x.txt`
+}
+
+type hitKey struct{}
+
+// HitFromContext reports the cross-root hit PathAwareApprove stashed while
+// wrapping the approver, if any. ok is false for parks that carry no hit
+// (strict -approve, non-shell asks under it).
+func HitFromContext(ctx context.Context) (Hit, bool) {
+	h, ok := ctx.Value(hitKey{}).(Hit)
+	return h, ok
+}
+
+func withHit(ctx context.Context, h Hit) context.Context {
+	return context.WithValue(ctx, hitKey{}, h)
+}
+
 // PathAwareApprove wraps next into the default-mode approval gate: only a
 // run_shell command whose text reaches outside the workspace root parks a
 // card for the human; every other execution passes untouched. This is the
@@ -40,31 +64,36 @@ func PathAwareApprove(root string, next ApproveFunc) ApproveFunc {
 		}
 		var in shellInput
 		if err := json.Unmarshal(ev.Input, &in); err != nil {
+			// Unreadable input fails closed — carry a label so the card
+			// can say why it asked even though no fragment was found.
+			ctx = withHit(ctx, Hit{Rule: "输入无法解析（保守询问）"})
 			return next != nil && next(ctx, ev)
 		}
 		if strings.TrimSpace(in.Command) == "" {
 			return true // the tool rejects empty commands itself
 		}
-		if !commandCrossesRoot(rootAbs, in.Command) {
+		hit, crosses := commandCrossesRoot(rootAbs, in.Command)
+		if !crosses {
 			return true
 		}
-		return next != nil && next(ctx, ev)
+		return next != nil && next(withHit(ctx, hit), ev)
 	}
 }
 
 // commandCrossesRoot reports whether cmd's text references a path outside
-// root. The command is tokenized on whitespace with quotes honored (so
-// "D:\my dir\x" stays one token), then each token is split on "=" — the
-// value side of --out=D:\x carries the path — and each part judged.
-func commandCrossesRoot(root, cmd string) bool {
+// root, and which fragment triggered the judgment. The command is
+// tokenized on whitespace with quotes honored (so "D:\my dir\x" stays one
+// token), then each token is split on "=" — the value side of --out=D:\x
+// carries the path — and each part judged.
+func commandCrossesRoot(root, cmd string) (Hit, bool) {
 	for _, tok := range splitCommandTokens(cmd) {
 		for _, part := range strings.Split(tok, "=") {
-			if partCrossesRoot(root, part) {
-				return true
+			if hit, crosses := partCrossesRoot(root, part); crosses {
+				return hit, true
 			}
 		}
 	}
-	return false
+	return Hit{}, false
 }
 
 // partCrossesRoot judges one path-shaped fragment of the command. Order
@@ -73,43 +102,58 @@ func commandCrossesRoot(root, cmd string) bool {
 // own fragment, and absolute spellings are converted (msys) or taken as-is
 // before the bare-prefix rules — so an absolute path INSIDE the workspace
 // (D:\ws\f, /d/ws/f) passes while everything else absolute asks.
-func partCrossesRoot(root, p string) bool {
+func partCrossesRoot(root, p string) (Hit, bool) {
 	p = trimPartPunct(p)
 	if p == "" {
-		return false
+		return Hit{}, false
 	}
 	if strings.Contains(p, "://") {
-		return strings.HasPrefix(p, "file://") // file:// reads the fs; http(s):// does not
+		if strings.HasPrefix(p, "file://") {
+			return Hit{Rule: "file:// 本地路径", Frag: p}, true
+		}
+		return Hit{}, false // http(s):// does not touch the fs
 	}
 	if strings.ContainsAny(p, "<>;|&") {
 		for _, sub := range strings.FieldsFunc(p, func(r rune) bool {
 			return r == '<' || r == '>' || r == ';' || r == '|' || r == '&'
 		}) {
-			if partCrossesRoot(root, sub) {
-				return true
+			if hit, crosses := partCrossesRoot(root, sub); crosses {
+				return hit, true
 			}
 		}
-		return false
+		return Hit{}, false
 	}
 	if hasDrivePrefix(p) {
-		return confineEscapes(root, p)
+		if confineEscapes(root, p) {
+			return Hit{Rule: "工作区外绝对路径", Frag: p}, true
+		}
+		return Hit{}, false
 	}
 	if w, ok := msysToWindows(p); ok {
-		return confineEscapes(root, w)
+		if confineEscapes(root, w) {
+			return Hit{Rule: "工作区外绝对路径", Frag: p}, true
+		}
+		return Hit{}, false
 	}
 	if strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, `//`) {
-		return true // a UNC share is outside a local root (a UNC root is rare enough to ask)
+		return Hit{Rule: "UNC 共享路径", Frag: p}, true // a UNC share is outside a local root (a UNC root is rare enough to ask)
 	}
 	if strings.HasPrefix(p, "/") {
 		// Pseudo-device targets carry no data: `2>/dev/null` (or a
 		// </dev/null read) must not park an otherwise in-root command —
 		// every stderr-silencing probe round tripped that card.
-		return !isNullDeviceSpell(p)
+		if isNullDeviceSpell(p) {
+			return Hit{}, false
+		}
+		return Hit{Rule: "绝对路径", Frag: p}, true
 	}
 	if strings.HasPrefix(p, "~") || isEnvExpansion(p) {
-		return true // $HOME, %USERPROFILE%, ~ — statically unresolvable, so ask
+		return Hit{Rule: "环境变量/家目录展开", Frag: p}, true // $HOME, %USERPROFILE%, ~ — statically unresolvable, so ask
 	}
-	return confineEscapes(root, p) // relative words: ".." escapes flag, plain names resolve inside
+	if confineEscapes(root, p) {
+		return Hit{Rule: "相对路径越界 (..)", Frag: p}, true // relative words: ".." escapes flag, plain names resolve inside
+	}
+	return Hit{}, false
 }
 
 // splitCommandTokens splits a command on whitespace, keeping quoted spans
@@ -172,7 +216,7 @@ func hasDrivePrefix(p string) bool {
 
 // msysToWindows converts a leading msys/git-bash absolute path (/d/x →
 // D:/x, bare /d → D:\) so Confine can judge it. ok is false when p does
-// not start with that spelling — an embedded /a/b inside a longer word
+// not start that spelling — an embedded /a/b inside a longer word
 // (foo/a/b) is a relative path, not a msys volume.
 func msysToWindows(p string) (string, bool) {
 	if len(p) < 2 || p[0] != '/' {
@@ -183,8 +227,8 @@ func msysToWindows(p string) (string, bool) {
 		return "", false
 	}
 	up := c
-	if up >= 'a' && up <= 'z' {
-		up = up - 'a' + 'A'
+	if c >= 'a' && c <= 'z' {
+		up = c - 'a' + 'A'
 	}
 	if len(p) == 2 {
 		return string(rune(up)) + `:\`, true

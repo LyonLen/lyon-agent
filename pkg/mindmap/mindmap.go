@@ -77,10 +77,12 @@ const (
 )
 
 // The §6 hats — distiller output beyond these is dropped on arrival.
+// No per-branch child cap: a root may hold as many children as the
+// content needs (the old maxChildren=8 starved real outlines and made
+// the model emit "挂载上限" meta-nodes about the cap itself).
 const (
 	maxDepth          = 4   // root depth 0
 	maxNodes          = 60  // alive (non-tombstone) nodes
-	maxChildren       = 8   // alive children per branch
 	maxLabelRunes     = 200 // agent/distiller label sanity bound — content is NEVER cut at 24 (Image #62 「别省略」); aligned with the human bound so no origin truncates mid-sentence
 	maxUserLabelRunes = 200 // human rename sanity bound (human is authoritative below this)
 )
@@ -695,17 +697,6 @@ func aliveCount(g *state) int {
 	return n
 }
 
-func aliveChildren(g *state, parent string) int {
-	n := 0
-	for i := range g.Nodes {
-		c := &g.Nodes[i]
-		if !c.Tombstone && c.ParentID == parent && c.ID != parent {
-			n++
-		}
-	}
-	return n
-}
-
 // depthOf is a node's distance from the root (root = 0), with a cycle
 // guard so a corrupt graph can't hang the walk.
 func depthOf(g *state, id string) int {
@@ -963,9 +954,6 @@ func applyAdd(g *state, o Op, auth authority) error {
 		if aliveCount(g) >= maxNodes {
 			return fmt.Errorf("%w: node cap %d", ErrInvalid, maxNodes)
 		}
-		if parent != "" && aliveChildren(g, parent) >= maxChildren {
-			return fmt.Errorf("%w: child cap %d under %q", ErrInvalid, maxChildren, parent)
-		}
 		depth := 0
 		if parent != "" {
 			depth = depthOf(g, parent) + 1
@@ -983,9 +971,6 @@ func applyAdd(g *state, o Op, auth authority) error {
 		id = resolveID(g, id, label)
 		if aliveCount(g) >= maxNodes {
 			return fmt.Errorf("%w: node cap %d", ErrInvalid, maxNodes)
-		}
-		if parent != "" && aliveChildren(g, parent) >= maxChildren {
-			return fmt.Errorf("%w: child cap %d under %q", ErrInvalid, maxChildren, parent)
 		}
 		depth := 0
 		if parent != "" {
@@ -1105,9 +1090,6 @@ func applySetParent(g *state, o Op, auth authority) error {
 		return nil
 	}
 	if auth == authDistill {
-		if parent != "" && aliveChildren(g, parent) >= maxChildren {
-			return fmt.Errorf("%w: child cap %d under %q", ErrInvalid, maxChildren, parent)
-		}
 		d := 0
 		if parent != "" {
 			d = depthOf(g, parent) + 1

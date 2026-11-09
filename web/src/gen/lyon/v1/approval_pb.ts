@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/approval.proto.
  */
 export const file_lyon_v1_approval: GenFile = /*@__PURE__*/
-  fileDesc("ChZseW9uL3YxL2FwcHJvdmFsLnByb3RvEgdseW9uLnYxIo8BChRXYXRjaFBlbmRpbmdSZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2V4ZWNfaWQYAiABKAMSEQoJdG9vbF9uYW1lGAMgASgJEhIKCmlucHV0X2pzb24YBCABKAkSFwoPcmVxdWVzdGVkX2F0X21zGAUgASgDEhIKCm1vZGVfYmxvY2sYBiABKAgiFQoTV2F0Y2hQZW5kaW5nUmVxdWVzdCJ8Cg1EZWNpZGVSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDwoHZXhlY19pZBgCIAEoAxIPCgdhcHByb3ZlGAMgASgIEhAKCHJlbWVtYmVyGAQgASgIEiMKBmFjdGlvbhgFIAEoDjITLmx5b24udjEuTW9kZUFjdGlvbiJGCg5EZWNpZGVSZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2V4ZWNfaWQYAiABKAMSDwoHYXBwcm92ZRgDIAEoCCqWAQoKTW9kZUFjdGlvbhIbChdNT0RFX0FDVElPTl9VTlNQRUNJRklFRBAAEhQKEE1PREVfQUNUSU9OX0RFTlkQARIaChZNT0RFX0FDVElPTl9BTExPV19QQVRIEAISHAoYTU9ERV9BQ1RJT05fTU9ERV9ERUZBVUxUEAMSGwoXTU9ERV9BQ1RJT05fTU9ERV9CWVBBU1MQBDKbAQoPQXBwcm92YWxTZXJ2aWNlEk0KDFdhdGNoUGVuZGluZxIcLmx5b24udjEuV2F0Y2hQZW5kaW5nUmVxdWVzdBodLmx5b24udjEuV2F0Y2hQZW5kaW5nUmVzcG9uc2UwARI5CgZEZWNpZGUSFi5seW9uLnYxLkRlY2lkZVJlcXVlc3QaFy5seW9uLnYxLkRlY2lkZVJlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM");
+  fileDesc("ChZseW9uL3YxL2FwcHJvdmFsLnByb3RvEgdseW9uLnYxIrABChRXYXRjaFBlbmRpbmdSZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2V4ZWNfaWQYAiABKAMSEQoJdG9vbF9uYW1lGAMgASgJEhIKCmlucHV0X2pzb24YBCABKAkSFwoPcmVxdWVzdGVkX2F0X21zGAUgASgDEhIKCm1vZGVfYmxvY2sYBiABKAgSDgoGcmVhc29uGAcgASgJEg8KB21hdGNoZWQYCCABKAkiFQoTV2F0Y2hQZW5kaW5nUmVxdWVzdCJ8Cg1EZWNpZGVSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDwoHZXhlY19pZBgCIAEoAxIPCgdhcHByb3ZlGAMgASgIEhAKCHJlbWVtYmVyGAQgASgIEiMKBmFjdGlvbhgFIAEoDjITLmx5b24udjEuTW9kZUFjdGlvbiJGCg5EZWNpZGVSZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2V4ZWNfaWQYAiABKAMSDwoHYXBwcm92ZRgDIAEoCCqWAQoKTW9kZUFjdGlvbhIbChdNT0RFX0FDVElPTl9VTlNQRUNJRklFRBAAEhQKEE1PREVfQUNUSU9OX0RFTlkQARIaChZNT0RFX0FDVElPTl9BTExPV19QQVRIEAISHAoYTU9ERV9BQ1RJT05fTU9ERV9ERUZBVUxUEAMSGwoXTU9ERV9BQ1RJT05fTU9ERV9CWVBBU1MQBDKbAQoPQXBwcm92YWxTZXJ2aWNlEk0KDFdhdGNoUGVuZGluZxIcLmx5b24udjEuV2F0Y2hQZW5kaW5nUmVxdWVzdBodLmx5b24udjEuV2F0Y2hQZW5kaW5nUmVzcG9uc2UwARI5CgZEZWNpZGUSFi5seW9uLnYxLkRlY2lkZVJlcXVlc3QaFy5seW9uLnYxLkRlY2lkZVJlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM");
 
 /**
  * WatchPendingResponse is one pending approval (draft name ApprovalRequest;
@@ -57,6 +57,24 @@ export type WatchPendingResponse = Message<"lyon.v1.WatchPendingResponse"> & {
    * @generated from field: bool mode_block = 6;
    */
   modeBlock: boolean;
+
+  /**
+   * reason: why the gate parked this call — the human-readable rule label
+   * (e.g. "工作区外绝对路径"). Empty when the gate carried no hit info
+   * (strict -approve) or for mode_block cards.
+   *
+   * @generated from field: string reason = 7;
+   */
+  reason: string;
+
+  /**
+   * matched: the exact fragment of the input the rule matched — the client
+   * highlights it inside input_json so the human sees WHAT triggered the
+   * ask, not just that one happened.
+   *
+   * @generated from field: string matched = 8;
+   */
+  matched: string;
 };
 
 /**

@@ -151,15 +151,6 @@ func assertTree(t *testing.T, m *Manager, sid string) []Node {
 		if depth > maxDepth {
 			t.Errorf("node %s: depth %d > %d", n.ID, depth, maxDepth)
 		}
-		kids := 0
-		for _, c := range nodes {
-			if !c.Tombstone && c.ParentID == n.ID && c.ID != n.ID {
-				kids++
-			}
-		}
-		if kids > maxChildren {
-			t.Errorf("node %s: %d alive children > %d", n.ID, kids, maxChildren)
-		}
 	}
 	if alive > maxNodes {
 		t.Errorf("alive nodes %d > %d", alive, maxNodes)

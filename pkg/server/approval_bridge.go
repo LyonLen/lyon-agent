@@ -98,6 +98,13 @@ func (b *ApprovalBridge) ApproveFunc() tools.ApproveFunc {
 		}
 
 		key := parkKey{sid: sid, exec: e.ExecID}
+		// Why did the gate ask? PathAwareApprove stashes its hit on the
+		// context (rule label + matched fragment); strict -approve parks
+		// carry none and the card simply omits the reason row.
+		reason, matched := "", ""
+		if hit, ok := tools.HitFromContext(ctx); ok {
+			reason, matched = hit.Rule, hit.Frag
+		}
 		p := &park{
 			resp: &lyonv1.WatchPendingResponse{
 				SessionId:     sid,
@@ -105,6 +112,8 @@ func (b *ApprovalBridge) ApproveFunc() tools.ApproveFunc {
 				ToolName:      e.Name,
 				InputJson:     string(e.Input),
 				RequestedAtMs: time.Now().UnixMilli(),
+				Reason:        reason,
+				Matched:       matched,
 			},
 			ch: make(chan bool, 1),
 		}

@@ -97,7 +97,15 @@ type WatchPendingResponse struct {
 	// mode_block: a plan-mode interception, not a NeedsApproval ask — the
 	// client renders the chooser (vouch file / switch mode / deny) and
 	// answers with Decide.action instead of approve/remember.
-	ModeBlock     bool `protobuf:"varint,6,opt,name=mode_block,json=modeBlock,proto3" json:"mode_block,omitempty"`
+	ModeBlock bool `protobuf:"varint,6,opt,name=mode_block,json=modeBlock,proto3" json:"mode_block,omitempty"`
+	// reason: why the gate parked this call — the human-readable rule label
+	// (e.g. "工作区外绝对路径"). Empty when the gate carried no hit info
+	// (strict -approve) or for mode_block cards.
+	Reason string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	// matched: the exact fragment of the input the rule matched — the client
+	// highlights it inside input_json so the human sees WHAT triggered the
+	// ask, not just that one happened.
+	Matched       string `protobuf:"bytes,8,opt,name=matched,proto3" json:"matched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -172,6 +180,20 @@ func (x *WatchPendingResponse) GetModeBlock() bool {
 		return x.ModeBlock
 	}
 	return false
+}
+
+func (x *WatchPendingResponse) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *WatchPendingResponse) GetMatched() string {
+	if x != nil {
+		return x.Matched
+	}
+	return ""
 }
 
 type WatchPendingRequest struct {
@@ -351,7 +373,7 @@ var File_lyon_v1_approval_proto protoreflect.FileDescriptor
 
 const file_lyon_v1_approval_proto_rawDesc = "" +
 	"\n" +
-	"\x16lyon/v1/approval.proto\x12\alyon.v1\"\xd1\x01\n" +
+	"\x16lyon/v1/approval.proto\x12\alyon.v1\"\x83\x02\n" +
 	"\x14WatchPendingResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
@@ -361,7 +383,9 @@ const file_lyon_v1_approval_proto_rawDesc = "" +
 	"input_json\x18\x04 \x01(\tR\tinputJson\x12&\n" +
 	"\x0frequested_at_ms\x18\x05 \x01(\x03R\rrequestedAtMs\x12\x1d\n" +
 	"\n" +
-	"mode_block\x18\x06 \x01(\bR\tmodeBlock\"\x15\n" +
+	"mode_block\x18\x06 \x01(\bR\tmodeBlock\x12\x16\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\x12\x18\n" +
+	"\amatched\x18\b \x01(\tR\amatched\"\x15\n" +
 	"\x13WatchPendingRequest\"\xaa\x01\n" +
 	"\rDecideRequest\x12\x1d\n" +
 	"\n" +
