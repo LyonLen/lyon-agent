@@ -30,6 +30,19 @@ export default function SessionList(props: {
   // the prompt, a second confirms; the prompt self-expires.
   const [confirmDel, setConfirmDel] = useState("");
 
+  // Collapsed workspace groups, keyed by the group header's label — a
+  // click on the header folds every session under that path (the sidebar
+  // can hold dozens of rows per workspace; the fold is pure view state,
+  // sessions and the selection are untouched).
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const toggleGroup = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   // Sessions grouped by workspace (会话按工作区分开): insertion order
   // follows the server's recency sort, so the most recently touched
   // workspace leads and recency holds within each group.
@@ -100,14 +113,31 @@ export default function SessionList(props: {
           ↻
         </button>
       </div>
-      {groups.map(([ws, items]) => (
-        <div key={ws || "(default)"}>
-          <div className="list-section" title={ws || "(default)"}>
-            {wsName(ws)}
+      {groups.map(([ws, items]) => {
+        const key = ws || "(default)";
+        const open = !collapsed.has(key);
+        // One workspace per group — any session's flag speaks for all.
+        const repo = items.some((s) => s.gitRepo);
+        return (
+          <div key={key}>
+            <button
+              type="button"
+              className="list-section ws-head"
+              title={
+                (ws || "(default)") +
+                (repo ? " · git repository" : "") +
+                " — click to fold/unfold"
+              }
+              onClick={() => toggleGroup(key)}
+            >
+              <span className={"chev" + (open ? " open" : "")}>▸</span>
+              {wsName(ws)}
+              {repo && <span className="ws-git">git</span>}
+            </button>
+            {open && items.map(rowOf)}
           </div>
-          {items.map(rowOf)}
-        </div>
-      ))}
+        );
+      })}
       {props.sessions.length === 0 && (
         <div className="placeholder">no sessions yet</div>
       )}

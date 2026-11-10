@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lyon-agent 手册 — 从上手到演化机制</title>
-<meta name="description" content="lyon-agent 使用手册：快速上手、界面导览、按键与指令、演化机制（评分/考核/路由/覆盖门禁/workflow）、配置参考与常见问题。">
+<meta name="description" content="lyon-agent 使用手册：快速上手（lyond + web）、界面导览、交互指南（键位/命令面板/审批/手势）、演化机制（评分/考核/路由/覆盖门禁/workflow）、配置参考与常见问题。">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
 </head>
@@ -19,7 +19,7 @@
     <a href="#faq">FAQ</a>
     <a href="manual.en.html" title="English version">EN</a>
   </nav>
-  <span class="version">manual · v1</span>
+  <span class="version">manual · v2</span>
 </header>
 
 <main>
@@ -37,12 +37,12 @@
   <div class="toc">
     <strong>目录</strong>
     <ol>
-      <li><a href="#quickstart">快速上手 — 构建、凭证、三种运行方式</a></li>
-      <li><a href="#tour">界面导览 — 四个区域与步骤审计面板</a></li>
-      <li><a href="#keys">按键与指令 — 全键位、23 条斜杠命令</a></li>
+      <li><a href="#quickstart">快速上手 — 构建 lyond 与 web、凭证、启动</a></li>
+      <li><a href="#tour">界面导览 — 侧栏 · 聊天 · 平铺面板 · 底栏</a></li>
+      <li><a href="#keys">交互指南 — 键位 · 命令面板 · 审批卡片 · 手势</a></li>
       <li><a href="#evolution">演化机制 — 评分 · 考核 · 路由 · 覆盖门禁 · workflow</a></li>
-      <li><a href="#reference">配置参考 — 启动标志与环境变量全表</a></li>
-      <li><a href="#faq">常见问题 — 迭代预算、resume、门禁…</a></li>
+      <li><a href="#reference">配置参考 — lyond 启动标志与环境变量全表</a></li>
+      <li><a href="#faq">常见问题 — 迭代预算、会话恢复、门禁…</a></li>
       <li><a href="#arch">开发者地图 — 包结构导读</a></li>
     </ol>
   </div>
@@ -50,12 +50,14 @@
   <!-- ════════ 1 quickstart ════════ -->
   <section id="quickstart">
     <h2><span class="hash">1 ·</span>快速上手</h2>
-    <p class="lede">两条命令构建，一行配置凭证，三种运行方式按场景挑。</p>
+    <p class="lede">一条命令构建守护进程，一条命令起前端，浏览器打开就是工作台。</p>
 
     <h3>构建</h3>
-<pre><span class="c"># 仓库根目录（需要 Go ≥ 1.25，无其他依赖）</span>
-go build <span class="k">-o</span> bin/lyon   ./cmd/lyon     <span class="c"># 终端主程序：CLI + 全屏 TUI</span>
-go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># 可选：OpenAI 兼容网关 / SSE 服务</span></pre>
+<pre><span class="c"># 仓库根目录（需要 Go ≥ 1.25）</span>
+go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># 守护进程：会话 / 工具 / 审批 / 网关</span>
+
+<span class="c"># 前端 dev server（热更新；生产构建 npm run build）</span>
+<span class="p">$</span> cd web &amp;&amp; npm install &amp;&amp; npm run dev   <span class="c"># → http://localhost:5183</span></pre>
 
     <h3>凭证（二选一）</h3>
 <pre><span class="c"># A · Anthropic 官方端点</span>
@@ -65,177 +67,151 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
 <span class="p">$</span> export ANTHROPIC_BASE_URL=<span class="s">https://token-plan-cn.xiaomimimo.com/v1</span>
 <span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=<span class="s">&lt;your-key&gt;</span></pre>
 
-    <h3>三种运行方式</h3>
-    <table>
-      <thead><tr><th>命令</th><th>形态</th><th>适用场景</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code>lyon run "任务"</code></td>
-          <td>一次性执行</td>
-          <td>脚本/管道里跑完即退，可 <code>-stats</code> 打用量报表；stdin 关闭时审批自动拒绝（fail closed）</td>
-        </tr>
-        <tr>
-          <td><code>lyon chat</code></td>
-          <td>全屏 TUI</td>
-          <td>日常主入口：流式转录 + 右侧步骤面板 + 审批浮层；退出自动存档</td>
-        </tr>
-        <tr>
-          <td><code>lyon chat -c</code></td>
-          <td>恢复续聊</td>
-          <td>重启后接着上次的对话（转录重放、步骤面板原样恢复、用量续记 /stats）</td>
-        </tr>
-      </tbody>
-    </table>
-
-<pre><span class="p">$</span> ./bin/lyon chat                <span class="c"># 进 TUI，第一次 prompt 会自动注入本地记忆</span>
-<span class="p">$</span> ./bin/lyon chat <span class="k">-c</span>            <span class="c"># 换个终端窗口继续同一份会话</span>
-<span class="p">$</span> ./bin/lyon tools              <span class="c"># 列出全部工具（run_shell/read_file/…）</span></pre>
+    <h3>启动</h3>
+<pre><span class="p">$</span> ./bin/lyond <span class="k">-addr</span> 127.0.0.1:8080 <span class="k">-workspace</span> .
+<span class="c"># 浏览器打开 http://localhost:5183 —— 前端 dev server 同源代理到 8080，</span>
+<span class="c"># bearer token 随请求头自动带上，不需要手工配。</span></pre>
 
     <div class="note">
-      <strong>存储根：</strong>一切状态（会话、榜单、考核、workflow）都在
+      <strong>存储根：</strong>一切状态（会话草稿、榜单、考核、workflow、记忆）都在
       <code class="inline">$LYON_HOME</code>，默认 <code class="inline">~/.lyon</code>。
-      想隔离就在启动前改这个变量——测试、容器、CI 都靠它不碰真实 home。
+      想隔离就在启动前改这个变量——测试、容器、 CI 都靠它不碰真实 home。
     </div>
   </section>
 
   <!-- ════════ 2 tour ════════ -->
   <section id="tour">
     <h2><span class="hash">2 ·</span>界面导览</h2>
-    <p class="lede"><code class="inline">lyon chat</code> 的全屏工作区分成四块，各司其职。
-      转录区与输入行之间用<strong>分隔线</strong>隔开，分隔线上嵌一枚 Lyon 大字 logo（窄终端自动降级），
-      界面默认英文，<code class="inline">/lang zh</code> 或启动前设 <code class="inline">LYON_LANG=zh</code> 切中文。</p>
+    <p class="lede">工作台四块：<strong>会话侧栏</strong>（左）、<strong>聊天区</strong>（中）、
+      <strong>平铺面板</strong>（右侧与四周自由分割）、<strong>底栏</strong>（常驻状态）。
+      面板布局随会话保存，切会话各自恢复。</p>
 
-    <figure class="term tall">
-      <div class="bar">
-        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-        <span class="title">lyon chat — 工作台全景</span>
-      </div>
-      <iframe src="screens/tui-workbench.html" title="工作台截图" scrolling="auto"></iframe>
-      <figcaption>① 左侧转录区 · ② 底部输入行 · ③ 转录下方临时输出区 · ④ 右侧步骤审计面板</figcaption>
-    </figure>
-
-    <h3>① 转录区（左，可滚动）</h3>
+    <h3>① 会话侧栏</h3>
     <p>
-      只放<strong>问题、模型回答与调用活动</strong>：工具行、
-      本地斜杠命令执行后<strong>留痕</strong>在转录里（向上翻找得到，不再一闪而过）、
-      <code class="inline">📦 compaction</code>、审批与回滚审计。
-      token 用量不再逐轮往转录里打行——账本交给 <code class="inline">/stats</code>
-      与输入行右下角的<strong>常驻仪表</strong>（上下文占用、模型、轮次）。
-      markdown-lite 高亮、代码块着色、CJK 自动换行。
-      thinking 按块分组，流式期间实时显示，下一个非思考内容一到就<strong>严格折叠</strong>成
-      <code class="inline">▸ thinking · N lines</code> 一行（回放也同样折叠，历史里也不自动展开），
-      <code class="inline">ctrl+t</code> 全局展开/收起。
-      滚离底部即停止跟随，滚回底部自动恢复。
+      顶部 <code class="inline">+ new session</code> 打开<strong>工作区选择器</strong>
+      （像 VS Code 欢迎页：当前目录 / 浏览文件夹 / <strong>从 git clone</strong> / 最近列表）——
+      每个会话自选工作区，工具、文件、记忆、repomap 全部跟随该目录。
+      会话按<strong>工作区分组</strong>：组头点击折叠/展开该组全部会话，
+      git 仓库的组亮 <code class="inline">git</code> 徽章；
+      行内显示模式、<code class="inline">running</code> / <code class="inline">queued</code> 徽章与最近活跃时间。
+      删除是<strong>两次点击</strong>确认（× → 确认?，3 秒不点自愈）。
+      底部 <code class="inline">saved</code> 区是历史会话快照，点一下即恢复成可继续的会话。
     </p>
 
-    <h3>② 输入行（底）</h3>
+    <h3>② 聊天区</h3>
     <p>
-      单行输入，跟随滚动。<code class="inline">enter</code> 发送；
-      <code class="inline">/</code> 开头走本地命令并弹出候选层（↑↓ 选、回车执行高亮项、tab 补全、esc 关闭）；
-      唯一匹配的前缀直接执行（<code class="inline">/st</code> → <code class="inline">/stats</code>）。
-      <code class="inline">@路径</code> 引用工作区图片随消息发送，<code class="inline">alt+v</code> 直接把剪贴板里的截图存成
-      <code class="inline">.lyon/paste/</code> 下的文件并填好 <code class="inline">@路径</code>，<code class="inline">↑/↓</code> 空闲时回忆输入历史。
-      <strong>忙时打的字不会丢</strong>：prompt 正在跑时继续输入，回车会把这条消息排队；
-      下一轮工具执行前，队头插入当前提问的<strong>间隙</strong>——与该轮工具结果合并成
-      同一条 user 消息送达模型，不必等整段跑完（状态行提示
-      <code class="inline">已排队 (1) — 将插入当前提问的下一个间隙</code>，
-      <code class="inline">prompt_end</code> 补投兜底、中断照常排空）。
-      输入行右端是<strong>常驻用量仪表</strong>：上下文占用条、模型名、轮次；
-      窄终端（输入区不足 40 列）自动让位，不挤占输入。
+      流式转录：问题、模型回答、工具调用卡片与审批卡片。
+      markdown 全量渲染——代码块悬停出现 <strong>copy 按钮</strong>，
+      工具输出按 exit code 与关键词着色；
+      thinking 流式期间实时显示，随后严格折叠成一行，
+      <code class="inline">ctrl+o</code> 一键展开/收起全部折叠块。
+      每轮结束注入一张<strong>产出文件卡片</strong>（本 run 新写/改动的文件，差分口径，不误伤并行会话写过的路径）。
+      忙时继续输入不会丢：回车把消息<strong>排队</strong>，下一轮工具执行前插入间隙合并送达；
+      侧栏行同步亮 <code class="inline">queued</code> 计数。
     </p>
 
-    <h3>③ 临时输出区（转录下方，<code class="inline">── output ──</code>）</h3>
+    <h3>③ 平铺面板</h3>
     <p>
-      指令说明与查询结果（<code class="inline">/help</code> <code class="inline">/stats</code>
-      <code class="inline">/model</code> <code class="inline">/sessions</code> 等）渲染在这里，
-      最多 10 行、超出截断；新 prompt、<code class="inline">esc</code>、下一条指令都会清空——
-      永远只显示最新一次回答，聊天区不被查询结果刷屏。
+      面板可左右上下自由分割，同一类面板可以开多个，布局随会话持久化：
+    </p>
+    <table>
+      <thead><tr><th>面板</th><th>干什么</th></tr></thead>
+      <tbody>
+        <tr><td><code>steps</code></td><td>步骤审计：每次工具执行一行（名称 / 耗时 / 状态），进行中转圈、失败标红</td></tr>
+        <tr><td><code>files</code></td><td>工作区文件树 + <strong>SCM 页签</strong>（git 状态、diff、暂存操作）</td></tr>
+        <tr><td><code>preview</code></td><td>文件预览与代码编辑（markdown / 图片 / Office / xlsx / diff…）</td></tr>
+        <tr><td><code>terminal</code></td><td>工作区内嵌终端</td></tr>
+        <tr><td><code>plan</code></td><td>计划面板：todo_write 的可读步骤计划</td></tr>
+        <tr><td><code>mindmap</code></td><td>实时心智图（见下）</td></tr>
+        <tr><td><code>memory</code></td><td>项目记忆浏览：热层开关、忘记条目</td></tr>
+        <tr><td><code>settings</code></td><td>引擎与模型：当前模型卡、网关 /models 表、环境变量清单</td></tr>
+        <tr><td><code>evolve</code></td><td>演化面板（只读）：席位、考试时钟、榜单、路由表、题库、冻结流程</td></tr>
+      </tbody>
+    </table>
+    <p>
+      顶部可切换 <strong>dashboard</strong> 视图（任务执行统计面板）。
+      <strong>心智图</strong>与聊天平级：<code class="inline">ctrl+wheel</code> 缩放、
+      中键拖拽平移；选 mindmap 模式时图在前，<strong>图上编辑会回流成一条追问</strong>推进对话。
     </p>
 
-    <h3>④ 步骤审计面板（右）</h3>
+    <h3>④ 底栏</h3>
     <p>
-      每一次工具执行一行：序号、名称、耗时、状态，进行中的转圈、失败的标红；
-      <code class="inline">alt+↑/↓</code> 选步、<code class="inline">alt+enter</code> 展开完整操作、
-      <code class="inline">alt+o</code> 开关右列<strong>实时输出带</strong>（常驻显示运行中命令的
-      输出流，12 行封顶）、<code class="inline">alt+←/→</code> 调宽（28–72 列）；
-      这些键同时接受 <strong>alt+shift+… 变体</strong>（IDE 如 Trae 常吞掉裸 alt 键）。
-      面板底部有<strong>常驻键位提示行</strong>，不用记也能上手。
-      迭代预算耗尽时，被跳过的步骤如实标 <code class="inline">over budget</code> 而不是伪装成失败。
-      <strong>面板本身随会话持久化：</strong>存档时步骤列表（含每步耗时）写进快照，
-      <code class="inline">/resume</code> 或 <code class="inline">-c</code> 恢复后原样回来，
-      当时正在跑的行会诚实地关成 <code class="inline">interrupted</code>。
-    </p>
-
-    <h3>⑤ 进化面板（<code class="inline">alt+e</code> / <code class="inline">/evolve</code>）</h3>
-    <p>
-      与步骤面板同款的右侧弹窗，把演化机制的运行时状态摊开看：
-      每个任务类一行——席位 Agent、考试时钟（<code class="inline">0/10</code> 轮）、
-      近 50 张记分卡的均分，<code class="inline">EXAM</code> 黄标表示到点待考，
-      <code class="inline">(空缺)</code> 表示席位无人。
-      空榜时给出入门提示（怎么产生第一张记分卡、怎么手动开考）；
-      面板宽度随 <code class="inline">alt+←/→</code> 调节，与步骤面板互斥占位。
+      左侧<strong>模式芯片</strong>：点击展开选择器，<code class="inline">shift+tab</code> 循环
+      default → plan → bypass（mindmap 从选择器或 <code class="inline">/mindmap</code> 进）；
+      中间是常驻提示 <code class="inline">/ for commands · shift+tab mode · ↑ history</code>
+      与<strong>模型按钮</strong>（点击直达 settings 面板，带 👁 表示该模型支持图片输入）；
+      右下角是<strong>上下文仪表</strong>：HP 条按占用变色（绿 &lt; 20% ≤ 琥珀 ≤ 70% &lt; 软红），
+      右侧跟花费。
     </p>
 
     <div class="note">
-      <strong>审批浮层：</strong>chat 交互式默认在状态行弹 y/n（<code class="inline">-approve=false</code> 关）。
-      <code class="inline">y</code> 一次放行 · <strong><code class="inline">a</code> 本会话该工具全部放行</strong>
-      （长任务不被同一问题打断十次）· <code class="inline">n</code> 拒绝（超时/关窗一律拒绝，fail closed；拒绝不持久化）。
+      <strong>审批卡片：</strong>shell / 写文件等操作以卡片询问，卡上写明
+      <strong>「为什么问」</strong>（<code class="inline">匹配 …</code>）并高亮命中的输入片段；
+      三颗按钮 <code class="inline">approve(y)</code> · <code class="inline">deny(n)</code> ·
+      <code class="inline">always(a)</code>（a = 本会话该工具全部放行）。
+      plan 模式的拦截卡换成策略词汇：按文件放行 f / 切 default d / 切 bypass b / 拒绝 n。
+      键盘 <code class="inline">y n a</code> 直接应答（不占输入框）。
     </div>
   </section>
 
   <!-- ════════ 3 keys ════════ -->
   <section id="keys">
-    <h2><span class="hash">3 ·</span>按键与指令</h2>
+    <h2><span class="hash">3 ·</span>交互指南</h2>
+    <p class="lede">本章与 <code class="inline">/help</code> 的输出同源
+      （<code class="inline">web/src/keys.ts</code> + 命令表），以 web 实际行为为准。</p>
 
-    <h3>全键位</h3>
+    <h3>键位</h3>
     <table>
       <thead><tr><th>按键</th><th>行为</th></tr></thead>
       <tbody>
-        <tr><td><code>enter</code></td><td>发送（<code>/</code> 开头走本地命令；唯一匹配前缀直接执行）</td></tr>
-        <tr><td><code>tab</code></td><td>把候选弹层里选中的斜杠命令补进输入框</td></tr>
-        <tr><td><code>esc</code></td><td>只关弹层/输出区——不再中断 prompt（中断归 <code>ctrl+c</code>）</td></tr>
-        <tr><td><code>ctrl+c</code></td><td>忙时：中断当前 prompt（历史自动修复，可继续聊），再按一次退出；空闲：退出</td></tr>
-        <tr><td><code>ctrl+t</code></td><td>展开/折叠全部 thinking 块</td></tr>
-        <tr><td><code>ctrl+o</code></td><td>展开/折叠全部折叠块（thinking 等所有折叠区一键开关）</td></tr>
-        <tr><td><code>↑</code> / <code>↓</code></td><td>弹层开时移动候选，否则输入历史回忆</td></tr>
-        <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>步骤面板选步（首下选中最新，走到底回到实时跟随）；<code>alt+shift+…</code> 同效</td></tr>
-        <tr><td><code>alt+enter</code></td><td>展开/折叠选中步骤的完整操作；<code>alt+shift+enter</code> 同效</td></tr>
-        <tr><td><code>alt+o</code></td><td>开关右列实时输出带（常驻显示运行中命令的输出流，12 行封顶）</td></tr>
-        <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>面板加宽/变窄（28–72，转录列同步重排）；<code>alt+shift+…</code> 同效</td></tr>
-        <tr><td><code>alt+e</code></td><td>开关进化面板（榜单 / 考试时钟）；<code>alt+shift+e</code> 同效</td></tr>
-        <tr><td><code>shift+tab</code></td><td>循环切换 plan / bypass / default 模式</td></tr>
-        <tr><td><code>alt+v</code></td><td>粘贴剪贴板图片：落到 <code>.lyon/paste/</code> 并在输入框插入 <code>@path</code>（等价 <code>/paste</code>）</td></tr>
-        <tr><td><code>pgup</code> / <code>pgdn</code> / 滚轮</td><td>滚动转录（滚离底部停止跟随，回底部恢复）</td></tr>
+        <tr><td><code>enter</code></td><td>发送（忙时发送 = 排队）</td></tr>
+        <tr><td><code>shift+enter</code></td><td>换行</td></tr>
+        <tr><td><code>shift+tab</code></td><td>循环模式 default → plan → bypass</td></tr>
+        <tr><td><code>/</code></td><td>命令面板——<code class="inline">←/→</code> 切分类，<code class="inline">↑↓</code> 走行</td></tr>
+        <tr><td><code>@</code></td><td>文件补全——<code class="inline">Tab/Enter</code> 插入路径</td></tr>
+        <tr><td><code>↑</code> / <code>↓</code></td><td>输入历史（输入框为空时）</td></tr>
+        <tr><td><code>alt+←</code> / <code>alt+→</code></td><td>聚焦面板加宽 / 变窄</td></tr>
+        <tr><td><code>alt+↑</code> / <code>alt+↓</code></td><td>聚焦面板加高 / 变矮</td></tr>
+        <tr><td><code>ctrl+o</code></td><td>展开 / 收起全部 thinking 与折叠块</td></tr>
+        <tr><td><code>esc</code></td><td>关闭输出抽屉 / 弹层</td></tr>
+        <tr><td><code>y</code> <code>n</code> <code>a</code></td><td>应答审批卡（不占输入框）</td></tr>
       </tbody>
     </table>
 
-    <h3>斜杠指令（23 条，输入 <code>/</code> 即见）</h3>
+    <h3>命令面板（输入 <code>/</code> 即见，23 条）</h3>
     <table>
-      <thead><tr><th>指令</th><th>作用</th></tr></thead>
+      <thead><tr><th>命令</th><th>作用</th></tr></thead>
       <tbody>
-        <tr><td><code>/stats</code></td><td>用量表：token、缓存命中、工具 p50/p95 延迟</td></tr>
-        <tr><td><code>/clear</code></td><td>清屏（会话历史保留）</td></tr>
-        <tr><td><code>/resume [N]</code></td><td>恢复存档；多份弹选择列表，<code>/resume N</code> 指定第 N 份</td></tr>
-        <tr><td><code>/sessions</code></td><td>列出全部存档（序号、时间、消息数）</td></tr>
-        <tr><td><code>/new</code></td><td>开新会话（当前对话先归档）</td></tr>
-        <tr><td><code>/memory</code></td><td>分层记忆库：查看、切热层、云同步</td></tr>
+        <tr><td><code>/new</code></td><td>开新会话（先弹工作区选择器）</td></tr>
+        <tr><td><code>/resume [N]</code></td><td>选择恢复一份历史会话（N = 第 N 份）</td></tr>
+        <tr><td><code>/rollback</code></td><td>列检查点 · <code>/rollback N</code> 回退 · <code>save [text]</code> 打标记</td></tr>
+        <tr><td><code>/undo</code></td><td>撤销上一轮的文件改动（git side-ref）</td></tr>
+        <tr><td><code>/clear</code></td><td>清空转录视图（历史保留）</td></tr>
+        <tr><td><code>/mode</code></td><td>循环 default → plan → bypass</td></tr>
+        <tr><td><code>/model</code></td><td>显示本会话生效模型</td></tr>
+        <tr><td><code>/think</code></td><td>展开 / 收起 thinking 块（同 ctrl+o）</td></tr>
+        <tr><td><code>/steps</code></td><td>开 / 关步骤面板 · <code>width N</code> 调宽</td></tr>
+        <tr><td><code>/mindmap</code>（<code>/mm</code>）</td><td>打开心智图面板</td></tr>
+        <tr><td><code>/memory</code></td><td>浏览项目记忆——热层开关、忘记</td></tr>
+        <tr><td><code>/settings</code></td><td>打开引擎与模型设置面板</td></tr>
+        <tr><td><code>/evolve</code> <code>/exam</code> <code>/contest</code> <code>/route</code> <code>/agents</code> <code>/flow</code> <code>/market</code></td><td>演化家族——打开只读 evolve 面板的对应分区（席位 / 题库与考试时钟 / 竞争上岗 / 路由表 / 候选谱系 / 冻结流程 / 工时市场）</td></tr>
         <tr><td><code>/remember</code></td><td>立刻把本会话的学习点蒸馏进记忆</td></tr>
-        <tr><td><code>/rollback [N]</code></td><td>回滚到检查点（含 compact 前检查点）；裸命令列清单</td></tr>
-        <tr><td><code>/model</code></td><td>模型卡：上下文窗口、官方参数、价格（<code>ANTHROPIC_MODEL</code> 可换）</td></tr>
-        <tr><td><code>/mode</code></td><td>plan（只读）/ bypass（自动放行）/ default 三档切换</td></tr>
-        <tr><td><code>/think</code></td><td>同 <code>ctrl+t</code>，展开/折叠 thinking</td></tr>
-        <tr><td><code>/paste</code></td><td>把剪贴板图片存成 <code>.lyon/paste/</code> 文件并插入 <code>@path</code>（同 <code>alt+v</code>）</td></tr>
-        <tr><td><code>/steps</code></td><td>步骤面板：裸命令开关，或 <code>open/close/width N</code></td></tr>
-        <tr><td><code>/evolve</code></td><td>进化面板：分类榜单、考试时钟（同 <code>alt+e</code>）</td></tr>
-        <tr><td><code>/route [text]</code></td><td>路由证据表；<code>/route &lt;任务&gt;</code> 做分类 + 推荐 + 画像对比</td></tr>
-        <tr><td><code>/exam [class]</code></td><td>手动闭卷考核（每 10 轮自动考，<code>LYON_EXAM=off</code> 关）</td></tr>
-        <tr><td><code>/contest [class]</code></td><td>竞争上岗：全部候选同考 held-out 任务（单候选拒考并提示先 <code>/agents add</code>）</td></tr>
-        <tr><td><code>/agents</code></td><td>候选名单：<code>list</code> · <code>add &lt;id&gt; &lt;model&gt; [effort]</code> · <code>rm &lt;id&gt;</code></td></tr>
-        <tr><td><code>/market</code></td><td>任务工时市场：历史台账 + 分类预估</td></tr>
-        <tr><td><code>/flow …</code></td><td>workflow：list · show · match · export · save &lt;slug&gt;</td></tr>
-        <tr><td><code>/lang zh|en</code></td><td>切换界面语言（也可启动前设 <code>LYON_LANG=zh</code>）</td></tr>
-        <tr><td><code>/help</code></td><td>指令与按键速查</td></tr>
-        <tr><td><code>/quit</code></td><td>退出（<code>/exit</code>、<code>:q</code> 同义）</td></tr>
+        <tr><td><code>/stats</code></td><td>用量合计——轮次、token、缓存命中</td></tr>
+        <tr><td><code>/help</code></td><td>命令与键位速查</td></tr>
+      </tbody>
+    </table>
+
+    <h3>侧栏与面板手势</h3>
+    <table>
+      <thead><tr><th>动作</th><th>行为</th></tr></thead>
+      <tbody>
+        <tr><td>点组头</td><td>折叠 / 展开该工作区下全部会话</td></tr>
+        <tr><td>点 <code>×</code> 两次</td><td>删除会话（第一次变「确认?」，3 秒自愈）</td></tr>
+        <tr><td>点 saved 行</td><td>恢复该历史快照为可继续会话</td></tr>
+        <tr><td>代码块悬停</td><td>右上角出现 <code>copy</code> 按钮，点成 <code>copied ✓</code></td></tr>
+        <tr><td>心智图 <code>ctrl+wheel</code></td><td>缩放（松手后跟随自动适配可被手动覆盖）</td></tr>
+        <tr><td>心智图中键拖拽</td><td>从任意位置平移画布（含节点上）</td></tr>
+        <tr><td>点模型按钮</td><td>直达 settings 面板</td></tr>
       </tbody>
     </table>
   </section>
@@ -245,16 +221,16 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <h2><span class="hash">4 ·</span>演化机制</h2>
     <p class="lede">
       这是 lyon 区别于「一次性聊天工具」的核心：跑任务留证据、证据变分数、
-      分数决定上岗、考核守住能力、路由把任务送给最会的、门禁与冻结把可靠的部分固化成机械流程。
-      四层代码： <code class="inline">pkg/eval</code> <code class="inline">pkg/routing</code>
-      <code class="inline">pkg/models</code> <code class="inline">pkg/flow</code>。设计文档见
-      <code class="inline">docs/design/agent-evolution.md</code>。
+      分数决定上岗、考核守住能力、路由记录谁最会、门禁与冻结把可靠的部分固化成机械流程。
+      演化循环下沉在 <code class="inline">pkg/evolve</code>，由 lyond 在每次
+      <code class="inline">prompt_end</code> 挂钩驱动——web 会话与任何入口跑的是同一套循环。
+      设计文档见 <code class="inline">docs/design/agent-evolution.md</code>。
     </p>
 
     <ol class="flow">
       <li><strong>生产评分 → 在岗榜单</strong><span>每一次真实运行都会变成一张记分卡。</span></li>
       <li><strong>闭卷考核 → 淘汰机制</strong><span>每 10 轮考一次，连挂 2 次撤职。</span></li>
-      <li><strong>任务分类 → 推荐路由</strong><span>把下一类任务交给证据最好的 Agent。</span></li>
+      <li><strong>任务分类 → 推荐路由</strong><span>把任务归类，证据进推荐表。</span></li>
       <li><strong>知识覆盖率门禁</strong><span>开卷之前先证明「学过了」。</span></li>
       <li><strong>workflow 冻结 → 机械执行</strong><span>可靠的部分固化成数据，LLM 只做节点内填空。</span></li>
     </ol>
@@ -268,10 +244,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       按任务类（coding / fix / review / research / writing / design / data / general）分别记账，
       每个 Agent 保留最近 50 张记分卡；每来一张新卡就重新推选 on-duty（证据最新且达标的当选）。
       <strong>普通 prompt 跑完自动入榜：</strong>无标准答案时由<strong>盲评裁判</strong>打分
-      （一次低价调用给出 0–1 的 correctness，TUI 后台判分、<code class="inline">lyon run</code> 收尾入账，
+      （一次低价调用给出 0–1 的 correctness，引擎在 prompt 结束后异步入账，
       <code class="inline">LYON_SCORE=off</code> 可关），判分失败不入账——宁缺毋滥。
-      <code class="inline">lyon run -flow</code> 的流程结果以 <code class="inline">source=flow</code> 入榜，
-      correctness 直接取节点通过率。
     </p>
 
     <h3>4.2 · 闭卷考核（每 10 轮）</h3>
@@ -282,27 +256,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       <code class="inline">DefaultExamPass = 0.75</code>（4 题过 3）。
       时钟：每 10 次成功 prompt 记一轮，到点且席位有人时自动开考；
       <strong>连挂 2 次 → 撤职</strong>，席位空缺，下一张生产记分卡重新选举。
-      考核异步跑在步骤面板里，不打断你手头的活；判卷得分当场回显在步骤行里。
+      考核异步执行、不打断进行中的 prompt；考试时钟与题库在 evolve 面板可查，
+      <code class="inline">LYON_EXAM=off</code> 可关（轮次照记）。
     </p>
-
-    <div class="shots" style="margin-top:20px;">
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/route — 分类 + 推荐 + 画像</span>
-        </div>
-        <iframe src="screens/tui-route.html" title="路由截图" scrolling="auto"></iframe>
-        <figcaption>裸 <code class="inline">/route</code> 是证据表 + 考核时钟 + 当前模型画像。</figcaption>
-      </figure>
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/exam — 闭卷判卷</span>
-        </div>
-        <iframe src="screens/tui-exam.html" title="考核截图" scrolling="auto"></iframe>
-        <figcaption>带标准答案判卷，Pct ≥ 0.75 才算过，得分当场回显。</figcaption>
-      </figure>
-    </div>
 
     <h3>4.3 · 任务分类与推荐路由</h3>
     <p>
@@ -314,16 +270,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       样本越多置信越高，新玩家要靠真实分数挣位置。
       <code class="inline">pkg/models</code> 注册表 32 个模型全部标注
       Reasoning / LongHaul / Openness / Speed / Thrift 五维 0–5 画像。
-      <code class="inline">/route &lt;文本&gt;</code> 会把任务开放度与模型画像对比，
-      开放度超过画像时提示换将，并附 workflow 匹配建议。
-    </p>
-    <p>
-      <strong>消费闭环</strong>：<code class="inline">lyon run</code> 未显式钉
-      <code class="inline">-model</code> 时自动 consult 推荐表——该任务类的在岗席位
-      样本 ≥3 且置信 ≥0.35，本次就直接用它干（打印
-      <code class="inline">⇄ routing [class] model …</code>）；显式
-      <code class="inline">-model</code> 永远优先。考试与评分改写谁在岗，
-      下一个任务就交给谁——<strong>进化的输出真正变成行为</strong>。
+      分类、榜单与推荐表在 evolve 面板的 <code class="inline">/route</code> 分区直接可读。
     </p>
 
     <h3>4.4 · 知识覆盖率门禁</h3>
@@ -331,12 +278,11 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       开卷干活之前先<strong>两段闭卷测验</strong>：<code class="inline">GenSystem</code>
       从任务生成可核对的 Q/A 清单 → <code class="inline">BookSystem</code> 盲答 → 对照评分；
       低于 <code class="inline">CoverageThreshold = 0.6</code> 算缺口，
-      缺口行（<code class="inline">问题 → 期望答案</code>）拼进任务正文定向注入，
-      flow 里经 <code class="inline">{{input}}</code> 进入每个节点的 prompt。
-      门禁本身出错只记 <code class="inline">gate skipped</code>，<strong>永不阻断</strong>。
-      入口：<code class="inline">lyon run -coverage</code>（打印得分）、
-      <code class="inline">lyon run -flow</code> 默认挂门（<code class="inline">LYON_FLOW_GATE=off</code> 关）、
-      <code class="inline">/flow save</code> 强制过门且把缺口烙进节点。
+      缺口行（<code class="inline">问题 → 期望答案</code>）拼进任务正文定向注入。
+      实现在 <code class="inline">pkg/eval/coverage.go</code>，
+      与执行器的接线在 <code class="inline">pkg/flow/glue.go</code>（NewGate / NewDiagnose）。
+      设计原则是<strong>永不阻断</strong>：门禁自身出错只记
+      <code class="inline">gate skipped</code>，绝不拦下任务。
     </p>
 
     <h3>4.5 · workflow 冻结与机械执行</h3>
@@ -354,168 +300,83 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       用户文件 <code class="inline">$LYON_HOME/workflows/*.json</code> 按 slug 覆盖内置。
     </p>
     <p>
-      <strong>冻结入口</strong> <code class="inline">/flow save &lt;slug&gt;</code>：
-      把本会话的 prompt 组序列化为节点，前置两道门——该任务类闭卷考核通过 + 覆盖率门禁（缺口烙入）——才落盘。
-      <strong>执行入口</strong> <code class="inline">lyon run -flow &lt;slug&gt; "任务"</code>：
-      gate → 节点循环（收模型输出、跑 command 判据、窄 judge、诊断回灌）→ 结果打分入榜 + 进推荐表 →
-      非全过退出码 1。失败的 prompt 异步跑 <code class="inline">SummarizeFailure</code>，
-      产出可核对条件 + patch，面板显示、audit 留痕。
-    </p>
-    <p>
-      <strong>自动固化（§3.1）</strong>：同一 slug <strong>连续 3 次绿灯</strong>后，
-      <code class="inline">lyon run -flow</code> 自动把该 workflow 冻结为
-      <code class="inline">$LYON_HOME/workflows/&lt;slug&gt;-proven.json</code>，
-      标题带溯源（streak 次数 · 最近得分 · 冻结时的模型）；红灯清零重计，
-      <code class="inline">LYON_AUTOFREEZE=off</code> 关闭。
-      经得起生产检验的流程自己变成工件。
+      会话里的执行入口是 agent 的 <strong><code class="inline">flow</code> 工具</strong>
+      （三个动作：<code class="inline">list</code> 列冻结清单 ·
+      <code class="inline">run</code> 按名参执行一串已固化的步骤 ·
+      <code class="inline">freeze</code> 把刚验证成功的步骤序列存成 slug）——
+      模型自己就能以一次调用代替重新推导整套命令序列。
+      冻结的流程、固化时钟与执行痕迹都持久化在 <code class="inline">$LYON_HOME</code>，
+      evolve 面板的 <code class="inline">/flow</code> 分区可查。
     </p>
 
-    <div class="shots" style="margin-top:20px;">
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/flow show feature-dev — 冻结后的流程</span>
-        </div>
-        <iframe src="screens/tui-flow.html" title="workflow 截图" scrolling="auto"></iframe>
-        <figcaption>每个节点的退出判据与失败策略一目了然，状态可查、可复盘。</figcaption>
-      </figure>
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/help — 指令速查弹层</span>
-        </div>
-        <iframe src="screens/tui-help.html" title="帮助截图" scrolling="auto"></iframe>
-        <figcaption>本手册第 3 章的指令表就是这 23 条，随二进制内置。</figcaption>
-      </figure>
+    <div class="note">
+      <strong>历史实跑验证（2026-10-12 19:12 → 10-13 06:34，11 小时 21 分）：</strong>
+      整夜驱动 <strong>224 轮全部成功退出（0 失败）</strong>，平均约 3 分钟/轮；
+      20 场闭卷考核 <strong>18 PASS / 2 FAIL</strong>——在岗模型连挂两场即被降级，
+      席位由生产证据重新选举（被驱逐者不自动回位）；
+      206 次盲评入榜、得分 0.80–1.00 确有区分度；
+      bugfix 流程 18 连绿自动固化，终局路由表 fix 类 100 样本 / 置信 0.96。
+      这套机制的原始驱动脚本随旧版演示一并下线，产物仍可在 <code class="inline">$LYON_HOME</code> 里复盘。
     </div>
-
-    <h3>4.6 · 自进化 Demo（<code class="inline">demo/</code>，整夜实跑）</h3>
-    <p>
-      <strong>一键复现</strong> <code class="inline">bash demo/evolve-loop.sh</code>：
-      驱动脚本在 <code class="inline">.demo/</code> 下物化模板工程
-      <code class="inline">demo/template</code>（一个 3 函数的 Go 算术库），
-      每轮 <code class="inline">git clone</code> 出干净工作区、注入 bug 或布置新任务
-      （修复/实现/评审/调研/写作轮转），用 3 个候选模型串行跑
-      <code class="inline">lyon run</code>：前 9 轮钉模型铺证据，之后不钉
-      <code class="inline">-model</code> 让路由表自己选将；每 6 轮的修复任务改走
-      <code class="inline">-flow bugfix</code> 机械流程；考试时钟到点自动带上
-      <code class="inline">-exam &lt;class&gt;</code>。
-    </p>
-    <p>
-      <strong>产物</strong>全部持久化在 <code class="inline">.demo/evolve-home/</code>
-      （即 demo 的 <code class="inline">$LYON_HOME</code>）：
-      <code class="inline">leaderboard.json</code>（在岗席位与候选记分卡）、
-      <code class="inline">routing.json</code>（分类推荐网络）、
-      <code class="inline">exams/&lt;class&gt;.json</code>（题库）、
-      <code class="inline">workflows/*-proven.json</code>（自动固化的流程）、
-      <code class="inline">flow-streak.json</code>（固化时钟）、
-      <code class="inline">audit/</code>（评分审计）。
-      <strong>串行是硬约束</strong>：榜单/路由 JSON 进程内互斥 + 原子替换，
-      但没有跨进程文件锁——并行写同一 <code class="inline">$LYON_HOME</code> 会互相覆盖。
-    </p>
-    <p>
-      <strong>实跑结果（2026-10-12 19:12 → 10-13 06:34，11 小时 21 分）</strong>：
-      <strong>224 轮全部成功退出（0 失败）</strong>，平均约 3 分钟/轮。
-    </p>
-    <p>
-      <strong>考试（§1.4）</strong>：共 20 场，<strong>18 PASS / 2 FAIL</strong>。
-      关键事件——research 在岗的 mimo-v2.6-flash 连续两场失利（23:06 得 1/4 →
-      03:35 得 2/4），触发降级（<code class="inline">demoted after two failures —
-      the seat is open</code>）。席位清空后由生产证据重新选举：flash 的近 10 场
-      均分被 0.5 败绩拖到 ~0.94，旧挑战者 mimo-v2.6-pro 以 0.95 当选并保持到收尾
-      ——<strong>被驱逐者不自动回位，席位靠证据重赛</strong>。
-      <strong>生产评分（§1.2）</strong>：206 次盲评入榜，得分区间 0.80–1.00，
-      含 4 个真实低分（0.80/0.82/0.85/0.86），评分确有区分度；榜单累计 208 张
-      记分卡（单 agent 上限 50 张滚动）。
-    </p>
-    <p>
-      <strong>消费闭环（§5）</strong>：<code class="inline">⇄ routing</code> 换手
-      实录 8 次（样例 <code class="inline">⇄ routing [fix] mimo-v2.5-pro (12
-      samples, confidence 0.78)</code>），终局路由表：
-    </p>
-    <table>
-      <thead><tr><th>类</th><th>样本</th><th>置信</th><th>推荐模型</th></tr></thead>
-      <tbody>
-        <tr><td>fix</td><td>100</td><td>0.96</td><td>mimo-v2.6-flash</td></tr>
-        <tr><td>coding</td><td>61</td><td>0.94</td><td>mimo-v2.6-flash</td></tr>
-        <tr><td>review</td><td>30</td><td>0.89</td><td>mimo-v2.6-flash</td></tr>
-        <tr><td>writing</td><td>30</td><td>0.87</td><td>mimo-v2.6-flash</td></tr>
-        <tr><td>research</td><td>30</td><td>0.85</td><td>mimo-v2.6-flash</td></tr>
-      </tbody>
-    </table>
-    <p>
-      <strong>自动固化（§3.1）</strong>：bugfix 流程 18 连绿、0 失败，自第 3 绿起
-      自动固化并随每盏绿灯刷新（共 16 次），终局溯源标题
-      <code class="inline">缺陷修复标准流程 (frozen after 18 green runs · score
-      1.00 · mimo-v2.6-flash)</code>。
-      <strong>持久化的一套 agent</strong>（<code class="inline">$LYON_HOME</code>
-      = <code class="inline">.demo/evolve-home/</code>，重启进程原样恢复）：
-      <code class="inline">leaderboard.json</code>（7 类在岗席位 + 208 张记分卡）、
-      <code class="inline">routing.json</code>（推荐网络）、
-      <code class="inline">exams/*.json</code>（5 类题库）、
-      <code class="inline">workflows/bugfix-proven.json</code>（固化流程）、
-      <code class="inline">flow-streak.json</code>（固化时钟）、
-      <code class="inline">audit/</code>（两日评分审计 ≈2.4MB）。
-      <strong>夜间补洞</strong>：judge 超时 60s→240s、thinking 预算 1024→4096、
-      flow 窄评 64→1024、分类器补关键词——修复后终版实例 judge 失败 0 次。
-    </p>
   </section>
 
   <!-- ════════ 5 reference ════════ -->
   <section id="reference">
     <h2><span class="hash">5 ·</span>配置参考</h2>
 
-    <h3>启动标志（run / chat 通用，chat 另有专属）</h3>
+    <h3>lyond 启动标志</h3>
     <table>
       <thead><tr><th>标志</th><th>默认</th><th>说明</th></tr></thead>
       <tbody>
-        <tr><td><code>-model</code></td><td><code>claude-opus-5-5</code></td><td>模型 id（<code>ANTHROPIC_MODEL</code> 同效）</td></tr>
-        <tr><td><code>-effort</code></td><td><code>medium</code></td><td>推理档位：low | medium | high | xhigh | max</td></tr>
-        <tr><td><code>-workspace</code></td><td><code>.</code></td><td>shell/文件工具的禁闭根</td></tr>
-        <tr><td><code>-approve</code></td><td>chat TTY 默认开</td><td>shell/写文件前人工确认；<code>-approve=false</code> 关，管道 stdin 不弹（防脚本卡死）</td></tr>
-        <tr><td><code>-max-iter</code></td><td><code>0</code>（无限）</td><td>单 prompt 的 API 调用上限，正整数才生效（<code>LYON_MAX_ITER</code> 同效），见 <a href="#faq">FAQ</a></td></tr>
+        <tr><td><code>-addr</code></td><td><code>127.0.0.1:8080</code></td><td>监听地址（非回环必须带 <code>-token</code> 或 <code>-insecure</code>）</td></tr>
+        <tr><td><code>-workspace</code></td><td><code>.</code></td><td>工具禁闭根（会话可另行自选工作区）</td></tr>
+        <tr><td><code>-token</code></td><td>env <code>LYON_TOKEN</code></td><td>除 /healthz 外全部路由的 bearer 令牌</td></tr>
+        <tr><td><code>-insecure</code></td><td>关</td><td>允许无令牌的非回环监听（仅内网调试）</td></tr>
+        <tr><td><code>-model</code></td><td>引擎默认</td><td>模型 id（<code>LYON_MODEL</code> / <code>ANTHROPIC_MODEL</code> 同效）</td></tr>
+        <tr><td><code>-effort</code></td><td>—</td><td>推理档位：low | medium | high | xhigh | max</td></tr>
+        <tr><td><code>-max-iter</code></td><td><code>0</code>（无限）</td><td>单 prompt 的 API 调用上限（env <code>LYON_MAX_ITER</code> 同效），见 <a href="#faq">FAQ</a></td></tr>
+        <tr><td><code>-max-sessions</code></td><td><code>1024</code></td><td>准入上限，超出返回 429</td></tr>
+        <tr><td><code>-session-ttl</code></td><td><code>30m</code></td><td>空闲会话回收（<code>0</code> 关闭；回收只卸载到磁盘，不删）</td></tr>
         <tr><td><code>-shell-allow</code></td><td>—</td><td>shell 命令白名单，逗号分隔（<code>echo,ls,git</code>）</td></tr>
-        <tr><td><code>-web-tools</code></td><td><code>auto</code></td><td>web_search/web_fetch：server | client | off（<code>-no-web-tools</code> 是 off 的简写）</td></tr>
-        <tr><td><code>-mcp</code> / <code>-mcp-http</code></td><td>—</td><td>接 MCP 服务器：<code>name=cmd args</code> / <code>name=url</code>，可重复</td></tr>
-        <tr><td><code>-subagent-model</code></td><td><code>claude-haiku-5-5</code></td><td>run_subagent 用的低配额模型</td></tr>
-        <tr><td><code>-compact-threshold</code></td><td><code>0.7</code></td><td>压缩触发（上下文占比），负数禁用</td></tr>
-        <tr><td><code>-context-window</code></td><td><code>200000</code></td><td>压缩比例的分母</td></tr>
-        <tr><td><code>-max-turns</code></td><td>不限</td><td>全局并发 turn 上限</td></tr>
-        <tr><td><code>-prewarm</code></td><td>关</td><td>首个 prompt 前预热缓存</td></tr>
-        <tr><td><code>-system</code></td><td>—</td><td>自定义 system prompt 文件（保持冻结）</td></tr>
-        <tr><td><code>-openai</code> / <code>-openai-base</code></td><td>关</td><td>说 OpenAI 协议连网关（env <code>LYON_OPENAI_BASE</code>）</td></tr>
-        <tr><td><code>-stats</code></td><td>关</td><td><em>仅 run：</em>结束后打印累计用量 + 工具指标</td></tr>
-        <tr><td><code>-flow &lt;slug&gt;</code></td><td>—</td><td><em>仅 run：</em>机械执行 workflow 而非自由 prompt</td></tr>
-        <tr><td><code>-coverage</code></td><td>关</td><td><em>仅 run：</em>覆盖率前置门禁，缺口中注入</td></tr>
-        <tr><td><code>-exam auto|&lt;class&gt;</code></td><td>—</td><td><em>仅 run：</em>先考核后执行（考挂只警告，记分照存）</td></tr>
-        <tr><td><code>-c</code> / <code>-continue</code></td><td>关</td><td><em>仅 chat：</em>恢复本工作区上次会话</td></tr>
-        <tr><td><code>-plain</code></td><td>关</td><td><em>仅 chat：</em>行式 REPL（非 TTY 自动退化）</td></tr>
+        <tr><td><code>-web-tools</code></td><td><code>auto</code></td><td>web_search/web_fetch：server | client | off</td></tr>
+        <tr><td><code>-max-turns</code></td><td><code>0</code>（不限）</td><td>全局并发 turn 上限（跨会话）</td></tr>
+        <tr><td><code>-prewarm</code></td><td>关</td><td>服务前预热 prompt 缓存（一次极小请求）</td></tr>
+        <tr><td><code>-approve</code></td><td>关</td><td>严格审批：每个写文件/shell 都过 web ApprovalService 卡片；默认（不带此标志）是路径感知——只有越出工作区的 shell 才问</td></tr>
+        <tr><td><code>-openai</code></td><td>关</td><td>说 OpenAI 协议连网关（<code>LYON_OPENAI_BASE</code> 同效）</td></tr>
+        <tr><td><code>-openai-base</code></td><td>—</td><td>OpenAI 兼容 base URL，如 <code>https://host/v1</code>（隐含 <code>-openai</code>）</td></tr>
       </tbody>
     </table>
 
-    <h3>环境变量</h3>
+    <h3>环境变量（与 web Settings 面板的清单同源）</h3>
     <table>
       <thead><tr><th>变量</th><th>作用</th></tr></thead>
       <tbody>
-        <tr><td><code>ANTHROPIC_AUTH_TOKEN</code></td><td>API 密钥（与 <code>ANTHROPIC_BASE_URL</code> 搭配即可接任意兼容端点）</td></tr>
-        <tr><td><code>ANTHROPIC_BASE_URL</code></td><td>覆盖默认 API 地址</td></tr>
-        <tr><td><code>ANTHROPIC_MODEL</code></td><td>默认模型覆盖</td></tr>
-        <tr><td><code>LYON_HOME</code></td><td>存储根（默认 <code>~/.lyon</code>）：会话/榜单/考核/ workflow 全在这</td></tr>
-        <tr><td><code>LYON_MAX_ITER</code></td><td>单 prompt 迭代预算（非负整数：<code>0</code>=不限，默认不设上限）</td></tr>
+        <tr><td><code>LYON_MODEL</code></td><td>主循环模型（优先于 <code>ANTHROPIC_MODEL</code>）</td></tr>
+        <tr><td><code>LYON_SUBAGENT_MODEL</code></td><td>子代理 / 低成本档模型</td></tr>
+        <tr><td><code>LYON_BASE_URL</code></td><td>Anthropic 协议网关地址</td></tr>
+        <tr><td><code>ANTHROPIC_BASE_URL</code></td><td>Anthropic 官方 / 网关地址</td></tr>
+        <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI 协议转换层地址（设置后走 chat/completions）</td></tr>
+        <tr><td><code>ANTHROPIC_MODEL</code></td><td>模型 id（<code>LYON_MODEL</code> 的兜底）</td></tr>
+        <tr><td><code>LYON_MAX_ITER</code></td><td>单个 prompt 的 API 调用上限（<code>0</code> = 不限）</td></tr>
+        <tr><td><code>LYON_HOME</code></td><td>数据根目录（会话草稿、榜单、考核、workflow、记忆）</td></tr>
+        <tr><td><code>LYON_TOKEN</code> / <code>LYON_AUTH_TOKEN</code></td><td>lyond 访问令牌 / 服务鉴权令牌</td></tr>
+        <tr><td><code>ANTHROPIC_AUTH_TOKEN</code> / <code>ANTHROPIC_API_KEY</code> / <code>LYON_API_KEY</code></td><td>模型 API 密钥（面板只显示是否已设，绝不回显值）</td></tr>
         <tr><td><code>LYON_EXAM</code></td><td><code>off</code> 关闭自动考核触发（轮次照记）</td></tr>
         <tr><td><code>LYON_SCORE</code></td><td><code>off</code> 关闭普通 prompt 的盲评入榜（考核轮次照记）</td></tr>
-        <tr><td><code>LYON_FLOW_GATE</code></td><td><code>off</code> 关闭 <code>-flow</code> 的覆盖率门禁</td></tr>
-        <tr><td><code>LYON_AUTOFREEZE</code></td><td><code>off</code> 关闭 workflow 连续绿灯自动固化（§4.5 §3.1）</td></tr>
-        <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> 关闭失败错因归纳（SummarizeFailure）</td></tr>
-        <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI 兼容 base URL（等价 <code>-openai-base</code>）</td></tr>
-        <tr><td><code>LYON_SUBAGENT_MODEL</code></td><td>子代理模型</td></tr>
-        <tr><td><code>LYON_LANG</code></td><td><code>zh</code> 启动即中文界面（默认 <code>en</code>；运行期用 <code>/lang zh|en</code> 切换）</td></tr>
+        <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> 关闭失败自诊断（SummarizeFailure）</td></tr>
+        <tr><td><code>LYON_MINDMAP</code></td><td><code>off</code> 关思维导图总开关（无蒸馏、无事件、零调用）</td></tr>
+        <tr><td><code>LYON_MINDMAP_ASK</code></td><td><code>off</code> 图上编辑只入 chat 不发轮</td></tr>
         <tr><td><code>LYON_TITLE</code></td><td><code>off</code> 关闭会话自动标题（意图识别）</td></tr>
-        <tr><td><code>LYON_NOTIFY</code></td><td>完成通知渠道开关</td></tr>
-        <tr><td><code>LYON_HOOKS</code> / <code>LYON_HOOK_HELPER</code></td><td>审计/统计钩子与其 helper 路径</td></tr>
-        <tr><td><code>LYON_SYNC_URL</code> / <code>LYON_SYNC_TOKEN</code></td><td>记忆云同步端点与令牌</td></tr>
-        <tr><td><code>LYON_PRICE_IN</code> / <code>LYON_PRICE_OUT</code></td><td>覆盖内置价格表（花费显示）</td></tr>
-        <tr><td><code>LYON_DEBUG</code> / <code>LYON_AUDIT</code> / <code>LYON_DISTILL</code></td><td>调试日志 / 审计落盘 / 记忆蒸馏开关</td></tr>
+        <tr><td><code>LYON_LANG</code></td><td>界面 / 回复语言</td></tr>
+        <tr><td><code>LYON_SKILLS_DIR</code></td><td>技能目录</td></tr>
+        <tr><td><code>LYON_HOOKS</code></td><td>hook（审计/统计）配置路径</td></tr>
+        <tr><td><code>LYON_NOTIFY</code></td><td>完成通知开关</td></tr>
+        <tr><td><code>LYON_AUTOFREEZE</code></td><td>空闲会话自动冻结开关</td></tr>
+        <tr><td><code>LYON_DASHBOARD</code></td><td>dashboard 开关</td></tr>
+        <tr><td><code>LYON_DUMP</code></td><td>运行 dump 开关</td></tr>
+        <tr><td><code>LYON_AUDIT</code> / <code>LYON_DEBUG</code> / <code>LYON_DISTILL</code></td><td>审计落盘 / 调试输出 / 记忆蒸馏开关</td></tr>
+        <tr><td><code>LYON_PRICE_IN</code> / <code>LYON_PRICE_OUT</code></td><td>覆盖内置价格表（USD / 百万 token，花费显示用）</td></tr>
+        <tr><td><code>LYON_SYNC_URL</code> / <code>LYON_SYNC_TOKEN</code></td><td>记忆云同步端点与令牌（默认关闭）</td></tr>
       </tbody>
     </table>
   </section>
@@ -525,38 +386,34 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <h2><span class="hash">6 ·</span>常见问题</h2>
 
     <details class="faq" open>
-      <summary>设了迭代预算后，为什么跑到几十次 API 调用就停了，还要回车继续？</summary>
+      <summary>设了迭代预算后，为什么跑到几十次 API 调用就停了？</summary>
       <div class="body">
         <p>
           那是<strong>迭代预算</strong>在保护你：设了 <code class="inline">-max-iter</code> 或
           <code class="inline">LYON_MAX_ITER</code>（正整数）时，单个 prompt 最多发那么多次
-          API 调用（<code class="inline">MaxIterations</code>，防跑飞、防刷 token）。
-          <strong>默认不设上限</strong>（<code class="inline">MaxIterations=0</code>）：
-          ReAct 轮次一路跑到模型自己收工，或 <code class="inline">ctrl+c</code> 中断为止。
+          API 调用（防跑飞、防刷 token）。
+          <strong>默认不设上限</strong>：ReAct 轮次一路跑到模型自己收工，或你点打断为止。
         </p>
         <p>
-          到顶时转录会打印黄色的 <code class="inline">⚡ budget reached — 50 API calls ·
-          pending tools skipped, enter to continue</code>，同时系统通知；被跳过的步骤在右侧面板
-          诚实地标 <code class="inline">over budget</code> 而不是伪装成失败。
+          到顶时会话里会出现 <code class="inline">budget reached</code> 提示；
+          被跳过的步骤在 steps 面板诚实地标 <code class="inline">over budget</code> 而不是伪装成失败。
         </p>
         <p>
-          按 <code class="inline">enter</code> 发任意一条消息即可从断点继续——历史已自动修复
+          再发任意一条消息即可从断点继续——历史已自动修复
           （悬空的 tool_use 会补上 synthetic tool_result），不会坏。
-          顶太紧就调大（<code class="inline">-max-iter 100</code> /
-          <code class="inline">LYON_MAX_ITER=100</code>）或干脆不设该变量。
+          顶太紧就调大（<code class="inline">LYON_MAX_ITER=100</code>）或干脆不设。
         </p>
       </div>
     </details>
 
     <details class="faq">
-      <summary>/resume 之后步骤面板和用量统计会不会丢？</summary>
+      <summary>切会话、刷新页面之后转录和步骤还在吗？</summary>
       <div class="body">
         <p>
-          不会。步骤面板（含每步耗时）随会话快照一起存盘，resume 后原样恢复——
-          当时还在跑的行会诚实地关成 <code class="inline">interrupted</code>；
-          用量轮次也随快照续记，<code class="inline">/stats</code> 与右下角仪表接着上次的账算。
-          老版本存的快照没有步骤数据，恢复后按新会话从头记（兼容降级，不会报错）。
-          另外 <code class="inline">/new</code> 会把当前对话归档、清空面板——新会话就是干净的。
+          在。转录与步骤由服务端事件流承载：打开会话先走一次历史批量
+          （GetHistory），随后 WatchEvents 续上直播——刷新页面、切走再切回都是同一条流。
+          用量轮次随会话续记，底栏仪表接着上次的账算。
+          侧栏 <code class="inline">saved</code> 区的快照则是跨进程的存档，恢复后继续可聊。
         </p>
       </div>
     </details>
@@ -566,9 +423,10 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       <div class="body">
         <p>
           不会，设计原则是<strong>永不阻断</strong>：覆盖率门禁自身出错只记
-          <code class="inline">gate skipped</code>；<code class="inline">lyon run -exam</code>
-          考挂只警告、照常执行；闭卷考核异步跑在步骤面板里，不打断正在进行的 prompt。
-          完全不想被自动考核打扰就设 <code class="inline">LYON_EXAM=off</code>。
+          <code class="inline">gate skipped</code>；闭卷考核异步执行，不打断正在进行的 prompt；
+          考挂只警告、照常入账。完全不想被自动考核打扰就设
+          <code class="inline">LYON_EXAM=off</code>（想连盲评也关就再设
+          <code class="inline">LYON_SCORE=off</code>）。
         </p>
       </div>
     </details>
@@ -578,7 +436,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       <div class="body">
         <p>
           全部在本地 <code class="inline">$LYON_HOME</code>（默认 <code class="inline">~/.lyon</code>）：
-          会话存档、leaderboard、考核题库、routing 推荐表、workflow。
+          会话草稿与快照、leaderboard、考核题库、routing 推荐表、workflow、记忆。
           无遥测。只有显式配置了 <code class="inline">LYON_SYNC_URL/TOKEN</code> 才会同步记忆。
         </p>
       </div>
@@ -591,17 +449,17 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
           两种等价方式：设 <code class="inline">ANTHROPIC_BASE_URL</code> 指向兼容网关
           （协议按 Anthropic Messages 解析），或用
           <code class="inline">-openai-base https://host/v1</code> / <code class="inline">LYON_OPENAI_BASE</code>
-          走内置的 OpenAI 协议翻译层。key 与官方一致复用即可。
-          也可以本地起 <code class="inline">lyond</code> 网关反代。
+          走内置的 OpenAI 协议翻译层。key 与官方一致复用即可；
+          也可以本地起一个录制/转换代理（<code class="inline">ANTHROPIC_BASE_URL</code> 指过去）。
         </p>
       </div>
     </details>
 
     <details class="faq">
-      <summary>中断（ctrl+c）之后为什么还能继续聊？</summary>
+      <summary>打断之后为什么还能继续聊？</summary>
       <div class="body">
         <p>
-          中断会触发<strong>历史修复</strong>：给悬空的 tool_use 合成一个
+          打断会触发<strong>历史修复</strong>：给悬空的 tool_use 合成一个
           <code class="inline">tool_result</code>，让下一次请求合法。
           这也是迭代预算到顶时的收尾机制——所以「停了」不等于「坏了」，
           输入任何消息都能接着来。
@@ -615,8 +473,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <p>
           单轮用量超过 0.7×200k（<code class="inline">-compact-threshold</code>）触发客户端压缩：
           历史渲染成带角色标签的文本、发一次独立摘要请求，再用单条摘要消息整体替换历史。
-          转录里显示 <code class="inline">📦 compaction</code>，<code class="inline">/stats</code>
-          里对应 <code class="inline">stop=compaction</code> 轮；
+          转录里显示 <code class="inline">📦 compaction</code>；
           compact 前有检查点，<code class="inline">/rollback</code> 可以退回去。
         </p>
       </div>
@@ -631,15 +488,18 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <table>
       <thead><tr><th>路径</th><th>职责</th></tr></thead>
       <tbody>
-        <tr><td><code>cmd/lyon</code></td><td>CLI：<code>run</code> 一次性 / <code>chat</code> 全屏 TUI / <code>tools</code>；tui.go 是 bubbletea 主循环，steps.go 是右侧面板</td></tr>
-        <tr><td><code>cmd/lyond</code></td><td>HTTP 服务：SSE 流式会话、/metrics、准入控制；也是 OpenAI 兼容网关</td></tr>
-        <tr><td><code>pkg/agent</code></td><td>引擎核心：Engine（连接池/并发信号量/预热）、Session（单驱动 goroutine + 事件流）、compact.go 客户端压缩、snapshot.go 多会话存档</td></tr>
-        <tr><td><code>pkg/tools</code></td><td>工具系统：run_shell / 文件读写（工作区禁闭）/ view_image / web_* / 记忆 / todo_write（可读步骤计划）/ prompt-cache 字节稳定化</td></tr>
+        <tr><td><code>cmd/lyond</code></td><td>Go 守护进程：HTTP/SSE + Connect RPC（Session/Settings/Approval/File/Plan…）、准入控制、OpenAI 兼容网关；prompt_end 挂 <code>evolve.Hook</code></td></tr>
+        <tr><td><code>web/</code></td><td>React + Vite + connect-es 前端：SessionList 侧栏 / ChatView 转录与审批 / tiling 平铺面板 / MindMapCard / SettingsPane / EvolvePanel / Dashboard…</td></tr>
+        <tr><td><code>pkg/server</code></td><td>Event Hub（seq 环、订阅重放）、connectRPC 服务实现、x-lyon-workspace 工作区头、审批与文件端点</td></tr>
+        <tr><td><code>pkg/agent</code></td><td>引擎核心：Engine（连接池/并发信号量/预热）、Session（单驱动 goroutine + 事件流）、compact.go 客户端压缩、snapshot.go 会话存档、flow 工具</td></tr>
+        <tr><td><code>pkg/tools</code></td><td>工具系统：run_shell / 文件读写（工作区禁闭）/ view_image / web_* / 记忆 / todo_write / prompt-cache 字节稳定化</td></tr>
+        <tr><td><code>pkg/evolve</code></td><td>演化循环：评分入榜、闭卷考核、失败诊断——lyond 在 prompt_end 调它，所有入口共用</td></tr>
         <tr><td><code>pkg/eval</code></td><td>四维评分、leaderboard、闭卷考核题库、知识覆盖率、错因归纳</td></tr>
         <tr><td><code>pkg/routing</code></td><td>任务分类、开放度、推荐表（置信度 = mean×samples/(samples+3)）</td></tr>
         <tr><td><code>pkg/models</code></td><td>32 个模型的五维能力画像注册表</td></tr>
-        <tr><td><code>pkg/flow</code></td><td>机械执行器：节点状态机、退出判据、有界重试、内置 4 条 workflow</td></tr>
-        <tr><td><code>pkg/mcp</code> / <code>pkg/server</code></td><td>MCP 客户端 / HTTP-SSE 服务</td></tr>
+        <tr><td><code>pkg/flow</code></td><td>机械执行器：节点状态机、退出判据、有界重试、内置 4 条 workflow、门禁/诊断 glue</td></tr>
+        <tr><td><code>pkg/mindmap</code></td><td>实时思维导图：蒸馏、事件、图编辑回流</td></tr>
+        <tr><td><code>pkg/mcp</code> / <code>pkg/memory</code> / <code>pkg/market</code></td><td>MCP 客户端 / 分层记忆 / 任务工时市场</td></tr>
         <tr><td><code>internal/mockapi</code></td><td>验收用假 API：真实 SSE 帧序 + prompt-cache 模拟器，测试全绿靠它</td></tr>
         <tr><td><code>bench/</code></td><td>性能验收套件（阈值强制）</td></tr>
         <tr><td><code>docs/design/</code></td><td>设计文档：<code>agent-evolution.md</code> 是演化机制的原始蓝图</td></tr>
@@ -648,8 +508,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
 
     <div class="note">
       <strong>跑一遍全量验收：</strong>
-      <code class="inline">go build ./... &amp;&amp; go vet ./... &amp;&amp; go test ./... -count=1</code>。
-      重新生成截图：<code class="inline">LYON_GEN_SCREENS=1 go test ./cmd/lyon -run TestGenerateScreens -count=1</code>。
+      <code class="inline">go build ./... &amp;&amp; go vet ./... &amp;&amp; go test ./... -count=1</code>；
+      前端类型检查 <code class="inline">cd web &amp;&amp; npx tsc -b</code>。
     </div>
   </section>
 
@@ -663,7 +523,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <a href="../README.md">README</a>
     <a href="manual.en.html">EN</a>
   </div>
-  <div>lyon-agent · 本地优先、可演化的终端 AI 编程智能体 · 文档随仓库分发，无网络资源</div>
+  <div>lyon-agent · 本地优先、可演化的 AI 编程智能体（Web 工作台） · 文档随仓库分发，无网络资源</div>
 </footer>
 
 </body>

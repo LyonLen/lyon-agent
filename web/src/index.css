@@ -346,6 +346,32 @@ button:focus-visible,
   text-transform: uppercase; color: var(--dim);
   border-top: 1px solid var(--line); padding-top: 10px;
 }
+/* workspace group header as a fold button (SessionList): the global
+   button reset gives it an accent background and centered text — both
+   undone here; padding mirrors the div it replaced so the label stays
+   aligned with the "saved" section head below. */
+.ws-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  background: transparent; text-align: left; padding: 10px 0 0;
+}
+.ws-head:hover { color: var(--fg); }
+.ws-head .chev {
+  display: inline-block; font-size: 10px; color: var(--dim);
+  transition: transform 0.12s; flex-shrink: 0;
+}
+.ws-head .chev.open { transform: rotate(90deg); }
+/* repo badge — a code workspace reads differently from a document
+   folder at a glance (Session.git_repo, one server-side stat). Sits
+   right AFTER the name (no corner float) and wears ok-green bold so it
+   pops against the dim uppercase header. */
+.ws-git {
+  flex-shrink: 0;
+  font-size: 10px; font-weight: 700; line-height: 1.5;
+  padding: 0 5px;
+  border: 1px solid var(--ok); border-radius: 3px;
+  color: var(--ok); letter-spacing: 0.08em;
+  background: rgba(95, 207, 142, 0.12);
+}
 .session-item.saved .title { color: var(--dim); font-style: italic; }
 .session-item.saved:hover .title { color: var(--fg); font-style: normal; }
 .session-item.saved:disabled { opacity: 0.55; cursor: wait; }
@@ -504,6 +530,23 @@ button:focus-visible,
   font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
   font-size: 12.5px; white-space: pre; display: block;
 }
+/* fenced block + corner copy button (mdkit MdPreBox): the wrapper
+   carries the margin so .md > * first/last-child rules still land on
+   the box, and anchors the button above the pre's horizontal scroll. */
+.md-pre { position: relative; margin: 8px 0; }
+.md-pre > pre { margin: 0; }
+.md-copy {
+  position: absolute; top: 6px; right: 8px;
+  font-size: 11px; line-height: 1.4; padding: 2px 8px;
+  color: var(--dim); background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius-1);
+  cursor: pointer; opacity: 0; transition: opacity 0.12s;
+  user-select: none;
+}
+.md-pre:hover .md-copy, .md-copy:focus-visible { opacity: 1; }
+.md-copy:hover { color: var(--fg); border-color: var(--accent); }
+.md-copy.ok { color: var(--ok); border-color: var(--ok); opacity: 1; }
+.md-copy.fail { color: var(--danger); border-color: var(--danger); opacity: 1; }
 .md code.md-inline {
   font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
   font-size: 12.5px; background: var(--panel); border: 1px solid var(--line);

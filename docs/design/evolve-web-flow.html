@@ -141,8 +141,8 @@
     </div>
     <div class="arrow">▼</div>
     <div class="card teal tealbg w620">
-      <div class="hd">evolve.Hook —— 与 TUI 完全同一套环路</div>
-      <div class="bd">BACKLOG §2.5：lyond/web 会话必须像 TUI 会话一样记账、打分、应考、换代。TUI 只保留面板那一半</div>
+      <div class="hd">evolve.Hook —— 唯一的演化环路（2026-11-10 起）</div>
+      <div class="bd">记账、打分、应考、换代都在这条 prompt_end 环路上；TUI 已整体移除，这里是全部会话（含 web）的共用入口</div>
       <div class="ref">pkg/evolve/loop.go:525</div>
     </div>
     <div class="arrow">▼</div>
@@ -293,7 +293,7 @@
     <div class="card blue bluebg w620" style="border-style:dashed">
       <div class="hd">EvolveService.GetEvolveState <span style="font-weight:400;color:#5c6675">— 进化自有数据</span></div>
       <div class="bd">一次往返装齐面板：<b>6 路 goroutine 并行读盘</b>（候选谱系 · 各 agent 空间 · 冻结流程 · 题库存量 · 工时价格 · 最近任务）</div>
-      <div class="ref">pkg/server/connect_evolve.go · proto/lyon/v1/evolve.proto · 刻意不缓存：面板必须看到 TUI 看到的东西</div>
+      <div class="ref">pkg/server/connect_evolve.go · proto/lyon/v1/evolve.proto · 刻意不缓存：面板直读盘上真相</div>
     </div>
     <div class="arrow">＋</div>
     <div class="card blue bluebg w620" style="border-style:dashed">
@@ -330,17 +330,19 @@
     <span class="idx">5</span><span class="t">v1 的边界（图上没画的就是没有）</span>
   </div>
   <div class="note warn">
-    <b>Web 侧只读，动作留在 TUI。</b>跑考核（/exam）、开擂台（/contest）、保存与运行 workflow（/flow）在 web v1 里没有入口——
-    面板会直说这一点，而不是假装能点。
+    <b>Web 侧只读，动作入口已随 TUI 移除（2026-11-10）。</b>跑考核（/exam）、开擂台（/contest）、保存与运行 workflow（/flow）
+    原来只在 TUI 有入口——TUI 删除后这些动作<b>没有任何驱动方</b>，web 仍没有入口。面板会直说这一点，而不是假装能点；
+    补齐 = 把动作接进 web（新欠账）。
   </div>
   <div class="note">
-    <b>路由换将的消费端在 TUI/CLI，web 没接。</b><code>RoutingSwap</code> / <code>AdoptAgent</code> 只被 <code>cmd/lyon</code> 调用；
-    web 的 SubmitPrompt 走 <code>sess.SubmitOn(prompt, model)</code>，未钉 model 时用进程默认模型——也就是说
-    <span class="mono">routing.json</span> 在 web 上目前是<b>纯展示</b>。这是面板里那列 <code>steers</code> 与实际行为的真实落差。
+    <b>路由换将的消费端悬空。</b><code>RoutingSwap</code> / <code>AdoptAgent</code> 原只被 <code>cmd/lyon</code> 调用，随 TUI 移除后
+    <b>无调用方</b>；web 的 SubmitPrompt 走 <code>sess.SubmitOn(prompt, model)</code>，未钉 model 时用进程默认模型——也就是说
+    <span class="mono">routing.json</span> 目前是<b>纯展示</b>。这是面板里那列 <code>steers</code> 与实际行为的真实落差。
   </div>
   <div class="note">
-    <b>知识覆盖率门禁（近日 §2.2 / CoverageThreshold=0.6）与 workflow 自动固化（连绿 3 次）也只在 TUI/CLI 侧驱动</b>，
-    <code>flow.BumpStreak</code> 由 cmd/lyon 的流程提示器投票；web 面板读得到 <span class="mono">flow-streak.json</span> 的结果，不产生它。
+    <b>知识覆盖率门禁（近日 §2.2 / CoverageThreshold=0.6）与 workflow 自动固化（连绿 3 次）的驱动方也已随 TUI 移除悬空</b>，
+    <code>flow.BumpStreak</code> 原由 cmd/lyon 的流程提示器投票；web 面板读得到 <span class="mono">flow-streak.json</span> 的结果，不产生它。
+    （prompt_end 的 <code>evolve.Hook</code> 记账/评分/错因归纳不受影响，仍由 lyond 驱动。）
   </div>
 </div>
 

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { Components } from "react-markdown"; // type-only: erased, keeps the parser out of this chunk
 import { fileClient } from "../api";
 
@@ -12,6 +13,11 @@ export type MdLinkOpts = {
 };
 export function makeMdComponents(opts?: MdLinkOpts): Components {
   return {
+    // Every fenced/indented block gets the corner copy button (the
+    // transcript's code boxes, the preview's, the editor's — one seam).
+    pre({ children, className }) {
+      return <MdPreBox className={className}>{children}</MdPreBox>;
+    },
     code({ className, children }) {
       const text = String(children ?? "");
       const match = /language-([\w-]+)/.exec(className || "");
@@ -55,6 +61,73 @@ export function makeMdComponents(opts?: MdLinkOpts): Components {
 }
 
 export const mdComponents: Components = makeMdComponents();
+
+// legacyCopy — the textarea + execCommand belt for the clipboard API's
+// failure modes (non-secure origin, denied permission). Returns whether
+// the copy actually happened; the node is always removed.
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  } finally {
+    ta.remove();
+  }
+  return ok;
+}
+
+// MdPreBox — one fenced block plus its copy button. The button is a
+// SIBLING of the <pre>, so its label can never leak into the payload;
+// the copy reads textContent off the box itself, i.e. exactly the text
+// the reader sees (entities decoded, the button excluded).
+function MdPreBox({
+  children,
+  className,
+}: {
+  children?: ReactNode;
+  className?: string;
+}) {
+  const ref = useRef<HTMLPreElement>(null);
+  const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
+  const copy = async () => {
+    const text = ref.current?.textContent ?? "";
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } else {
+        ok = legacyCopy(text);
+      }
+    } catch {
+      ok = legacyCopy(text);
+    }
+    setState(ok ? "ok" : "fail");
+    window.setTimeout(() => setState("idle"), 1500);
+  };
+  return (
+    <div className="md-pre">
+      <pre ref={ref} className={className}>
+        {children}
+      </pre>
+      <button
+        type="button"
+        className={"md-copy" + (state === "idle" ? "" : " " + state)}
+        title="copy"
+        onClick={() => void copy()}
+      >
+        {state === "ok" ? "copied ✓" : state === "fail" ? "copy failed" : "copy"}
+      </button>
+    </div>
+  );
+}
 
 // Resolve a markdown-relative href against the preview's directory,
 // collapsing "." / ".." lexically — the server's Confine re-validates on

@@ -502,7 +502,12 @@ type Session struct {
 	CostUsd *float64 `protobuf:"fixed64,13,opt,name=cost_usd,json=costUsd,proto3,oneof" json:"cost_usd,omitempty"` // session-cumulative USD (main + subagents)
 	// The session model accepts image input (pkg/models Info.Vision) — the
 	// web footer tags the model name with an eye when true (#55).
-	Vision        bool `protobuf:"varint,14,opt,name=vision,proto3" json:"vision,omitempty"`
+	Vision bool `protobuf:"varint,14,opt,name=vision,proto3" json:"vision,omitempty"`
+	// The workspace holds a .git entry (checkout dir, or a worktree/
+	// submodule file) — the sidebar's group header wears a "git" badge so
+	// a code workspace reads differently from a plain document folder at
+	// a glance. One os.Stat server-side (protoSession), never a repo walk.
+	GitRepo       bool `protobuf:"varint,15,opt,name=git_repo,json=gitRepo,proto3" json:"git_repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -631,6 +636,13 @@ func (x *Session) GetCostUsd() float64 {
 func (x *Session) GetVision() bool {
 	if x != nil {
 		return x.Vision
+	}
+	return false
+}
+
+func (x *Session) GetGitRepo() bool {
+	if x != nil {
+		return x.GitRepo
 	}
 	return false
 }
@@ -1862,7 +1874,7 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"N\n" +
 	"\x13UndoLastRunResponse\x12%\n" +
 	"\x0erestored_paths\x18\x01 \x03(\tR\rrestoredPaths\x12\x10\n" +
-	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xbd\x03\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xd8\x03\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tworkspace\x18\x02 \x01(\tR\tworkspace\x12\x14\n" +
@@ -1880,7 +1892,8 @@ const file_lyon_v1_session_proto_rawDesc = "" +
 	"\x0econtext_window\x18\v \x01(\x03R\rcontextWindow\x12\x19\n" +
 	"\bctx_used\x18\f \x01(\x03R\actxUsed\x12\x1e\n" +
 	"\bcost_usd\x18\r \x01(\x01H\x00R\acostUsd\x88\x01\x01\x12\x16\n" +
-	"\x06vision\x18\x0e \x01(\bR\x06visionB\v\n" +
+	"\x06vision\x18\x0e \x01(\bR\x06vision\x12\x19\n" +
+	"\bgit_repo\x18\x0f \x01(\bR\agitRepoB\v\n" +
 	"\t_cost_usd\"@\n" +
 	"\x14CreateSessionRequest\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x12\n" +

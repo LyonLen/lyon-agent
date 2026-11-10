@@ -1,5 +1,11 @@
 # pkg/timer 设计：双定时器（进程内 + 操作系统级）
 
+> **状态（2026-11-10）：包休眠。** TUI（`cmd/lyon`）整体移除后，§6 描述的全部接线
+> （runner 注入、scheduler 生命周期、`/timer` 与 `lyon timer` 入口）随删除一起消失：
+> `pkg/timer` 编译与单测仍全绿，但**没有任何进程再实例化 `NewScheduler`**，
+> prompt 任务依赖的 `lyon run` 子进程也不复存在。§6 仅作设计存档；恢复该功能 =
+> 在 lyond/web 侧重新接线（新 runner 可走 lyond 内嵌执行或保留一个无头执行器）。
+
 用户需求 #8：「进程内定时器、操作系统定时器，两种都要，要做日志机制」。
 两种定时器共享**同一个 Task 定义**与同一份 JSON 持久化；差别只在「谁来数表」：
 
@@ -126,9 +132,11 @@
   **全部日志都走 `logLine()` 一个漏斗**，logx 落地后把漏斗体换成转发即可。
 
 
-## 6. cmd/lyon 接线清单（issue #8 接线批次）
+## 6. cmd/lyon 接线清单（issue #8 接线批次）——已随 2026-11-10 TUI 移除作废
 
 af98bcd 的提交信息曾误称本文件已含此清单；接线实际在后续批次落进 cmd/lyon——此节为落定后的真本。
+**本节以下全部内容现为历史存档**：`cmd/lyon/timerctl.go`、`timerpanel.go`、`timercli.go`、
+`timers_test.go` 已随 `cmd/lyon/` 删除，文中的 runner / scheduler / 入口在当前仓库中不存在。
 
 ### 6.1 Runner 注入（cmd/lyon/timerctl.go · timerRunner）
 

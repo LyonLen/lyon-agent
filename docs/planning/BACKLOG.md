@@ -111,10 +111,19 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   （thinking 计入 max_tokens，曾吃满预算 → 空回复 / 10s teardown 超时）。
   - 参照：web `/remember` 手动兜底归 §2.5 漂移收敛。
 
+- [ ] **演化动作入口随 TUI 移除悬空（2026-11-10 新欠账）**：`RoutingSwap`/
+  `AdoptAgent` 已无调用方；跑考核（/exam 手动）、开擂台（/contest）、
+  `/flow save` 与 `flow.BumpStreak` 连绿投票、知识覆盖率门禁投票的驱动方
+  （原 `cmd/lyon`）已删；`pkg/timer` 无人再实例化 `NewScheduler`，prompt
+  任务依赖的 `lyon run` 执行体也不存在（包休眠，见 `pkg/timer/DESIGN.md` 顶注）；
+  `pkg/doctor` 同样无调用方（原 `lyon doctor` CLI，包与测试仍在）。
+  不受影响：prompt_end 的 `evolve.Hook`（记账/评分/考试钟/错因归纳）仍由
+  lyond 驱动。
+  - 验收：上述动作在 web 有真实入口，或在面板/文档明确标记「暂不提供」；
+    timer 要么接线 lyond/web，要么归档 pkg。
+
 ### 2.3 ROADMAP 阶段 1 功能欠账
 
-- [ ] **0.3 GIF 进 README 第一屏**：`make demo-60s` 已 14/14 可跑（0268d8e），
-  shot list 与 ffmpeg 两步 GIF 配方在 `demo/README-60s.md`，README 还没挂。
 - [x] **1.1 `lyon doctor` 一键体检** —— 2026-11-04 落地 `cmd/lyon/doctor.go`
   + `pkg/doctor`（网关/MCP/记忆库/leaderboard 摘要，输出可贴 issue）。
 - [ ] **1.1 `/help` 分级**（新手三问一屏：我在哪、能干什么、怎么退出）。
@@ -127,14 +136,16 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   自动 commit（不碰 HEAD/分支/用户 index，`pkg/server/autocommit.go`）+
   `UndoLastRun` RPC 与 web `/undo`（链走到根删 ref，NotFound 收口；
   autocrlf 幻影脏已修——index 与 parent 同 blob 时走 index 恢复刷 stat）。
-  TUI `/undo` 按「tui.go 只减不增」红线押后到 §2.4 拆分。
-- [ ] **1.7 仓库卫生收尾**：README badge slug 确认、docs/screens 截图换新、
-  README 双语结构统一（LICENSE、CI workflow、exe 出 git 三项已落地）。
+  （原「TUI /undo 押后」随 2026-11-10 TUI 移除作废——/undo 只剩 web 入口。）
+- [x] **1.7 仓库卫生收尾** — 2026-11-10 收口：badge slug 核实与 remote 一致
+  （LyonLen/lyon-agent）、`docs/screens` 截图随 TUI 移除整体删除（README 改
+  界面导览不再挂图）、README 双语重写为 Web 中心且 22 章同构（LICENSE、
+  CI workflow、exe 出 git 三项早已落地）。
 
 ### 2.4 工程债
 
-- [ ] **评审 B-#5：tui.go 拆分**（现约 3202 行，按 popup/render/slash dispatch 分域）。
-  「tui.go 只减不增」红线使它必须单独排；拆完全量 3 连绿才算验收。
+- [x] ~~评审 B-#5：tui.go 拆分~~ → 随 2026-11-10 TUI 整体移除自然消解
+  （`cmd/lyon` 已删，无物可拆）。
 - [x] **C-1 bench TestLoad/overhead 全量并行 flaky 根治** —— 2026-10-30 按实测
   分布重定门限：旧 25ms 压在本机噪声中位（静机 best-of-3 ≈ 25.5ms）上，全量
   并行 ~50% 误报；抬至 40ms（~1.5× 噪声头寸，真回归 +20ms/turn 仍触线），
@@ -156,11 +167,9 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   每次会话都**没进上下文**，而且当事人不自知。
   - 修法二选一：清理热层（把长条目降冷，只留 description + 索引）/ 改双限（条数+字节）
     + 超限时 audit 告警而不是静默丢弃。
-- [ ] **background_end 的 TUI 转录尾巴**（2026-10-30 run_shell 改造的遗留）：
-  超时/后台模式已通到 web（chat 事件 + 系统注记 + 间隙注入 + 生命周期），
-  TUI 转录 case 在 tui.go（只减不增红线），等 §2.4 拆分后补或改挂 steps.go
-  （可增）。空闲自动唤醒（后台完成即开新轮）有意未做——现为系统注记等
-  用户下一轮。
+- [x] ~~background_end 的 TUI 转录尾巴~~ → web 侧早已通（chat 事件 + 系统注记 +
+  间隙注入 + 生命周期）；TUI 转录半边随 2026-11-10 移除作废。空闲自动唤醒
+  仍为有意不做（后台完成 = 系统注记，等用户下一轮）。
 
 ### 2.5 入口对齐 —— 核心闭环不能只对一个入口生效（2026-10-16 盘点）
 
@@ -193,12 +202,10 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   non-TTY run，保留。）
   - 验收：lyond 侧 MCP 工具可用、`-model` 不钉时 subagent 走 routing、
     同一 workspace 两边配置行为一致。
-- [ ] **TUI/web 斜杠命令漂移收敛**：TUI 24 条 vs web 11 条（web 独有 0），
-  缺的 13 条里演化全家桶（/evolve /exam /contest /route /agents /flow /market）、
-  /memory /remember /timer 属 web v1.1+（`ChatView.tsx:17` 已声明 evolve 系
-  TUI-only）；`SLASH` 表与 `dashClassOrder`（`connect_dashboard.go:34` 注明
-  「package main 无法 import，复制」）是两处手工镜像，需生成器或单一来源。
-  - 验收：命令表有单一来源，web 缺项在 BACKLOG §0 有归属而非静默。
+- [x] ~~TUI/web 斜杠命令漂移收敛~~ → 2026-11-10 TUI 移除后漂移不复存在
+  （web `SLASH` 成为唯一命令表）；原「缺的 13 条」里演化动作入口的缺账
+  改记 §2.5 新条目（驱动悬空）。`dashClassOrder` 是 evoClassOrder 唯一
+  存活拷贝，不再构成手工镜像对。
 
 ### 2.6 明确暂缓 / 不在本次
 
@@ -234,8 +241,8 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 - **EVOLUTION-GAPS 任务 A–E 全闭环**（= ROADMAP 0.1）；断点 1–4 均有回路。
 - **ROADMAP 0.2** lyon.toml 落地（`pkg/config`：手写 TOML 子集解析 +
   home/workspace 双层覆盖 + mcpServers 对齐 + 测试）。
-- **ROADMAP 0.3** 主体：`demo/demo-60s.sh` 四会话 14 断言 14/14（0268d8e），
-  剩 README GIF（见 2.3）。
+- **ROADMAP 0.3** 主体：`demo/demo-60s.sh` 四会话 14 断言 14/14（0268d8e）；
+  GIF 与 demo 整体随 2026-11-10 TUI 移除退役（原「见 2.3」的 GIF 条目已删）。
 - **HANDOFF A 12 项中 9 项完成**：#1 plan 常驻 / #2 queue 插队 / #3 run dump /
   #5 文档两轮 / #6 快捷键 legend / #8 双定时器 / #9 日志 / #10 dashboard /
   #11 alt+o 实时输出。剩 #4 web（当前主线）、#7 分屏（2.1）；#12 报错清单归 C 节。

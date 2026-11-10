@@ -1,8 +1,10 @@
-# 对话实时思维导图（mindmap）设计草案
+# 对话实时思维导图（mindmap）设计
 
-> 状态：**草案，待拍板**。2026-11-03 用户口述需求，边聊边写。
-> 未确认项统一标「⚠ 待确认」，不做代拟。
-> 关联：`docs/planning/BACKLOG.md`（拍板后登记条目）、`proto/lyon/v1/event.proto`（事件契约）。
+> 状态：**已实现**（M1–M3 全部落地，见 §9；本文由草案转为设计存档，未确认项不再追加）。
+> 2026-11-03 用户口述需求，边聊边写。
+> **2026-11-10 注**：TUI（`cmd/lyon`）已整体移除——文中涉及 TUI 大纲、斜杠命令、
+> `steps.go`、`./cmd/lyon/` 测试的小节仅存档历史，现行实现与验收一律以 web 为准。
+> 关联：`docs/planning/BACKLOG.md`、`proto/lyon/v1/event.proto`（事件契约）。
 
 ---
 
@@ -185,13 +187,11 @@ agent 收到这条消息时：
   §7.3 圈选浮条（合并、归类到…、改写、矛盾吗、解释、自由提问）。
   （草案里的「拖拽改 parent」落地为浮条的「归类到…」下拉 —— 拖拽在缩放画布上命中率太差。）
 
-### 7.2 TUI
+### 7.2 TUI（已随 2026-11-10 TUI 移除作废）
 
-缩进大纲（`├─` 前缀 + kind 图标），挂在 `cmd/lyon/steps.go`（可增的文件）——
-已落地：`renderSteps` 底部切出大纲块（行数预算 `min(节点数, 可用-3)`，恰好 h 行契约不破），
-`EventPromptEnd` 处挂 `mindmap.Hook`，包级 revision 缓存（不加 tuiModel 字段）。
-真图形只给 web。**不碰 `tui.go`** —— 因此 **TUI 无 `/map` 斜杠命令**（斜杠表只存在于
-tui.go，红线不许增改；web 有 `/mindmap`）。这是一处有意的偏差，不是遗漏。
+历史存档：曾有挂在 `cmd/lyon/steps.go` 的缩进大纲（`├─` 前缀 + kind 图标），
+`EventPromptEnd` 处挂 `mindmap.Hook`；真图形只在 web。`cmd/lyon` 删除后该小节
+不复存在，心智图入口只剩 web pane（`MindMapCard.tsx`）与 `/mindmap` 读侧渲染。
 
 ### 7.3 圈选与批量提问（2026-11-03 用户补充）
 
@@ -271,7 +271,8 @@ tui.go，红线不许增改；web 有 `/mindmap`）。这是一处有意的偏�
 ## 9. 分期与验收
 
 > 状态（2026-11-04）：**M1 ✓ · M2 ✓ · M2.5 ✓ · M3 ✓** —— 全部分期落地，
-> `go test ./pkg/mindmap/ ./pkg/server/ ./pkg/memory/ ./cmd/lyon/` 全绿，
+> `go test ./pkg/mindmap/ ./pkg/server/ ./pkg/memory/` 全绿
+> （原并列的 `./cmd/lyon/` 随 2026-11-10 TUI 移除删除），
 > web `tsc --noEmit` 干净，圈选/改名/沉淀均有 e2e 或验收用例钉住。
 
 ### M1 —— 只见证（不加输入通道）✓

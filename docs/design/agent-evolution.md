@@ -97,7 +97,8 @@
 ### 1.5 接入点
 
 - 新增 `pkg/eval/`：`Scorecard`、`score()`、`runExam()`；批量尝试复用
-  `lyon run` 的无头执行（`cmd/lyon` 已有 run 子命令）。
+  `pkg/evolve.BookPlainRun` 的无头执行（原 `lyon run` 子命令，已随 2026-11-10
+  TUI 移除）。
 - 候选与榜单是纯 JSON 文件 + 文件锁，无新服务。
 - 全程走 `pkg/hooks` 审计（已有 EvPromptEnd/EvToolExec 事件），成本统计复用
   `pkg/models` 计价。
@@ -242,7 +243,8 @@ plan/默认模式自由尝试  ──N 次成功+考核通过──►  序列�
 
 - `pkg/routing`（分类 + 查表 + 回写，纯文件）；分类一期用关键词/规则，
   与③的 workflow 分类器共用。
-- 推荐输出在 TUI 中以蓝色提示行展示（复用 steps 面板的 cBlue 语义）。
+- 推荐输出的消费端原是 TUI 蓝色提示行；TUI 已于 2026-11-10 移除，
+  `RoutingSwap`/`AdoptAgent` 现无调用方，待接 web（见 `evolve-web-flow.html` 缺口节）。
 
 ---
 
@@ -309,8 +311,8 @@ knowledge。`Gen/Parent` 字段复活。代际上限 3（链深与同胞数同�
 ### 7.4 场景路由收口（不同场景选择不同 agent）
 
 §5 的消费端补全：`routingSwap` 换模型的同时，`adoptAgent` 把会话身份切到
-胜出 agent（同一模型也切——一人格一空间），⇄ 提示行点名 agent。CLI 与 TUI
-同一条接线。
+胜出 agent（同一模型也切——一人格一空间）。原 CLI/TUI 同一条接线点名 agent；
+2026-11-10 TUI 移除后该消费端悬空，待接 web。
 
 ### 7.5 流程固化 v2：脚本（pkg/flow/script.go）
 

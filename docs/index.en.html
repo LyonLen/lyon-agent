@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lyon-agent — a terminal AI coding agent that evolves</title>
-<meta name="description" content="lyon-agent: a Go-written, local-first terminal AI coding agent. Production scoring, closed-book exams, task routing, knowledge coverage gates, mechanical workflow execution — a learnable, evolving agent system.">
+<title>lyon-agent — a local-first AI coding agent that evolves (Web workbench)</title>
+<meta name="description" content="lyon-agent: a Go daemon plus a React web workbench — a local-first AI coding agent. Session workspaces, approval cards, a live mind map, and an evolution system: production scoring, closed-book exams, task routing, knowledge coverage gates and mechanical workflows.">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
 </head>
@@ -15,24 +15,25 @@
   <nav class="site">
     <a href="index.en.html">Tour</a>
     <a href="#features">Features</a>
-    <a href="#screens">Screens</a>
     <a href="#install">Install</a>
     <a href="manual.en.html">Manual</a>
     <a href="index.html" title="中文版">中文</a>
   </nav>
-  <span class="version">docs · v1</span>
+  <span class="version">docs · v2</span>
 </header>
 
 <main>
 
   <!-- ── hero ─────────────────────────────────────── -->
   <div class="hero">
-    <span class="kicker">Go · bubbletea TUI · local-first · no cloud dependency</span>
+    <span class="kicker">Go · local-first · web workbench · no cloud dependency</span>
     <h1>An agent that<br><span class="accent">learns to get better</span></h1>
     <p class="sub">
-      lyon-agent is a coding agent that runs in your terminal. Beyond normal chat, tool
-      calls and a fullscreen workbench, it ships an <strong>evolution mechanism</strong>:
-      production scoring, closed-book exams, task routing, knowledge coverage gates,
+      lyon-agent is an AI coding agent that runs on your machine: the Go daemon
+      <strong>lyond</strong> handles model access, tool execution and the session event
+      stream, while a <strong>React workbench</strong> in the browser is the main interface.
+      Beyond chat and tool calls it ships an <strong>evolution mechanism</strong>:
+      production scoring, closed-book exams, task routing, knowledge coverage gates and
       mechanical workflows — making "the more you use it, the better it gets" a measurable
       fact, not a slogan.
     </p>
@@ -42,135 +43,105 @@
     </div>
   </div>
 
-  <!-- ── hero shot ────────────────────────────────── -->
-  <figure class="term tall">
+  <!-- ── workbench anatomy ────────────────────────── -->
+  <figure class="term">
     <div class="bar">
       <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-      <span class="title">lyon chat — fullscreen workbench: streaming transcript + step audit panel</span>
+      <span class="title">lyon-agent web workbench — layout map</span>
     </div>
-    <iframe src="screens/tui-workbench.html" title="lyon TUI workbench screenshot" scrolling="auto"></iframe>
+<pre style="margin:0;border:0;border-radius:0;">┌──────────────┬──────────────────────────────────┬─────────────┐
+│ sessions     │ chat                             │ steps       │
+│ ▸ lyon-agent │  you   fix this failing test     │ 1 run_shell │
+│   ● fix bug  │  agent let me reproduce it first │   ✓ 0.8s    │
+│   ○ refactor │ ┌ approve? run_shell ──────────┐ │ 2 read_file │
+│              │ │ matches shell command         │ │   ✓ 0.1s    │
+│ + new session│ │ [approve(y)] [deny(n)]        │ │ 3 edit_file │
+│ ↻            │ │ [always(a)]                   │ │   ● …       │
+│ saved        │ └──────────────────────────────┘ │             │
+│   old chat   │  agent fixed — all tests green ✅ │ files │ plan │
+└──────────────┴──────────────────────────────────┴─────────────┘
+  default ▾    my-model 👁    12.4k/200k · $0.42</pre>
     <figcaption>
-      Left is the live transcript (tool calls, strictly folded thinking, slash-command traces),
-      right is the step audit panel: name, duration and status of every tool execution at a
-      glance, expandable with the Alt key; the resident usage gauge sits bottom-right on the
-      input line, and the token ledger lives in /stats and there.
+      The session sidebar groups by <strong>workspace</strong> (click to fold, git badge,
+      two-click delete, saved snapshots restore); the middle is the streaming transcript
+      (markdown rendering + code-block copy button + approval cards); around it sit
+      tileable panes (steps / files / preview / terminal / plan / mindmap / memory /
+      settings / evolve); the footer keeps the mode switch, model button and the
+      context / cost gauge resident.
     </figcaption>
   </figure>
 
   <!-- ── features ─────────────────────────────────── -->
   <section id="features">
     <h2><span class="hash">#</span>Core capabilities</h2>
-    <p class="lede">Six pieces form the full loop: run tasks → keep an audit → score → exam → route → freeze workflows.</p>
+    <p class="lede">Half a pleasant workbench, half an execution system that evolves on its own.</p>
 
     <div class="grid">
       <div class="card">
         <div class="icon">🖥️</div>
-        <h3>Fullscreen TUI workbench</h3>
-        <p>Streaming transcript, strict thinking fold, approval overlay, image preview; the side steps panel records every tool execution, and alt+e opens the evolution panel. Input queues while busy, slash commands leave a trace, /lang switches Chinese/English; /resume restores steps and usage stats in full.</p>
-        <span class="tag">cmd/lyon · bubbletea</span>
+        <h3>Web workbench</h3>
+        <p>React + Vite frontend: streaming transcript, markdown rendering with a code-block copy button, colored tool output, folded thinking, produced-files card; panes tile freely and the layout persists per session.</p>
+        <span class="tag">web/ · React + connect-es</span>
+      </div>
+      <div class="card">
+        <div class="icon">🗂️</div>
+        <h3>Session workspaces</h3>
+        <p>Every session picks its own workspace (local directory or git clone); tools, files, memory and the repo map all follow. The sidebar groups by workspace with click-to-fold, a git repository badge, two-click delete and one-click saved-snapshot restore.</p>
+        <span class="tag">x-lyon-workspace</span>
+      </div>
+      <div class="card">
+        <div class="icon">🛡️</div>
+        <h3>Approval cards & modes</h3>
+        <p>Risky actions ask as cards that say <em>why</em> and highlight the matched span; approve(y) / deny(n) / always(a) decide in one click, plan interceptions can allow a single file. Four modes — default / plan / bypass / mindmap — cycled with shift+tab.</p>
+        <span class="tag">ApprovalService</span>
+      </div>
+      <div class="card">
+        <div class="icon">🧠</div>
+        <h3>Live mind map</h3>
+        <p>The conversation grows a real-time understanding map in a pane beside chat; ctrl+wheel zooms, middle-drag pans, and editing the map feeds back as a follow-up — a second input channel, not just a view.</p>
+        <span class="tag">pkg/mindmap</span>
       </div>
       <div class="card">
         <div class="icon">📊</div>
-        <h3>Production scoring & leaderboard</h3>
-        <p>Every model is scored on four dimensions — correctness, efficiency, cost, compliance (weights 0.50 / 0.20 / 0.15 / 0.15) — into a local leaderboard. On-duty means qualified: fail the bar and you are demoted, someone else steps in.</p>
-        <span class="tag">pkg/eval</span>
+        <h3>Evolution mechanics</h3>
+        <p>Production scoring, closed-book exams, task routing, knowledge coverage gates, mechanical workflows: runs leave evidence, evidence becomes scores, scores decide who works; reliable procedures freeze into data and the LLM only fills in each node.</p>
+        <span class="tag">pkg/evolve · pkg/eval · pkg/flow</span>
       </div>
       <div class="card">
-        <div class="icon">📝</div>
-        <h3>Closed-book exams</h3>
-        <p>Every 10 rounds triggers a closed-book exam with answer keys. Two consecutive fails vacate the seat, and the next production scorecard re-elects — elimination, coded.</p>
-        <span class="tag">/exam · LYON_EXAM</span>
+        <div class="icon">⚡</div>
+        <h3>Concurrent sessions</h3>
+        <p>Run many sessions side by side — messages queue while busy and can be interrupted anytime; the sidebar shows running / queued badges, the footer keeps context usage and spend resident.</p>
+        <span class="tag">Event Hub · SSE + Connect RPC</span>
       </div>
-      <div class="card">
-        <div class="icon">🧭</div>
-        <h3>Task routing</h3>
-        <p>Tasks are classified first, then dispatched by capability profiles plus a cached recommendation table. Repeated requests converge into a stable routing network with a single entry.</p>
-        <span class="tag">pkg/routing</span>
-      </div>
-      <div class="card">
-        <div class="icon">🧪</div>
-        <h3>Knowledge coverage gate</h3>
-        <p>Before working open-book, take a closed-book quiz on the knowledge coverage; below 0.6 the misses become gaps and the gap-specific material is folded into the task — the gate feeds, it never blocks. You only "know it" once you've proven it.</p>
-        <span class="tag">coverage ≥ 0.6</span>
-      </div>
-      <div class="card">
-        <div class="icon">⚙️</div>
-        <h3>Mechanical workflow execution</h3>
-        <p>Control flow is data, not prompt text: a workflow freezes only through a passing closed-book exam, then steps run mechanically in fixed order and the LLM only fills in each node — no more decide-as-you-go jitter.</p>
-        <span class="tag">/flow · pkg/flow</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── screenshots ──────────────────────────────── -->
-  <section id="screens">
-    <h2><span class="hash">#</span>Screens</h2>
-    <p class="lede">All generated offline by <code class="inline">gen_screens_test.go</code> from real TUI frames — not hand-assembled. What you see is what you get.</p>
-
-    <div class="shots">
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/route — task routing</span>
-        </div>
-        <iframe src="screens/tui-route.html" title="routing screenshot" scrolling="auto"></iframe>
-        <figcaption>Classify → score → recommend: see at a glance "why this agent got the task".</figcaption>
-      </figure>
-
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/flow — mechanical workflow</span>
-        </div>
-        <iframe src="screens/tui-flow.html" title="workflow screenshot" scrolling="auto"></iframe>
-        <figcaption>The frozen feature-dev flow: every node says exactly what to do, state is inspectable and replayable.</figcaption>
-      </figure>
-
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/exam — closed-book exam</span>
-        </div>
-        <iframe src="screens/tui-exam.html" title="exam screenshot" scrolling="auto"></iframe>
-        <figcaption>Exams run async in the steps panel, graded against answer keys with the score echoed back — your work is never interrupted.</figcaption>
-      </figure>
-
-      <figure class="term">
-        <div class="bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="title">/help — command cheat sheet</span>
-        </div>
-        <iframe src="screens/tui-help.html" title="help screenshot" scrolling="auto"></iframe>
-        <figcaption>Every slash command ships with built-in help; suggestions expand below as you type, enter runs the highlighted one.</figcaption>
-      </figure>
     </div>
   </section>
 
   <!-- ── install ──────────────────────────────────── -->
   <section id="install">
     <h2><span class="hash">#</span>Quick start</h2>
-    <p class="lede">Zero dependencies (build with Go ≥ 1.25 and run), both Anthropic and OpenAI-compatible endpoints supported.</p>
+    <p class="lede">One Go daemon plus one frontend dev server — the browser is the workbench.</p>
 
     <h3>1 · Build</h3>
-<pre><span class="c"># from the repository root</span>
-go build <span class="k">-o</span> bin/lyon   ./cmd/lyon      <span class="c"># terminal main program (CLI + fullscreen TUI)</span>
-go build <span class="k">-o</span> bin/lyond  ./cmd/lyond     <span class="c"># OpenAI-compatible gateway (optional)</span></pre>
+<pre><span class="c"># repository root (Go ≥ 1.25 required)</span>
+go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># daemon: sessions / tools / approvals / gateway</span>
+
+<span class="c"># frontend (dev server with hot reload; production build: npm run build)</span>
+<span class="p">$</span> cd web &amp;&amp; npm install &amp;&amp; npm run dev   <span class="c"># → http://localhost:5183</span></pre>
 
     <h3>2 · Credentials</h3>
 <pre><span class="c"># Anthropic official</span>
 <span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=sk-ant-...
 
-<span class="c"># or any OpenAI-compatible endpoint (configure key + base URL)</span>
+<span class="c"># or any OpenAI-compatible endpoint (key + base URL together)</span>
 <span class="p">$</span> export ANTHROPIC_BASE_URL=<span class="s">https://token-plan-cn.xiaomimimo.com/v1</span>
 <span class="p">$</span> export ANTHROPIC_AUTH_TOKEN=<span class="s">&lt;your-key&gt;</span></pre>
 
     <h3>3 · Launch</h3>
-<pre><span class="p">$</span> ./bin/lyon chat            <span class="c"># fullscreen TUI workbench</span>
-<span class="p">$</span> ./bin/lyon run <span class="s">"refactor this function"</span>  <span class="c"># one-shot CLI, run and go</span>
-<span class="p">$</span> ./bin/lyon chat -c         <span class="c"># sessions auto-save; /resume or -c picks them up anytime</span></pre>
+<pre><span class="p">$</span> ./bin/lyond <span class="k">-addr</span> 127.0.0.1:8080 <span class="k">-workspace</span> .   <span class="c"># daemon (the frontend dev server proxies to 8080)</span>
+<span class="p">$</span> open http://localhost:5183                        <span class="c"># the browser is the workbench</span></pre>
 
     <div class="note">
-      <strong>Everything stays local:</strong> sessions, leaderboards and exam records all live in
+      <strong>Everything stays local:</strong> sessions, leaderboards, exam records and memory all live in
       <code class="inline">$LYON_HOME</code> (default <code class="inline">~/.lyon</code>).
       No telemetry; memory cloud sync stays off until you explicitly configure <code class="inline">LYON_SYNC_URL/TOKEN</code>, and only the team and personal layers sync — the project layer never leaves this machine.
     </div>
@@ -184,23 +155,23 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond     <span class="c"># 
     <ol class="flow">
       <li>
         <strong><a href="manual.en.html#quickstart">Getting started</a></strong>
-        <span>Build, credentials, first conversation; TUI keys and slash commands.</span>
+        <span>Build lyond and the web frontend, credentials, first open of the workbench.</span>
       </li>
       <li>
         <strong><a href="manual.en.html#tour">UI tour</a></strong>
-        <span>What the four areas do: transcript, input, output strip, step audit panel.</span>
+        <span>What the sidebar, chat area, tiled panes and footer each do.</span>
+      </li>
+      <li>
+        <strong><a href="manual.en.html#keys">Interaction guide</a></strong>
+        <span>Keys, command panel, approval cards, pane gestures — all mirroring actual web behavior.</span>
       </li>
       <li>
         <strong><a href="manual.en.html#evolution">Evolution mechanics</a></strong>
         <span>Scoring → exams → routing → coverage gate → workflow freezing: how the five-stage rocket connects.</span>
       </li>
       <li>
-        <strong><a href="manual.en.html#reference">Commands & configuration</a></strong>
-        <span>Every slash command, launch flag and environment variable in one table.</span>
-      </li>
-      <li>
-        <strong><a href="manual.en.html#faq">FAQ</a></strong>
-        <span>Why the iteration budget stops, what resume restores, whether gates can wedge you…</span>
+        <strong><a href="manual.en.html#reference">Reference</a></strong>
+        <span>lyond launch flags and environment variables in one table.</span>
       </li>
     </ol>
   </section>
@@ -211,11 +182,10 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond     <span class="c"># 
   <div class="foot-links">
     <a href="index.en.html">Tour</a>
     <a href="manual.en.html">Manual</a>
-    <a href="#screens">Screens</a>
     <a href="../README.en.md">README</a>
     <a href="index.html">中文</a>
   </div>
-  <div>lyon-agent · a local-first, evolving terminal AI coding agent · docs ship with the repository, no network resources</div>
+  <div>lyon-agent · a local-first, evolving AI coding agent (web workbench) · docs ship with the repository, no network resources</div>
 </footer>
 
 </body>

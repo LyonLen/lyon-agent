@@ -347,6 +347,10 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 		ContextWindow: windowForModel(s.eng.Config()),
 		Vision:        modelVision(s.eng.Config()),
 	}
+	// The repo badge tracks whichever workspace wins below (engine
+	// default → seat override → live session): one os.Stat each time
+	// the path changes, never a repo walk (Session.git_repo).
+	out.GitRepo = isGitRepo(out.Workspace)
 	if ref.Session == nil {
 		snap := ref.Snap
 		if snap == nil {
@@ -356,6 +360,7 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 		// the engine default is only the "nothing known" fallback above.
 		if snap.Workspace != "" {
 			out.Workspace = snap.Workspace
+			out.GitRepo = isGitRepo(out.Workspace)
 		}
 		out.Title = snap.DisplayTitle()
 		out.Mode = snap.Mode
@@ -371,6 +376,7 @@ func protoSession(s *Server, ref StoreRef) *lyonv1.Session {
 	}
 	sess := ref.Session
 	out.Workspace = sess.Workspace()
+	out.GitRepo = isGitRepo(out.Workspace)
 	// Gauge snapshot rides along: the web footer renders the moment a
 	// session opens, long before any live turn_end would stream values.
 	ctxUsed, cost := sessionGauge(s, sess)

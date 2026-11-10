@@ -126,6 +126,19 @@ func repoNameFromURL(u string) string {
 	return s
 }
 
+// isGitRepo reports whether ws holds a .git entry — a directory for a
+// normal checkout, a file for worktrees and submodules. One os.Stat:
+// this feeds the sidebar's repo badge (Session.git_repo), never a
+// repository walk. The stat races a concurrent `git init`/`.git` delete
+// harmlessly — the badge is advisory and the next refresh corrects it.
+func isGitRepo(ws string) bool {
+	if ws == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(ws, ".git"))
+	return err == nil
+}
+
 // handleSessionWorkspace reads (GET) or sets (POST) one session's
 // workspace root — the per-session workspace selection seam. POST body
 // {"workspace": "..."}; "" resets the override back to the engine default.

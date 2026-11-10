@@ -132,6 +132,11 @@ message Session {
   // The session model accepts image input (pkg/models Info.Vision) — the
   // web footer tags the model name with an eye when true (#55).
   bool vision = 14;
+  // The workspace holds a .git entry (checkout dir, or a worktree/
+  // submodule file) — the sidebar's group header wears a "git" badge so
+  // a code workspace reads differently from a plain document folder at
+  // a glance. One os.Stat server-side (protoSession), never a repo walk.
+  bool git_repo = 15;
 }
 
 message CreateSessionRequest {
