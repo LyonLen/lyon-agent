@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/file.proto.
  */
 export const file_lyon_v1_file: GenFile = /*@__PURE__*/
-  fileDesc("ChJseW9uL3YxL2ZpbGUucHJvdG8SB2x5b24udjEidAoIRGlyRW50cnkSDAoEbmFtZRgBIAEoCRIOCgZpc19kaXIYAiABKAgSEgoKc2l6ZV9ieXRlcxgDIAEoAxIVCg1tdGltZV91bml4X21zGAQgASgDEh8KBGtpbmQYBSABKA4yES5seW9uLnYxLkZpbGVLaW5kIiQKFExpc3REaXJlY3RvcnlSZXF1ZXN0EgwKBHBhdGgYASABKAkiXAoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEgwKBHBhdGgYASABKAkSIgoHZW50cmllcxgCIAMoCzIRLmx5b24udjEuRGlyRW50cnkSEQoJdHJ1bmNhdGVkGAMgASgIIk4KE1JlYWRUZXh0RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIUCgxvZmZzZXRfbGluZXMYAiABKAUSEwoLbGltaXRfbGluZXMYAyABKAUikgEKFFJlYWRUZXh0RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSDwoHY29udGVudBgCIAEoCRIRCgl0cnVuY2F0ZWQYAyABKAgSEwoLdG90YWxfbGluZXMYBCABKAUSEgoKc2l6ZV9ieXRlcxgFIAEoAxIfCgRraW5kGAYgASgOMhEubHlvbi52MS5GaWxlS2luZCIlChVSZWFkQmluYXJ5RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCSJxChZSZWFkQmluYXJ5RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSFAoMY29udGVudF90eXBlGAIgASgJEgwKBGRhdGEYAyABKAwSEQoJdHJ1bmNhdGVkGAQgASgIEhIKCnNpemVfYnl0ZXMYBSABKAMiRgoQV3JpdGVGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAkSEwoLY3JlYXRlX29ubHkYAyABKAgiJwoRV3JpdGVGaWxlUmVzcG9uc2USEgoKc2l6ZV9ieXRlcxgBIAEoAyI0CgxNa2RpclJlcXVlc3QSDAoEcGF0aBgBIAEoCRIWCg5jcmVhdGVfcGFyZW50cxgCIAEoCCIPCg1Na2RpclJlc3BvbnNlIi8KDVJlbmFtZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIQCghuZXdfbmFtZRgCIAEoCSIQCg5SZW5hbWVSZXNwb25zZSIrCgtNb3ZlUmVxdWVzdBIMCgRwYXRoGAEgASgJEg4KBnRvX2RpchgCIAEoCSIOCgxNb3ZlUmVzcG9uc2UiMAoNRGVsZXRlUmVxdWVzdBIMCgRwYXRoGAEgASgJEhEKCXJlY3Vyc2l2ZRgCIAEoCCIQCg5EZWxldGVSZXNwb25zZSJCChFVcGxvYWRGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEgwKBGRhdGEYAiABKAwSEQoJb3ZlcndyaXRlGAMgASgIIigKElVwbG9hZEZpbGVSZXNwb25zZRISCgpzaXplX2J5dGVzGAEgASgDKvEBCghGaWxlS2luZBIZChVGSUxFX0tJTkRfVU5TUEVDSUZJRUQQABIRCg1GSUxFX0tJTkRfRElSEAESEgoORklMRV9LSU5EX1RFWFQQAhISCg5GSUxFX0tJTkRfQ09ERRADEhYKEkZJTEVfS0lORF9NQVJLRE9XThAEEhMKD0ZJTEVfS0lORF9JTUFHRRAFEhEKDUZJTEVfS0lORF9QREYQBhITCg9GSUxFX0tJTkRfT1RIRVIQBxISCg5GSUxFX0tJTkRfUFBUWBAIEhIKDkZJTEVfS0lORF9ET0NYEAkSEgoORklMRV9LSU5EX1hMU1gQCjLrBAoLRmlsZVNlcnZpY2USTgoNTGlzdERpcmVjdG9yeRIdLmx5b24udjEuTGlzdERpcmVjdG9yeVJlcXVlc3QaHi5seW9uLnYxLkxpc3REaXJlY3RvcnlSZXNwb25zZRJLCgxSZWFkVGV4dEZpbGUSHC5seW9uLnYxLlJlYWRUZXh0RmlsZVJlcXVlc3QaHS5seW9uLnYxLlJlYWRUZXh0RmlsZVJlc3BvbnNlElEKDlJlYWRCaW5hcnlGaWxlEh4ubHlvbi52MS5SZWFkQmluYXJ5RmlsZVJlcXVlc3QaHy5seW9uLnYxLlJlYWRCaW5hcnlGaWxlUmVzcG9uc2USQgoJV3JpdGVGaWxlEhkubHlvbi52MS5Xcml0ZUZpbGVSZXF1ZXN0GhoubHlvbi52MS5Xcml0ZUZpbGVSZXNwb25zZRI2CgVNa2RpchIVLmx5b24udjEuTWtkaXJSZXF1ZXN0GhYubHlvbi52MS5Na2RpclJlc3BvbnNlEjkKBlJlbmFtZRIWLmx5b24udjEuUmVuYW1lUmVxdWVzdBoXLmx5b24udjEuUmVuYW1lUmVzcG9uc2USMwoETW92ZRIULmx5b24udjEuTW92ZVJlcXVlc3QaFS5seW9uLnYxLk1vdmVSZXNwb25zZRI5CgZEZWxldGUSFi5seW9uLnYxLkRlbGV0ZVJlcXVlc3QaFy5seW9uLnYxLkRlbGV0ZVJlc3BvbnNlEkUKClVwbG9hZEZpbGUSGi5seW9uLnYxLlVwbG9hZEZpbGVSZXF1ZXN0GhsubHlvbi52MS5VcGxvYWRGaWxlUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
+  fileDesc("ChJseW9uL3YxL2ZpbGUucHJvdG8SB2x5b24udjEidAoIRGlyRW50cnkSDAoEbmFtZRgBIAEoCRIOCgZpc19kaXIYAiABKAgSEgoKc2l6ZV9ieXRlcxgDIAEoAxIVCg1tdGltZV91bml4X21zGAQgASgDEh8KBGtpbmQYBSABKA4yES5seW9uLnYxLkZpbGVLaW5kIiQKFExpc3REaXJlY3RvcnlSZXF1ZXN0EgwKBHBhdGgYASABKAkiXAoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEgwKBHBhdGgYASABKAkSIgoHZW50cmllcxgCIAMoCzIRLmx5b24udjEuRGlyRW50cnkSEQoJdHJ1bmNhdGVkGAMgASgIIk4KE1JlYWRUZXh0RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIUCgxvZmZzZXRfbGluZXMYAiABKAUSEwoLbGltaXRfbGluZXMYAyABKAUikgEKFFJlYWRUZXh0RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSDwoHY29udGVudBgCIAEoCRIRCgl0cnVuY2F0ZWQYAyABKAgSEwoLdG90YWxfbGluZXMYBCABKAUSEgoKc2l6ZV9ieXRlcxgFIAEoAxIfCgRraW5kGAYgASgOMhEubHlvbi52MS5GaWxlS2luZCIlChVSZWFkQmluYXJ5RmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCSJxChZSZWFkQmluYXJ5RmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSFAoMY29udGVudF90eXBlGAIgASgJEgwKBGRhdGEYAyABKAwSEQoJdHJ1bmNhdGVkGAQgASgIEhIKCnNpemVfYnl0ZXMYBSABKAMiRgoQV3JpdGVGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAkSEwoLY3JlYXRlX29ubHkYAyABKAgiJwoRV3JpdGVGaWxlUmVzcG9uc2USEgoKc2l6ZV9ieXRlcxgBIAEoAyI0CgxNa2RpclJlcXVlc3QSDAoEcGF0aBgBIAEoCRIWCg5jcmVhdGVfcGFyZW50cxgCIAEoCCIPCg1Na2RpclJlc3BvbnNlIi8KDVJlbmFtZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIQCghuZXdfbmFtZRgCIAEoCSIQCg5SZW5hbWVSZXNwb25zZSIrCgtNb3ZlUmVxdWVzdBIMCgRwYXRoGAEgASgJEg4KBnRvX2RpchgCIAEoCSIOCgxNb3ZlUmVzcG9uc2UiMAoNRGVsZXRlUmVxdWVzdBIMCgRwYXRoGAEgASgJEhEKCXJlY3Vyc2l2ZRgCIAEoCCIQCg5EZWxldGVSZXNwb25zZSJCChFVcGxvYWRGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEgwKBGRhdGEYAiABKAwSEQoJb3ZlcndyaXRlGAMgASgIIigKElVwbG9hZEZpbGVSZXNwb25zZRISCgpzaXplX2J5dGVzGAEgASgDIlYKCFppcEVudHJ5EgwKBG5hbWUYASABKAkSDgoGaXNfZGlyGAIgASgIEhIKCnNpemVfYnl0ZXMYAyABKAMSGAoQY29tcHJlc3NlZF9ieXRlcxgEIAEoAyIeCg5MaXN0WmlwUmVxdWVzdBIMCgRwYXRoGAEgASgJImoKD0xpc3RaaXBSZXNwb25zZRIMCgRwYXRoGAEgASgJEhIKCnNpemVfYnl0ZXMYAiABKAMSIgoHZW50cmllcxgDIAMoCzIRLmx5b24udjEuWmlwRW50cnkSEQoJdHJ1bmNhdGVkGAQgASgIKvEBCghGaWxlS2luZBIZChVGSUxFX0tJTkRfVU5TUEVDSUZJRUQQABIRCg1GSUxFX0tJTkRfRElSEAESEgoORklMRV9LSU5EX1RFWFQQAhISCg5GSUxFX0tJTkRfQ09ERRADEhYKEkZJTEVfS0lORF9NQVJLRE9XThAEEhMKD0ZJTEVfS0lORF9JTUFHRRAFEhEKDUZJTEVfS0lORF9QREYQBhITCg9GSUxFX0tJTkRfT1RIRVIQBxISCg5GSUxFX0tJTkRfUFBUWBAIEhIKDkZJTEVfS0lORF9ET0NYEAkSEgoORklMRV9LSU5EX1hMU1gQCjKpBQoLRmlsZVNlcnZpY2USTgoNTGlzdERpcmVjdG9yeRIdLmx5b24udjEuTGlzdERpcmVjdG9yeVJlcXVlc3QaHi5seW9uLnYxLkxpc3REaXJlY3RvcnlSZXNwb25zZRJLCgxSZWFkVGV4dEZpbGUSHC5seW9uLnYxLlJlYWRUZXh0RmlsZVJlcXVlc3QaHS5seW9uLnYxLlJlYWRUZXh0RmlsZVJlc3BvbnNlElEKDlJlYWRCaW5hcnlGaWxlEh4ubHlvbi52MS5SZWFkQmluYXJ5RmlsZVJlcXVlc3QaHy5seW9uLnYxLlJlYWRCaW5hcnlGaWxlUmVzcG9uc2USQgoJV3JpdGVGaWxlEhkubHlvbi52MS5Xcml0ZUZpbGVSZXF1ZXN0GhoubHlvbi52MS5Xcml0ZUZpbGVSZXNwb25zZRI2CgVNa2RpchIVLmx5b24udjEuTWtkaXJSZXF1ZXN0GhYubHlvbi52MS5Na2RpclJlc3BvbnNlEjkKBlJlbmFtZRIWLmx5b24udjEuUmVuYW1lUmVxdWVzdBoXLmx5b24udjEuUmVuYW1lUmVzcG9uc2USMwoETW92ZRIULmx5b24udjEuTW92ZVJlcXVlc3QaFS5seW9uLnYxLk1vdmVSZXNwb25zZRI5CgZEZWxldGUSFi5seW9uLnYxLkRlbGV0ZVJlcXVlc3QaFy5seW9uLnYxLkRlbGV0ZVJlc3BvbnNlEkUKClVwbG9hZEZpbGUSGi5seW9uLnYxLlVwbG9hZEZpbGVSZXF1ZXN0GhsubHlvbi52MS5VcGxvYWRGaWxlUmVzcG9uc2USPAoHTGlzdFppcBIXLmx5b24udjEuTGlzdFppcFJlcXVlc3QaGC5seW9uLnYxLkxpc3RaaXBSZXNwb25zZUIiWiBseW9uLWFnZW50L2dlbi9nby9seW9uL3YxO2x5b252MWIGcHJvdG8z");
 
 /**
  * @generated from message lyon.v1.DirEntry
@@ -483,6 +483,97 @@ export const UploadFileResponseSchema: GenMessage<UploadFileResponse> = /*@__PUR
   messageDesc(file_lyon_v1_file, 18);
 
 /**
+ * @generated from message lyon.v1.ZipEntry
+ */
+export type ZipEntry = Message<"lyon.v1.ZipEntry"> & {
+  /**
+   * path inside the archive, "/" separators
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: bool is_dir = 2;
+   */
+  isDir: boolean;
+
+  /**
+   * uncompressed
+   *
+   * @generated from field: int64 size_bytes = 3;
+   */
+  sizeBytes: bigint;
+
+  /**
+   * @generated from field: int64 compressed_bytes = 4;
+   */
+  compressedBytes: bigint;
+};
+
+/**
+ * Describes the message lyon.v1.ZipEntry.
+ * Use `create(ZipEntrySchema)` to create a new message.
+ */
+export const ZipEntrySchema: GenMessage<ZipEntry> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 19);
+
+/**
+ * @generated from message lyon.v1.ListZipRequest
+ */
+export type ListZipRequest = Message<"lyon.v1.ListZipRequest"> & {
+  /**
+   * workspace-relative .zip path
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+};
+
+/**
+ * Describes the message lyon.v1.ListZipRequest.
+ * Use `create(ListZipRequestSchema)` to create a new message.
+ */
+export const ListZipRequestSchema: GenMessage<ListZipRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 20);
+
+/**
+ * @generated from message lyon.v1.ListZipResponse
+ */
+export type ListZipResponse = Message<"lyon.v1.ListZipResponse"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * the archive file's size
+   *
+   * @generated from field: int64 size_bytes = 2;
+   */
+  sizeBytes: bigint;
+
+  /**
+   * @generated from field: repeated lyon.v1.ZipEntry entries = 3;
+   */
+  entries: ZipEntry[];
+
+  /**
+   * entry-count cap hit
+   *
+   * @generated from field: bool truncated = 4;
+   */
+  truncated: boolean;
+};
+
+/**
+ * Describes the message lyon.v1.ListZipResponse.
+ * Use `create(ListZipResponseSchema)` to create a new message.
+ */
+export const ListZipResponseSchema: GenMessage<ListZipResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_file, 21);
+
+/**
  * @generated from enum lyon.v1.FileKind
  */
 export enum FileKind {
@@ -642,14 +733,26 @@ export const FileService: GenService<{
     output: typeof DeleteResponseSchema;
   },
   /**
-   * TODO(v2): stream download for large files.
-   *
    * @generated from rpc lyon.v1.FileService.UploadFile
    */
   uploadFile: {
     methodKind: "unary";
     input: typeof UploadFileRequestSchema;
     output: typeof UploadFileResponseSchema;
+  },
+  /**
+   * ListZip reads a .zip archive's central directory — the preview shows
+   * the file listing instead of a bare download link. Entries only, no
+   * extraction, no byte transfer of the archive itself.
+   *
+   * TODO(v2): stream download for large files.
+   *
+   * @generated from rpc lyon.v1.FileService.ListZip
+   */
+  listZip: {
+    methodKind: "unary";
+    input: typeof ListZipRequestSchema;
+    output: typeof ListZipResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_lyon_v1_file, 0);

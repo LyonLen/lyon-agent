@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Live drafts: the dump IS the session. A live session mirrors its
@@ -220,6 +222,12 @@ func ListDrafts(workspace string) ([]DraftRef, error) {
 	if err != nil {
 		return nil, err
 	}
+	return listDraftsDir(dir)
+}
+
+// listDraftsDir is the shared body of ListDrafts and ListAllDrafts: one
+// directory of *.json dumps, best effort per file.
+func listDraftsDir(dir string) ([]DraftRef, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -247,4 +255,111 @@ func ListDrafts(workspace string) ([]DraftRef, error) {
 		out = append(out, DraftRef{ID: id, Path: path, Snap: *snap})
 	}
 	return out, nil
+}
+
+// ListAllDrafts indexes EVERY workspace's drafts directory under
+// $LYON_HOME/sessions. Startup needs this, not the engine workspace's
+// single dir: a session that switched workspaces (x-lyon-workspace) keeps
+// its dumps split across two hash directories — the register-time path is
+// fixed, so a restart under the new workspace writes a second copy while
+// the old one freezes. Indexing one dir is exactly the lost-session bug:
+// the row lists the stale copy and the fresh one sits orphaned on disk.
+//
+// When the same seat id appears in several dirs, the newest copy wins:
+// LastActive first (the content clock the mirror stamps on every ask),
+// file mtime breaking ties, message count as the last resort. Returns refs
+// sorted by seat id so callers see a stable order.
+func ListAllDrafts() ([]DraftRef, error) {
+	root, err := lyonHome()
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := filepath.Glob(filepath.Join(root, "sessions", "*", "drafts"))
+	if err != nil {
+		return nil, err
+	}
+	best := make(map[string]DraftRef, len(dirs))
+	mtimes := make(map[string]time.Time, len(dirs))
+	for _, dir := range dirs {
+		refs, err := listDraftsDir(dir)
+		if err != nil {
+			continue // best effort per dir, like listDraftsDir per file
+		}
+		for _, r := range refs {
+			var mt time.Time
+			if fi, err := os.Stat(r.Path); err == nil {
+				mt = fi.ModTime()
+			}
+			old, seen := best[r.ID]
+			if !seen || draftNewer(r, mt, old, mtimes[r.ID]) {
+				best[r.ID] = r
+				mtimes[r.ID] = mt
+			}
+		}
+	}
+	out := make([]DraftRef, 0, len(best))
+	for _, r := range best {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// draftNewer reports whether copy a (mtime amt) beats copy b for the same
+// seat. LastActive is the content clock; mtime catches re-parks that
+// rewrite identical metadata; message count catches a same-second tail.
+func draftNewer(a DraftRef, amt time.Time, b DraftRef, bmt time.Time) bool {
+	if !a.Snap.LastActive.Equal(b.Snap.LastActive) {
+		return a.Snap.LastActive.After(b.Snap.LastActive)
+	}
+	if !amt.Equal(bmt) {
+		return amt.After(bmt)
+	}
+	return len(a.Snap.Messages) > len(b.Snap.Messages)
+}
+
+// DeleteDrafts removes EVERY dump written for seat id across all workspace
+// drafts dirs — the delete counterpart to ListAllDrafts. A delete that only
+// unlinks the indexed copy resurrects the seat from the stale twin on the
+// next startup. Matches the filename first (DraftPath always writes
+// <id>.json); a renamed dump is found through its snapshot's id. Returns
+// how many files were removed.
+func DeleteDrafts(id string) (int, error) {
+	root, err := lyonHome()
+	if err != nil {
+		return 0, err
+	}
+	dirs, err := filepath.Glob(filepath.Join(root, "sessions", "*", "drafts"))
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	var firstErr error
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, ent := range entries {
+			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
+				continue
+			}
+			path := filepath.Join(dir, ent.Name())
+			if ent.Name() != id+".json" {
+				// Renamed dump: the seat id rides the snapshot.
+				snap, err := LoadSnapshotFrom(path)
+				if err != nil || snap == nil || snap.ID != id {
+					continue
+				}
+			}
+			if err := os.Remove(path); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			n++
+		}
+	}
+	return n, firstErr
 }

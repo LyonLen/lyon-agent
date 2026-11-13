@@ -14,6 +14,7 @@ import FilePanel from "./components/FilePanel";
 import PreviewPane from "./components/PreviewPane";
 import TerminalPane from "./components/TerminalPane";
 import MemoryPanel from "./components/MemoryPanel";
+import SkillPanel from "./components/SkillPanel";
 import EvolvePanel from "./components/EvolvePanel";
 import SettingsPane from "./components/SettingsPane";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -278,6 +279,14 @@ export default function App() {
   const seatPending = useMemo(
     () => pending.filter((p) => p.sessionId === selectedId),
     [pending, selectedId],
+  );
+
+  // Sessions parked on an approval card, any of them — the sidebar badge
+  // turns amber for these so an ask in a background session is visible
+  // without switching to it (the 3s toast alone was easy to miss).
+  const approving = useMemo(
+    () => new Set(pending.map((p) => p.sessionId)),
+    [pending],
   );
 
   // One process-wide approval stream, self-healing: transient stream
@@ -583,6 +592,10 @@ export default function App() {
         ws.openPane("memory");
         flash("memory pane — project scope");
         break;
+      case "/skills":
+        ws.openPane("skills");
+        flash("skills pane — 命中 / 已安装 / 推荐安装");
+        break;
       case "/mindmap":
       case "/mm":
         ws.openPane("mindmap");
@@ -780,6 +793,7 @@ export default function App() {
         <SessionList
           sessions={sessions}
           saved={saved}
+          approving={approving}
           selectedId={selectedId}
           restoring={restoring}
           onSelect={setSelectedId}
@@ -971,6 +985,17 @@ export default function App() {
         </svg>
       ),
       render: () => <MemoryPanel root={wsRoot} />,
+    },
+    {
+      kind: "skills",
+      title: "skills",
+      desc: "session hits, installed playbooks, recommendations",
+      icon: (
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M7.7 1.6l1.4 2.9 3.2.5-2.3 2.2.5 3.2L7 9l-2.8 1.4.5-3.2-2.3-2.2 3.2-.5z" />
+        </svg>
+      ),
+      render: () => <SkillPanel sessionId={selectedId} root={wsRoot} />,
     },
     {
       kind: "settings",

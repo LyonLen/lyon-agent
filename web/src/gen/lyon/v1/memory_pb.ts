@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/memory.proto.
  */
 export const file_lyon_v1_memory: GenFile = /*@__PURE__*/
-  fileDesc("ChRseW9uL3YxL21lbW9yeS5wcm90bxIHbHlvbi52MSJ1CgpNZW1vcnlGYWN0EgwKBG5hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSDQoFc2NvcGUYAyABKAkSDAoEdGFncxgEIAMoCRILCgNob3QYBSABKAgSDAoEaGl0cxgGIAEoBRIMCgRib2R5GAcgASgJIhMKEUxpc3RNZW1vcnlSZXF1ZXN0IjgKEkxpc3RNZW1vcnlSZXNwb25zZRIiCgVmYWN0cxgBIAMoCzITLmx5b24udjEuTWVtb3J5RmFjdCKSAQoTVXBkYXRlTWVtb3J5UmVxdWVzdBINCgVzY29wZRgBIAEoCRIMCgRuYW1lGAIgASgJEhgKC2Rlc2NyaXB0aW9uGAMgASgJSACIAQESEQoEYm9keRgEIAEoCUgBiAEBEhAKA2hvdBgFIAEoCEgCiAEBQg4KDF9kZXNjcmlwdGlvbkIHCgVfYm9keUIGCgRfaG90IjkKFFVwZGF0ZU1lbW9yeVJlc3BvbnNlEiEKBGZhY3QYASABKAsyEy5seW9uLnYxLk1lbW9yeUZhY3QiMgoTRGVsZXRlTWVtb3J5UmVxdWVzdBINCgVzY29wZRgBIAEoCRIMCgRuYW1lGAIgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlMvABCg1NZW1vcnlTZXJ2aWNlEkUKCkxpc3RNZW1vcnkSGi5seW9uLnYxLkxpc3RNZW1vcnlSZXF1ZXN0GhsubHlvbi52MS5MaXN0TWVtb3J5UmVzcG9uc2USSwoMVXBkYXRlTWVtb3J5EhwubHlvbi52MS5VcGRhdGVNZW1vcnlSZXF1ZXN0Gh0ubHlvbi52MS5VcGRhdGVNZW1vcnlSZXNwb25zZRJLCgxEZWxldGVNZW1vcnkSHC5seW9uLnYxLkRlbGV0ZU1lbW9yeVJlcXVlc3QaHS5seW9uLnYxLkRlbGV0ZU1lbW9yeVJlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM");
+  fileDesc("ChRseW9uL3YxL21lbW9yeS5wcm90bxIHbHlvbi52MSJ1CgpNZW1vcnlGYWN0EgwKBG5hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSDQoFc2NvcGUYAyABKAkSDAoEdGFncxgEIAMoCRILCgNob3QYBSABKAgSDAoEaGl0cxgGIAEoBRIMCgRib2R5GAcgASgJIhMKEUxpc3RNZW1vcnlSZXF1ZXN0IjgKEkxpc3RNZW1vcnlSZXNwb25zZRIiCgVmYWN0cxgBIAMoCzITLmx5b24udjEuTWVtb3J5RmFjdCKSAQoTVXBkYXRlTWVtb3J5UmVxdWVzdBINCgVzY29wZRgBIAEoCRIMCgRuYW1lGAIgASgJEhgKC2Rlc2NyaXB0aW9uGAMgASgJSACIAQESEQoEYm9keRgEIAEoCUgBiAEBEhAKA2hvdBgFIAEoCEgCiAEBQg4KDF9kZXNjcmlwdGlvbkIHCgVfYm9keUIGCgRfaG90IjkKFFVwZGF0ZU1lbW9yeVJlc3BvbnNlEiEKBGZhY3QYASABKAsyEy5seW9uLnYxLk1lbW9yeUZhY3QiMgoTRGVsZXRlTWVtb3J5UmVxdWVzdBINCgVzY29wZRgBIAEoCRIMCgRuYW1lGAIgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlIigKCU1lbW9yeVJlZhINCgVzY29wZRgBIAEoCRIMCgRuYW1lGAIgASgJIkkKFlRyYW5zZm9ybU1lbW9yeVJlcXVlc3QSCgoCb3AYASABKAkSIwoHdGFyZ2V0cxgCIAMoCzISLmx5b24udjEuTWVtb3J5UmVmIoEBChdUcmFuc2Zvcm1NZW1vcnlSZXNwb25zZRIKCgJvcBgBIAEoCRIPCgdzdW1tYXJ5GAIgASgJEiQKB2NoYW5nZWQYAyADKAsyEy5seW9uLnYxLk1lbW9yeUZhY3QSIwoHcmVtb3ZlZBgEIAMoCzISLmx5b24udjEuTWVtb3J5UmVmMsYCCg1NZW1vcnlTZXJ2aWNlEkUKCkxpc3RNZW1vcnkSGi5seW9uLnYxLkxpc3RNZW1vcnlSZXF1ZXN0GhsubHlvbi52MS5MaXN0TWVtb3J5UmVzcG9uc2USSwoMVXBkYXRlTWVtb3J5EhwubHlvbi52MS5VcGRhdGVNZW1vcnlSZXF1ZXN0Gh0ubHlvbi52MS5VcGRhdGVNZW1vcnlSZXNwb25zZRJLCgxEZWxldGVNZW1vcnkSHC5seW9uLnYxLkRlbGV0ZU1lbW9yeVJlcXVlc3QaHS5seW9uLnYxLkRlbGV0ZU1lbW9yeVJlc3BvbnNlElQKD1RyYW5zZm9ybU1lbW9yeRIfLmx5b24udjEuVHJhbnNmb3JtTWVtb3J5UmVxdWVzdBogLmx5b24udjEuVHJhbnNmb3JtTWVtb3J5UmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw");
 
 /**
  * MemoryFact mirrors pkg/memory.Fact (no timestamps — the panel shows
@@ -191,6 +191,95 @@ export const DeleteMemoryResponseSchema: GenMessage<DeleteMemoryResponse> = /*@_
   messageDesc(file_lyon_v1_memory, 6);
 
 /**
+ * MemoryRef points at one stored fact (the selection unit of
+ * TransformMemory).
+ *
+ * @generated from message lyon.v1.MemoryRef
+ */
+export type MemoryRef = Message<"lyon.v1.MemoryRef"> & {
+  /**
+   * @generated from field: string scope = 1;
+   */
+  scope: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message lyon.v1.MemoryRef.
+ * Use `create(MemoryRefSchema)` to create a new message.
+ */
+export const MemoryRefSchema: GenMessage<MemoryRef> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_memory, 7);
+
+/**
+ * @generated from message lyon.v1.TransformMemoryRequest
+ */
+export type TransformMemoryRequest = Message<"lyon.v1.TransformMemoryRequest"> & {
+  /**
+   * simplify | merge | extract
+   *
+   * @generated from field: string op = 1;
+   */
+  op: string;
+
+  /**
+   * the panel's checked rows
+   *
+   * @generated from field: repeated lyon.v1.MemoryRef targets = 2;
+   */
+  targets: MemoryRef[];
+};
+
+/**
+ * Describes the message lyon.v1.TransformMemoryRequest.
+ * Use `create(TransformMemoryRequestSchema)` to create a new message.
+ */
+export const TransformMemoryRequestSchema: GenMessage<TransformMemoryRequest> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_memory, 8);
+
+/**
+ * @generated from message lyon.v1.TransformMemoryResponse
+ */
+export type TransformMemoryResponse = Message<"lyon.v1.TransformMemoryResponse"> & {
+  /**
+   * @generated from field: string op = 1;
+   */
+  op: string;
+
+  /**
+   * the model's one-paragraph account of the pass
+   *
+   * @generated from field: string summary = 2;
+   */
+  summary: string;
+
+  /**
+   * facts written/updated, re-read from the Store
+   *
+   * @generated from field: repeated lyon.v1.MemoryFact changed = 3;
+   */
+  changed: MemoryFact[];
+
+  /**
+   * sources the merge consumed
+   *
+   * @generated from field: repeated lyon.v1.MemoryRef removed = 4;
+   */
+  removed: MemoryRef[];
+};
+
+/**
+ * Describes the message lyon.v1.TransformMemoryResponse.
+ * Use `create(TransformMemoryResponseSchema)` to create a new message.
+ */
+export const TransformMemoryResponseSchema: GenMessage<TransformMemoryResponse> = /*@__PURE__*/
+  messageDesc(file_lyon_v1_memory, 9);
+
+/**
  * MemoryService: the three-layer memory store (team / personal in
  * $LYON_HOME, project in the workspace) over the server-side pkg/memory
  * handle. The browser can only reach project facts through FileService —
@@ -225,6 +314,19 @@ export const MemoryService: GenService<{
     methodKind: "unary";
     input: typeof DeleteMemoryRequestSchema;
     output: typeof DeleteMemoryResponseSchema;
+  },
+  /**
+   * TransformMemory runs one AI curation pass over the SELECTED facts
+   * (panel multi-select → 简化 / 合并 / 提取): a server-side one-shot
+   * model call reads them and writes the result straight back into the
+   * Store — instant for the UI, no session occupied.
+   *
+   * @generated from rpc lyon.v1.MemoryService.TransformMemory
+   */
+  transformMemory: {
+    methodKind: "unary";
+    input: typeof TransformMemoryRequestSchema;
+    output: typeof TransformMemoryResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_lyon_v1_memory, 0);

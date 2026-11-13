@@ -69,6 +69,10 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(filePath, fileHandler)
 	memPath, memHandler := lyonv1connect.NewMemoryServiceHandler(&memoryService{s: s})
 	s.mux.Handle(memPath, memHandler)
+	// Skill: the panel's installed list + SKILL.md viewer (skill hits
+	// ride the event stream as skill_used instead — skillhit.go).
+	skillPath, skillHandler := lyonv1connect.NewSkillServiceHandler(&skillService{s: s})
+	s.mux.Handle(skillPath, skillHandler)
 	dashPath, dashHandler := lyonv1connect.NewDashboardServiceHandler(&dashboardService{s: s})
 	s.mux.Handle(dashPath, dashHandler)
 	// Evolve: the evolution panel's read-only state (lineage, spaces,

@@ -144,6 +144,11 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
 
 ### 2.4 工程债
 
+- [ ] **排队文本服务端暴露**：queued 镜像目前只活在客户端（`Session` 只有
+  `queueLen`，文本是 ChatView 的 sessionStorage 快照——2026-11-10 已修
+  切会话/重载丢失，Image #12）。跨标签页、清存储、他端入队的场景仍渲染
+  不到；补 proto 字段或 GetQueue RPC 即可，**需重启 lyond 生效**。
+  - 验收：新开标签页能看到服务端已收的排队行并可被 kickQueued 正常排空。
 - [x] ~~评审 B-#5：tui.go 拆分~~ → 随 2026-11-10 TUI 整体移除自然消解
   （`cmd/lyon` 已删，无物可拆）。
 - [x] **C-1 bench TestLoad/overhead 全量并行 flaky 根治** —— 2026-10-30 按实测

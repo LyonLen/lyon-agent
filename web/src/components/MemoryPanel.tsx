@@ -73,6 +73,14 @@ export default function MemoryPanel({ root }: { root?: string } = {}) {
   const [q, setQ] = useState("");
   // F2: active tag filter — null = 全部, "" = 未分类, else a real tag.
   const [tag, setTag] = useState<string | null>(null);
+  // Group folding: scope name → collapsed. Empty set = all expanded
+  // (the pre-fold layout), click a head to fold it away.
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  // Multi-select for the AI pass: scope\x00name keys, survives the 8s
+  // poll (keyed independently of the fact objects).
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [aiBusy, setAiBusy] = useState<"" | "simplify" | "merge" | "extract">("");
+  const [aiOut, setAiOut] = useState("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const note = (m: string) => {
@@ -146,9 +154,68 @@ export default function MemoryPanel({ root }: { root?: string } = {}) {
     try {
       await memoryClient.deleteMemory({ scope: f.scope, name: f.name });
       setFacts((fs) => fs.filter((x) => key(x) !== key(f)));
+      // a forgotten fact must not linger in the AI selection
+      setSel((prev) => {
+        if (!prev.has(key(f))) return prev;
+        const n = new Set(prev);
+        n.delete(key(f));
+        return n;
+      });
       note(`forgotten: ${f.name}`);
     } catch (e) {
       setErr(errText(e));
+    }
+  };
+
+  const toggleSel = (f: MemFact) => {
+    setSel((prev) => {
+      const n = new Set(prev);
+      const k = key(f);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
+  };
+
+  const toggleFold = (scope: Scope) => {
+    setFolded((prev) => {
+      const n = new Set(prev);
+      if (n.has(scope)) n.delete(scope);
+      else n.add(scope);
+      return n;
+    });
+  };
+
+  // The AI pass: one RPC — a server-side one-shot model call writes the
+  // Store directly (TransformMemory). Instant for the panel, no chat
+  // turn; the model's summary comes back as the receipt.
+  const runAI = async (op: "simplify" | "merge" | "extract") => {
+    if (sel.size === 0 || aiBusy) return;
+    setAiBusy(op);
+    setErr("");
+    setAiOut("");
+    try {
+      // map keys back through the fact list — no key-parsing, so the
+      // NUL separator never leaks into this code
+      const targets = facts
+        .filter((f) => sel.has(key(f)))
+        .map((f) => ({ scope: f.scope, name: f.name }));
+      if (targets.length === 0) {
+        setErr("selection no longer resolves to any fact");
+        return;
+      }
+      const res = await memoryClient.transformMemory({ op, targets });
+      setAiOut(res.summary || `${op} done`);
+      setSel(new Set());
+      await load();
+      note(
+        `${op} 完成 — 更新 ${res.changed.length} 条` +
+          (res.removed.length ? ` · 合并删除 ${res.removed.length} 条` : ""),
+      );
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setAiBusy("");
     }
   };
 
@@ -197,9 +264,21 @@ export default function MemoryPanel({ root }: { root?: string } = {}) {
           "mem-row" +
           (f.hot ? " hot" : "") +
           (isOpen ? " open" : "") +
+          (sel.has(key(f)) ? " sel" : "") +
           (hitScore !== undefined ? " hit" : "")
         }
       >
+        <button
+          type="button"
+          className={"mem-check" + (sel.has(key(f)) ? " on" : "")}
+          title={sel.has(key(f)) ? "取消选择" : "选择，交给下方 AI 简化/合并/提取"}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleSel(f);
+          }}
+        >
+          {sel.has(key(f)) ? "☑" : "☐"}
+        </button>
         {hitScore !== undefined ? (
           <span
             className="mem-score"
@@ -296,6 +375,46 @@ export default function MemoryPanel({ root }: { root?: string } = {}) {
           reload
         </button>
       </div>
+      {/* AI pass — one-shot server-side transform over the checked rows */}
+      <div className="mem-ai">
+        <span className="mem-selcount">
+          已选 <b>{sel.size}</b>
+        </span>
+        <button
+          type="button"
+          className="ghost mem-aibtn"
+          disabled={sel.size < 1 || !!aiBusy}
+          title="逐条瘦身：保留信息、去掉冗余，原地改写选中的记忆"
+          onClick={() => void runAI("simplify")}
+        >
+          {aiBusy === "simplify" ? "…" : "AI 简化"}
+        </button>
+        <button
+          type="button"
+          className="ghost mem-aibtn"
+          disabled={sel.size < 2 || !!aiBusy}
+          title="把选中的多条记忆合成一条（需至少 2 条）"
+          onClick={() => void runAI("merge")}
+        >
+          {aiBusy === "merge" ? "…" : "AI 合并"}
+        </button>
+        <button
+          type="button"
+          className="ghost mem-aibtn"
+          disabled={sel.size < 1 || !!aiBusy}
+          title="从选中的记忆里抽出一条新的要点"
+          onClick={() => void runAI("extract")}
+        >
+          {aiBusy === "extract" ? "…" : "AI 提取"}
+        </button>
+        {sel.size > 0 && (
+          <button type="button" className="ghost" onClick={() => setSel(new Set())}>
+            清除选择
+          </button>
+        )}
+        {aiBusy && <span className="mem-aibusy">{aiBusy} 中…</span>}
+      </div>
+      {aiOut && <div className="mem-aiout">{aiOut}</div>}
       {facts.length > 0 && (tagInv.entries.length > 0 || tagInv.untagged > 0) && (
         <div className="mem-tags">
           <button
@@ -360,16 +479,22 @@ export default function MemoryPanel({ root }: { root?: string } = {}) {
         SCOPES.map((s) => {
           const group = base.filter((f) => f.scope === s);
           if (group.length === 0) return null;
+          const isFolded = folded.has(s);
           return (
             <div key={s} className="mem-group">
-              <div className="mem-group-head">
+              <div
+                className="mem-group-head fold"
+                title={isFolded ? "展开这一组" : "折叠这一组"}
+                onClick={() => toggleFold(s)}
+              >
+                <span className="mem-fold">{isFolded ? "▸" : "▾"}</span>
                 {s}
                 <span className="mem-badge">{group.length}</span>
                 {tag !== null && (
                   <span className="mem-qmeta">分类：{tag === "" ? "未分类" : tag}</span>
                 )}
               </div>
-              {group.map((f) => renderRow(f))}
+              {!isFolded && group.map((f) => renderRow(f))}
             </div>
           );
         })}

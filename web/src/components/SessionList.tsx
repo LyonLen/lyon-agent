@@ -18,6 +18,9 @@ function wsName(ws: string): string {
 export default function SessionList(props: {
   sessions: Session[];
   saved: SnapshotRef[];
+  // Session ids parked on an approval card — their badge renders amber
+  // so an ask in a background session is spot-able without switching.
+  approving: ReadonlySet<string>;
   selectedId: string;
   restoring: string;
   onSelect: (id: string) => void;
@@ -70,10 +73,19 @@ export default function SessionList(props: {
         <span className="title">{s.title || "(untitled)"}</span>
         <span className="meta">
           {s.mode}
-          {s.busy ? (
+          {s.busy || props.approving.has(s.id) ? (
             <>
               {" · "}
-              <span className="run-badge">running</span>
+              <span
+                className={"run-badge" + (props.approving.has(s.id) ? " wait" : "")}
+                title={
+                  props.approving.has(s.id)
+                    ? "waiting for your approval — click to open"
+                    : undefined
+                }
+              >
+                running
+              </span>
             </>
           ) : null}
           {s.queueLen > 0 ? ` · queued ${s.queueLen}` : ""}

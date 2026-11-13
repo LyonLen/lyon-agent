@@ -49,6 +49,16 @@ const (
 	DashboardServiceListAuditProcedure = "/lyon.v1.DashboardService/ListAudit"
 )
 
+// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
+var (
+	dashboardServiceServiceDescriptor             = v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService")
+	dashboardServiceGetOverviewMethodDescriptor   = dashboardServiceServiceDescriptor.Methods().ByName("GetOverview")
+	dashboardServiceListRunsMethodDescriptor      = dashboardServiceServiceDescriptor.Methods().ByName("ListRuns")
+	dashboardServiceGetRunMethodDescriptor        = dashboardServiceServiceDescriptor.Methods().ByName("GetRun")
+	dashboardServiceListSnapshotsMethodDescriptor = dashboardServiceServiceDescriptor.Methods().ByName("ListSnapshots")
+	dashboardServiceListAuditMethodDescriptor     = dashboardServiceServiceDescriptor.Methods().ByName("ListAudit")
+)
+
 // DashboardServiceClient is a client for the lyon.v1.DashboardService service.
 type DashboardServiceClient interface {
 	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
@@ -67,36 +77,35 @@ type DashboardServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewDashboardServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DashboardServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	dashboardServiceMethods := v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService").Methods()
 	return &dashboardServiceClient{
 		getOverview: connect.NewClient[v1.GetOverviewRequest, v1.GetOverviewResponse](
 			httpClient,
 			baseURL+DashboardServiceGetOverviewProcedure,
-			connect.WithSchema(dashboardServiceMethods.ByName("GetOverview")),
+			connect.WithSchema(dashboardServiceGetOverviewMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		listRuns: connect.NewClient[v1.ListRunsRequest, v1.ListRunsResponse](
 			httpClient,
 			baseURL+DashboardServiceListRunsProcedure,
-			connect.WithSchema(dashboardServiceMethods.ByName("ListRuns")),
+			connect.WithSchema(dashboardServiceListRunsMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		getRun: connect.NewClient[v1.GetRunRequest, v1.GetRunResponse](
 			httpClient,
 			baseURL+DashboardServiceGetRunProcedure,
-			connect.WithSchema(dashboardServiceMethods.ByName("GetRun")),
+			connect.WithSchema(dashboardServiceGetRunMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		listSnapshots: connect.NewClient[v1.ListSnapshotsRequest, v1.ListSnapshotsResponse](
 			httpClient,
 			baseURL+DashboardServiceListSnapshotsProcedure,
-			connect.WithSchema(dashboardServiceMethods.ByName("ListSnapshots")),
+			connect.WithSchema(dashboardServiceListSnapshotsMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		listAudit: connect.NewClient[v1.ListAuditRequest, v1.ListAuditResponse](
 			httpClient,
 			baseURL+DashboardServiceListAuditProcedure,
-			connect.WithSchema(dashboardServiceMethods.ByName("ListAudit")),
+			connect.WithSchema(dashboardServiceListAuditMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -151,35 +160,34 @@ type DashboardServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewDashboardServiceHandler(svc DashboardServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	dashboardServiceMethods := v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService").Methods()
 	dashboardServiceGetOverviewHandler := connect.NewUnaryHandler(
 		DashboardServiceGetOverviewProcedure,
 		svc.GetOverview,
-		connect.WithSchema(dashboardServiceMethods.ByName("GetOverview")),
+		connect.WithSchema(dashboardServiceGetOverviewMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	dashboardServiceListRunsHandler := connect.NewUnaryHandler(
 		DashboardServiceListRunsProcedure,
 		svc.ListRuns,
-		connect.WithSchema(dashboardServiceMethods.ByName("ListRuns")),
+		connect.WithSchema(dashboardServiceListRunsMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	dashboardServiceGetRunHandler := connect.NewUnaryHandler(
 		DashboardServiceGetRunProcedure,
 		svc.GetRun,
-		connect.WithSchema(dashboardServiceMethods.ByName("GetRun")),
+		connect.WithSchema(dashboardServiceGetRunMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	dashboardServiceListSnapshotsHandler := connect.NewUnaryHandler(
 		DashboardServiceListSnapshotsProcedure,
 		svc.ListSnapshots,
-		connect.WithSchema(dashboardServiceMethods.ByName("ListSnapshots")),
+		connect.WithSchema(dashboardServiceListSnapshotsMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	dashboardServiceListAuditHandler := connect.NewUnaryHandler(
 		DashboardServiceListAuditProcedure,
 		svc.ListAudit,
-		connect.WithSchema(dashboardServiceMethods.ByName("ListAudit")),
+		connect.WithSchema(dashboardServiceListAuditMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.DashboardService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

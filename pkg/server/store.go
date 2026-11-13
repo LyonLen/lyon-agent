@@ -123,10 +123,15 @@ func NewStore(max int, ttl time.Duration) *Store {
 
 // LoadDrafts indexes the seats a previous process left on disk. Call it once
 // before serving (lyond's startup): from then on the list includes them and
-// acquiring one adopts it back under its own id. Idempotent; best effort per
-// file — an unreadable draft is skipped, never fatal. Returns how many seats
-// came back.
-func (s *Store) LoadDrafts(workspace string) (int, error) {
+// acquiring one adopts it back under its own id. It scans EVERY workspace's
+// drafts dir (agent.ListAllDrafts), not just the engine workspace's — a
+// session that switched workspaces splits its dumps across two hash dirs,
+// and indexing one dir is the lost-session bug: the row lists the stale
+// copy while the fresh one sits orphaned. Newest copy wins, so the row and
+// the first adopt both read the conversation as it last stood. Idempotent;
+// best effort per file — an unreadable draft is skipped, never fatal.
+// Returns how many seats came back.
+func (s *Store) LoadDrafts() (int, error) {
 	s.mu.Lock()
 	if s.loaded || s.closed {
 		s.mu.Unlock()
@@ -135,7 +140,7 @@ func (s *Store) LoadDrafts(workspace string) (int, error) {
 	s.loaded = true
 	s.mu.Unlock()
 
-	drafts, err := agent.ListDrafts(workspace)
+	drafts, err := agent.ListAllDrafts()
 	if err != nil {
 		return 0, err
 	}
@@ -306,6 +311,10 @@ func (s *Store) Delete(id string) bool {
 
 	if !live {
 		if disk {
+			// Every copy goes, not just the indexed one: a stale twin in
+			// another workspace's drafts dir would resurrect the seat on
+			// the next startup's index.
+			_, _ = agent.DeleteDrafts(id)
 			_ = os.Remove(p.path)
 			return true
 		}
@@ -317,6 +326,12 @@ func (s *Store) Delete(id string) bool {
 	e.sess.Interrupt()
 	if e.draft != nil {
 		e.draft.Close() // no mirror may land after the removal
+	}
+	// All copies of the seat go with it — the live mirror's path plus any
+	// dump a past workspace switch left in another hash dir (see
+	// agent.ListAllDrafts): one survivor reindexes as a deleted session.
+	_, _ = agent.DeleteDrafts(id)
+	if e.draft != nil {
 		_ = os.Remove(e.draft.Path())
 	}
 	// Distill before Close: the conversation is about to vanish for good,

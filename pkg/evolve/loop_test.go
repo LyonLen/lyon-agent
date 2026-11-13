@@ -261,7 +261,7 @@ func TestFinishExamEvolvesOnFail(t *testing.T) {
 	}
 }
 
-// TestRememberDiagnosisWritebacks: the post-mortem lands as one hot
+// TestRememberDiagnosisWritebacks: the post-mortem lands as one cold
 // project fact (audited EvMemorySave) AND as the current agent's space
 // lesson — the disk half of self-evolution.
 func TestRememberDiagnosisWritebacks(t *testing.T) {

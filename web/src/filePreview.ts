@@ -12,7 +12,14 @@ export type OfficeKind = "pptx" | "docx" | "xlsx";
 export type Preview =
   | { kind: "text"; path: string; content: string; truncated: boolean; md: boolean }
   | { kind: "media"; path: string; url: string; contentType: string }
-  | { kind: "office"; path: string; office: OfficeKind; data: ArrayBuffer; truncated: boolean };
+  | { kind: "office"; path: string; office: OfficeKind; data: ArrayBuffer; truncated: boolean }
+  | {
+      kind: "zip";
+      path: string;
+      entries: Array<{ name: string; isDir: boolean; sizeBytes: number; compressedBytes: number }>;
+      truncated: boolean;
+      sizeBytes: number;
+    };
 
 export function joinPath(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name;
@@ -57,6 +64,29 @@ async function kindOf(p: string): Promise<FileKind> {
  */
 export async function fetchPreview(p: string, kindHint?: FileKind): Promise<Preview> {
   const kind = kindHint ?? (await kindOf(p));
+  // .zip: list the central directory instead of dumping bytes. Keyed on
+  // the extension, not FileKind — the server's head-sniff reads the PK
+  // magic as valid UTF-8 and may classify an archive as TEXT, and a
+  // misnamed non-zip must still fall through to the normal read below.
+  if (/\.zip$/i.test(p)) {
+    try {
+      const res = await fileClient.listZip({ path: p });
+      return {
+        kind: "zip",
+        path: p,
+        entries: res.entries.map((e) => ({
+          name: e.name,
+          isDir: e.isDir,
+          sizeBytes: Number(e.sizeBytes),
+          compressedBytes: Number(e.compressedBytes),
+        })),
+        truncated: res.truncated,
+        sizeBytes: Number(res.sizeBytes),
+      };
+    } catch {
+      // not a readable archive — fall through to the text/binary path
+    }
+  }
   if (kind === FileKind.PPTX || kind === FileKind.DOCX || kind === FileKind.XLSX) {
     const res = await fileClient.readBinaryFile({ path: p });
     return {

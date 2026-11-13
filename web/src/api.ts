@@ -16,6 +16,7 @@ import { GitService } from "./gen/lyon/v1/git_pb";
 import { ApprovalService } from "./gen/lyon/v1/approval_pb";
 import { SettingsService } from "./gen/lyon/v1/settings_pb";
 import { MindmapService } from "./gen/lyon/v1/mindmap_pb";
+import { SkillService } from "./gen/lyon/v1/skill_pb";
 
 // v1 auth is the static lyond bearer token, kept in localStorage and
 // injected by a transport interceptor (plan §4.7 — one interceptor covers
@@ -151,6 +152,10 @@ export const settingsClient = createClient(SettingsService, transport);
 // the map is NOT in the session snapshot, so /resume rebuilds through
 // this) and the human edit channel (UpdateMindmap, origin="user").
 export const mindmapClient = createClient(MindmapService, transport);
+// SkillService: the skills panel's installed list + SKILL.md viewer,
+// and the source of slash's dynamic /skillname entries. Skill HITS ride
+// the event stream (skill_used), not this client.
+export const skillClient = createClient(SkillService, transport);
 
 export function errText(err: unknown): string {
   const ce = ConnectError.from(err);

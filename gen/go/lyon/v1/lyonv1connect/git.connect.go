@@ -45,6 +45,16 @@ const (
 	GitServiceDiffProcedure = "/lyon.v1.GitService/Diff"
 )
 
+// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
+var (
+	gitServiceServiceDescriptor      = v1.File_lyon_v1_git_proto.Services().ByName("GitService")
+	gitServiceStatusMethodDescriptor = gitServiceServiceDescriptor.Methods().ByName("Status")
+	gitServiceLogMethodDescriptor    = gitServiceServiceDescriptor.Methods().ByName("Log")
+	gitServiceCommitMethodDescriptor = gitServiceServiceDescriptor.Methods().ByName("Commit")
+	gitServiceSyncMethodDescriptor   = gitServiceServiceDescriptor.Methods().ByName("Sync")
+	gitServiceDiffMethodDescriptor   = gitServiceServiceDescriptor.Methods().ByName("Diff")
+)
+
 // GitServiceClient is a client for the lyon.v1.GitService service.
 type GitServiceClient interface {
 	Status(context.Context, *connect.Request[v1.StatusRequest]) (*connect.Response[v1.StatusResponse], error)
@@ -63,36 +73,35 @@ type GitServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewGitServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) GitServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	gitServiceMethods := v1.File_lyon_v1_git_proto.Services().ByName("GitService").Methods()
 	return &gitServiceClient{
 		status: connect.NewClient[v1.StatusRequest, v1.StatusResponse](
 			httpClient,
 			baseURL+GitServiceStatusProcedure,
-			connect.WithSchema(gitServiceMethods.ByName("Status")),
+			connect.WithSchema(gitServiceStatusMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		log: connect.NewClient[v1.LogRequest, v1.LogResponse](
 			httpClient,
 			baseURL+GitServiceLogProcedure,
-			connect.WithSchema(gitServiceMethods.ByName("Log")),
+			connect.WithSchema(gitServiceLogMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		commit: connect.NewClient[v1.CommitRequest, v1.CommitResponse](
 			httpClient,
 			baseURL+GitServiceCommitProcedure,
-			connect.WithSchema(gitServiceMethods.ByName("Commit")),
+			connect.WithSchema(gitServiceCommitMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		sync: connect.NewClient[v1.SyncRequest, v1.SyncResponse](
 			httpClient,
 			baseURL+GitServiceSyncProcedure,
-			connect.WithSchema(gitServiceMethods.ByName("Sync")),
+			connect.WithSchema(gitServiceSyncMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		diff: connect.NewClient[v1.DiffRequest, v1.DiffResponse](
 			httpClient,
 			baseURL+GitServiceDiffProcedure,
-			connect.WithSchema(gitServiceMethods.ByName("Diff")),
+			connect.WithSchema(gitServiceDiffMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -147,35 +156,34 @@ type GitServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewGitServiceHandler(svc GitServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	gitServiceMethods := v1.File_lyon_v1_git_proto.Services().ByName("GitService").Methods()
 	gitServiceStatusHandler := connect.NewUnaryHandler(
 		GitServiceStatusProcedure,
 		svc.Status,
-		connect.WithSchema(gitServiceMethods.ByName("Status")),
+		connect.WithSchema(gitServiceStatusMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	gitServiceLogHandler := connect.NewUnaryHandler(
 		GitServiceLogProcedure,
 		svc.Log,
-		connect.WithSchema(gitServiceMethods.ByName("Log")),
+		connect.WithSchema(gitServiceLogMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	gitServiceCommitHandler := connect.NewUnaryHandler(
 		GitServiceCommitProcedure,
 		svc.Commit,
-		connect.WithSchema(gitServiceMethods.ByName("Commit")),
+		connect.WithSchema(gitServiceCommitMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	gitServiceSyncHandler := connect.NewUnaryHandler(
 		GitServiceSyncProcedure,
 		svc.Sync,
-		connect.WithSchema(gitServiceMethods.ByName("Sync")),
+		connect.WithSchema(gitServiceSyncMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	gitServiceDiffHandler := connect.NewUnaryHandler(
 		GitServiceDiffProcedure,
 		svc.Diff,
-		connect.WithSchema(gitServiceMethods.ByName("Diff")),
+		connect.WithSchema(gitServiceDiffMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.GitService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

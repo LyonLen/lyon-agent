@@ -3,7 +3,6 @@ package memory
 import (
 	"fmt"
 	"hash/fnv"
-	"sort"
 	"strings"
 )
 
@@ -11,12 +10,6 @@ import (
 // land in: the name prefix, the tag and the dedup namespace all share
 // it, so the lessons group under one handle for /memory and search.
 const DiagCategory = "failed-conditions"
-
-// diagHotKeep bounds how many post-mortems live in the resident hot
-// tier at once: MemoryFacts injects only that tier (4KB across all
-// scopes), so unbounded pinning would crowd out standing preferences.
-// The newest lessons stay injected; older ones fall back to search.
-const diagHotKeep = 3
 
 // diagBodyCap clips one post-mortem body — the diagnoser output is
 // bounded, but the local-fallback path must not write an unbounded
@@ -36,8 +29,11 @@ func diagKey(conds []string, patch string) uint64 {
 }
 
 // SaveDiagnosis persists a failure post-mortem as one project-scope
-// fact pinned into the hot tier, so the next session's MemoryFacts
-// injection carries the lesson (design §1.3: 同类错误全场可见).
+// fact in the COLD layer. It used to pin hot ("同类错误全场可见"), but
+// an incident-bound lesson — one naming a single paste image — hijacked
+// an unrelated session and dragged it into the wrong task (2026-11-11:
+// budget chat + FQC skill). Standing preferences need the hot slots far
+// more; post-mortems stay reachable through read_memory search instead.
 // Deduped by content: a repeat diagnosis writes nothing (saved=false,
 // no error), an empty post-mortem is a silent no-op — the same mistake
 // never stacks up in the store.
@@ -61,14 +57,13 @@ func (s *Store) SaveDiagnosis(conds []string, patch string) (Fact, bool, error) 
 		Description: diagDescription(clean, patch),
 		Scope:       ScopeProject,
 		Tags:        []string{DiagCategory},
-		Hot:         true, // Save keeps the flag on new facts; MemoryFacts reads hot only
+		Hot:         false, // cold by policy — see the function comment
 		Body:        diagBody(clean, patch),
 	}
 	saved, err := s.Save(f)
 	if err != nil {
 		return Fact{}, false, err
 	}
-	s.trimDiagHot(name)
 	return saved, true, nil
 }
 
@@ -87,8 +82,8 @@ func diagDescription(conds []string, patch string) string {
 	return desc
 }
 
-// diagBody renders the lesson as the fact body — the exact text the
-// hot-tier injection shows the next session.
+// diagBody renders the lesson as the fact body — the exact text
+// read_memory / search surfaces when the next session looks it up.
 func diagBody(conds []string, patch string) string {
 	var b strings.Builder
 	if len(conds) > 0 {
@@ -107,26 +102,17 @@ func diagBody(conds []string, patch string) string {
 	return body
 }
 
-// trimDiagHot keeps at most diagHotKeep post-mortems in the hot tier:
-// the one just saved (keep) plus the most recently updated of the rest.
-// Older lessons leave the resident tier but stay in the cold project
-// layer — reachable through search, just not injected every session.
-func (s *Store) trimDiagHot(keep string) {
-	var hot []Fact
+// demoteDiagHot turns the hot flag off on every failed-conditions fact
+// in the project layer. Open calls it once per load: saves from before
+// the 2026-11-11 cold-only policy landed hot, and those legacy lessons
+// would otherwise keep steering sessions that have nothing to do with
+// the original incident. Cold keeps them searchable without letting an
+// old failure call the shots in a new conversation.
+func (s *Store) demoteDiagHot() {
 	for _, f := range s.List(ScopeProject) {
-		if f.Hot && f.Name != keep && hasTag(f.Tags, DiagCategory) {
-			hot = append(hot, f)
+		if f.Hot && hasTag(f.Tags, DiagCategory) {
+			_, _ = s.ToggleHot(ScopeProject, f.Name) // hot -> cold
 		}
-	}
-	sort.Slice(hot, func(i, j int) bool {
-		if hot[i].Updated.Equal(hot[j].Updated) {
-			return hot[i].Name < hot[j].Name
-		}
-		return hot[i].Updated.After(hot[j].Updated)
-	})
-	// One slot of diagHotKeep is reserved for the fact just saved.
-	for i := diagHotKeep - 1; i < len(hot); i++ {
-		_, _ = s.ToggleHot(ScopeProject, hot[i].Name) // hot -> cold
 	}
 }
 

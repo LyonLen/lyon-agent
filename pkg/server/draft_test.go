@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/anthropics/anthropic-sdk-go"
 
 	lyonv1 "lyon-agent/gen/go/lyon/v1"
 	"lyon-agent/gen/go/lyon/v1/lyonv1connect"
@@ -130,7 +131,7 @@ func TestDraftSurvivesRestart(t *testing.T) {
 	eng2 := agent.NewEngine(agent.DefaultConfig(), nil)
 	st2 := NewStore(0, 0)
 	t.Cleanup(st2.CloseAll)
-	n, err := st2.LoadDrafts(ws)
+	n, err := st2.LoadDrafts()
 	if err != nil {
 		t.Fatalf("LoadDrafts: %v", err)
 	}
@@ -221,6 +222,95 @@ func TestDraftRemovedOnDelete(t *testing.T) {
 	if _, parked := st.Parked(sid); parked {
 		t.Fatal("deleted seat is still parked")
 	}
+}
+
+// TestLoadDraftsNewestCopyWins: the lost-session bug (2026-11-12). A seat
+// that switched workspaces leaves dumps in two hash dirs — startup must
+// index BOTH and hand the newer copy to the list and the first adopt,
+// otherwise the row serves the stale conversation while the fresh dump
+// sits orphaned on disk.
+func TestLoadDraftsNewestCopyWins(t *testing.T) {
+	scratchHome(t)
+	wsOld := t.TempDir()
+	wsNew := t.TempDir()
+	id := "seat-split"
+	oldLast := time.Date(2026, 11, 10, 11, 50, 0, 0, time.Local)
+	newLast := time.Date(2026, 11, 12, 12, 57, 0, 0, time.Local)
+	writeSeatCopy(t, wsOld, id, oldLast, "stale half")
+	newPath := writeSeatCopy(t, wsNew, id, newLast, "fresh half")
+
+	st := NewStore(0, 0)
+	t.Cleanup(st.CloseAll)
+	n, err := st.LoadDrafts()
+	if err != nil {
+		t.Fatalf("LoadDrafts: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("indexed %d seats, want 1 (split copies collapse to one row)", n)
+	}
+	p, ok := st.Parked(id)
+	if !ok {
+		t.Fatal("split seat not parked")
+	}
+	if p.Path != newPath {
+		t.Fatalf("indexed path = %q, want the newer copy %q", p.Path, newPath)
+	}
+	if !p.Snap.LastActive.Equal(newLast) {
+		t.Fatalf("parked LastActive = %v, want the newer copy's %v", p.Snap.LastActive, newLast)
+	}
+	if len(p.Snap.Messages) != 0 {
+		t.Fatalf("parked row carries %d messages; meta must strip the conversation", len(p.Snap.Messages))
+	}
+}
+
+// TestDeleteRemovesAllCopies: a delete must unlink every dump of the seat.
+// Removing only the indexed copy leaves the stale twin, which the next
+// startup reindexes — the deleted conversation comes back as a row.
+func TestDeleteRemovesAllCopies(t *testing.T) {
+	scratchHome(t)
+	wsOld := t.TempDir()
+	wsNew := t.TempDir()
+	id := "seat-del-split"
+	oldPath := writeSeatCopy(t, wsOld, id, time.Date(2026, 11, 10, 11, 50, 0, 0, time.Local), "stale half")
+	newPath := writeSeatCopy(t, wsNew, id, time.Date(2026, 11, 12, 12, 57, 0, 0, time.Local), "fresh half")
+
+	st := NewStore(0, 0)
+	t.Cleanup(st.CloseAll)
+	if _, err := st.LoadDrafts(); err != nil {
+		t.Fatalf("LoadDrafts: %v", err)
+	}
+	if !st.Delete(id) {
+		t.Fatal("Delete = false")
+	}
+	for _, p := range []string{oldPath, newPath} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("copy survived Delete: %s (%v)", p, err)
+		}
+	}
+}
+
+// writeSeatCopy drops one dump of id under ws's drafts dir with the given
+// clock and a marker message — the fixture for split-seat tests.
+func writeSeatCopy(t *testing.T, ws, id string, last time.Time, marker string) string {
+	t.Helper()
+	p, err := agent.DraftPath(ws, id)
+	if err != nil {
+		t.Fatalf("DraftPath: %v", err)
+	}
+	snap := agent.Snapshot{
+		ID:         id,
+		Workspace:  ws,
+		Title:      "split seat",
+		CreatedAt:  last.Add(-time.Hour),
+		LastActive: last,
+		Messages: []anthropic.BetaMessageParam{
+			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(marker)),
+		},
+	}
+	if err := agent.WriteSnapshotFile(p, snap); err != nil {
+		t.Fatalf("write copy: %v", err)
+	}
+	return p
 }
 
 // TestDraftDirShape pins where drafts live: inside the workspace's archive

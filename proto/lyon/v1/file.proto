@@ -24,6 +24,10 @@ service FileService {
   rpc Move(MoveRequest) returns (MoveResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
+  // ListZip reads a .zip archive's central directory — the preview shows
+  // the file listing instead of a bare download link. Entries only, no
+  // extraction, no byte transfer of the archive itself.
+  rpc ListZip(ListZipRequest) returns (ListZipResponse);
   // TODO(v2): stream download for large files.
 }
 
@@ -130,4 +134,23 @@ message UploadFileRequest {
 }
 message UploadFileResponse {
   int64 size_bytes = 1;
+}
+
+// --- zip listing (preview) ----------------------------------------------
+
+message ZipEntry {
+  string name = 1;      // path inside the archive, "/" separators
+  bool is_dir = 2;
+  int64 size_bytes = 3;         // uncompressed
+  int64 compressed_bytes = 4;
+}
+
+message ListZipRequest {
+  string path = 1; // workspace-relative .zip path
+}
+message ListZipResponse {
+  string path = 1;
+  int64 size_bytes = 2;         // the archive file's size
+  repeated ZipEntry entries = 3;
+  bool truncated = 4;           // entry-count cap hit
 }

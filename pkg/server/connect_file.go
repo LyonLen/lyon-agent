@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ const (
 	fileBinaryCap   = 32 << 20  // 32MB binary preview/upload cap — office decks need headroom (a sibling product caps at 30MB)
 	fileSniffBytes  = 4 << 10   // head window for text/binary classification of unknown extensions
 	fileWriteCap    = 2 << 20   // 2MB text write cap (WriteFile is utf-8 full replacement)
+	zipListCap      = 2000      // zip entries before truncated=true (a listing, not a dump)
 
 	// UploadFile is the binary path, so it is bounded by fileBinaryCap and
 	// not by fileWriteCap: a pasted screenshot is already ~3.5MB at the
@@ -402,6 +404,47 @@ func (f *fileService) UploadFile(_ context.Context, req *connect.Request[lyonv1.
 		return nil, fileOSErr(err, msg.Path)
 	}
 	return connect.NewResponse(&lyonv1.UploadFileResponse{SizeBytes: int64(len(msg.Data))}), nil
+}
+
+// ListZip reads a .zip archive's central directory — the preview shows
+// the file listing instead of a bare download link. Entries only: no
+// extraction, no archive bytes on the wire. zip.NewReader seeks the
+// directory, so cost is one open + seeks regardless of file size (the
+// 32MB binary cap does not apply — nothing is read into memory).
+func (f *fileService) ListZip(_ context.Context, req *connect.Request[lyonv1.ListZipRequest]) (*connect.Response[lyonv1.ListZipResponse], error) {
+	msg := req.Msg
+	abs, err := tools.Confine(f.s.wsFor(req.Header()), msg.Path)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	fh, err := os.Open(abs)
+	if err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	defer fh.Close()
+	fi, err := fh.Stat()
+	if err != nil {
+		return nil, fileOSErr(err, msg.Path)
+	}
+	zr, err := zip.NewReader(fh, fi.Size())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("%s: not a readable zip archive: %w", msg.Path, err))
+	}
+	out := &lyonv1.ListZipResponse{Path: msg.Path, SizeBytes: fi.Size()}
+	for _, e := range zr.File {
+		if len(out.Entries) >= zipListCap {
+			out.Truncated = true
+			break
+		}
+		out.Entries = append(out.Entries, &lyonv1.ZipEntry{
+			Name:            e.Name,
+			IsDir:           e.FileInfo().IsDir(),
+			SizeBytes:       int64(e.UncompressedSize64),
+			CompressedBytes: int64(e.CompressedSize64),
+		})
+	}
+	return connect.NewResponse(out), nil
 }
 
 // fileOSErr maps filesystem failures onto Connect codes: missing is

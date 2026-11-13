@@ -89,7 +89,7 @@ func TestScanSkillsMissingDir(t *testing.T) {
 }
 
 // TestScanSkillsEnvRedirect: LYON_SKILLS_DIR overrides the default
-// ~/.claude/skills for both the scan and the rendered section.
+// ~/.lyon/skills for both the scan and the rendered section.
 func TestScanSkillsEnvRedirect(t *testing.T) {
 	dir := t.TempDir()
 	writeSkill(t, dir, "from-env", "---\nname: from-env\ndescription: Found via LYON_SKILLS_DIR.\n---\n")
@@ -124,7 +124,7 @@ func TestSkillsSectionBudget(t *testing.T) {
 		skills = append(skills, SkillBrief{
 			Name:        "skill-" + string(rune('a'+i)),
 			Description: strings.Repeat("d", skillsDescBudget),
-			Path:        `C:\somewhere\.claude\skills\skill\SKILL.md`,
+			Path:        `C:\somewhere\.lyon\skills\skill\SKILL.md`,
 		})
 	}
 	sec := renderSkillsSection(skills)
@@ -167,9 +167,40 @@ func TestSessionSystemPromptCarriesSkills(t *testing.T) {
 	}
 }
 
+// TestSkillRootsUnderLyonOnly: every scan root sits under .lyon — the
+// global $LYON_HOME tier (personal skills + commons) and the
+// workspace's own .lyon/skills. ~/.claude is Claude Code's directory
+// and must never be a root: lyon reads only its own .lyon dirs.
+func TestSkillRootsUnderLyonOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("LYON_HOME", home)
+	t.Setenv("LYON_SKILLS_DIR", "") // force the default root
+	ws := t.TempDir()
+	roots := SkillRoots(ws)
+	if len(roots) != 3 {
+		t.Fatalf("SkillRoots = %d roots, want 3: %+v", len(roots), roots)
+	}
+	want := []string{
+		filepath.Join(home, "skills"),
+		filepath.Join(home, "commons", "skills"),
+		filepath.Join(ws, ".lyon", "skills"),
+	}
+	for i, r := range roots {
+		if r.Dir != want[i] {
+			t.Errorf("root[%d].Dir = %q, want %q", i, r.Dir, want[i])
+		}
+		if strings.Contains(strings.ToLower(r.Dir), ".claude") {
+			t.Errorf("root[%d] %q must not read the claude directory", i, r.Dir)
+		}
+	}
+	if got := skillsDir(); got != want[0] {
+		t.Errorf("skillsDir() = %q, want %q", got, want[0])
+	}
+}
+
 // TestScanSkillsCRLFAndBlockScalar: CRLF line endings and YAML block
 // scalars (description: | / > with indented continuation) both appear in
-// the wild — a real ~/.claude/skills scan found exactly these. The
+// the wild — a real skills-dir scan found exactly these. The
 // description must come out as the joined text, not the bare indicator.
 func TestScanSkillsCRLFAndBlockScalar(t *testing.T) {
 	dir := t.TempDir()

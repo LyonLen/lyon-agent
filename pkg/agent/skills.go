@@ -36,19 +36,15 @@ const (
 	skillsTailMax = 32
 )
 
-// skillsDir resolves the scan root: LYON_SKILLS_DIR overrides; the default
-// is ~/.claude/skills (the Claude Code skill location — same files, reused
-// read-only). Empty when the home directory cannot be determined; callers
-// treat that as "no skills" so skill visibility never breaks startup.
+// skillsDir resolves the personal scan root: LYON_SKILLS_DIR overrides;
+// the default is $LYON_HOME/skills (space.SkillsDir — the global .lyon
+// tier). Skill scans read .lyon directories ONLY (global + workspace);
+// Claude Code's ~/.claude/skills is deliberately never scanned.
 func skillsDir() string {
 	if d := strings.TrimSpace(os.Getenv("LYON_SKILLS_DIR")); d != "" {
 		return d
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".claude", "skills")
+	return space.SkillsDir()
 }
 
 // ScanSkills lists */SKILL.md under dir ("" = skillsDir()). It never
@@ -72,7 +68,7 @@ func ScanSkills(dir string) []SkillBrief {
 			// DirEntry reports the raw type: Windows junctions and
 			// symlinks to directories come back non-dir. Stat follows
 			// the link, so a skills dir reached through one still
-			// counts (the real ~/.claude/skills uses junctions).
+			// counts (skill dirs are often junctions into a repo).
 			if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
 				continue
 			}
@@ -222,6 +218,66 @@ func firstSummary(body string) string {
 	}
 }
 
+// SkillRoot names one directory skills may live under and where it came
+// from. SkillRoots orders them by precedence: personal first (the
+// system-prompt scan's order), then the shared commons, then the
+// workspace's own .lyon/skills — a workspace install is visible to the
+// panel and slash even though skillsSection() does not advertise it.
+// Every root sits under .lyon (global $LYON_HOME or the workspace);
+// ~/.claude is Claude Code's territory and is never a root.
+type SkillRoot struct {
+	Dir    string
+	Source string // personal | commons | workspace
+}
+
+// SkillRoots lists every root a SKILL.md may sit under for a workspace.
+// Empty workspace skips the workspace root (server callers without a
+// seat still get the global roots).
+func SkillRoots(workspace string) []SkillRoot {
+	var out []SkillRoot
+	if d := skillsDir(); d != "" {
+		out = append(out, SkillRoot{Dir: d, Source: "personal"})
+	}
+	if d := space.CommonsSkillsDir(); d != "" {
+		out = append(out, SkillRoot{Dir: d, Source: "commons"})
+	}
+	if workspace != "" {
+		out = append(out, SkillRoot{
+			Dir:    filepath.Join(workspace, ".lyon", "skills"),
+			Source: "workspace",
+		})
+	}
+	return out
+}
+
+// SourcedSkill is one SkillBrief tagged with the root it came from —
+// the panel's row shape (SkillService.ListSkills).
+type SourcedSkill struct {
+	SkillBrief
+	Source string
+}
+
+// ListSkills merges ScanSkills over every root, deduped by name
+// (case-insensitive; the first root wins, so a personal skill shadows a
+// commons twin exactly like the system-prompt section does), sorted by
+// name for a stable wire list.
+func ListSkills(workspace string) []SourcedSkill {
+	var out []SourcedSkill
+	seen := make(map[string]bool)
+	for _, r := range SkillRoots(workspace) {
+		for _, s := range ScanSkills(r.Dir) {
+			key := strings.ToLower(s.Name)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, SourcedSkill{SkillBrief: s, Source: r.Source})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // skillsSection renders the system-prompt block advertising the scanned
 // skills, or "" when there are none — an empty block would waste bytes and
 // say nothing, so it simply is not injected. The whole section is capped at
@@ -252,7 +308,7 @@ func renderSkillsSection(skills []SkillBrief) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n## Skills available (read a matched SKILL.md before doing its work)\n")
-	b.WriteString("Installed playbooks, one per line (name — description, path). When a task matches a listed skill, read its SKILL.md with read_file FIRST and follow it end to end — its templates, layouts and checklists beat hand-rolled equivalents, and delivering that class of work while ignoring a matched skill is a defect.\n")
+	b.WriteString("Installed playbooks, one per line (name — description, path). Only when the current task clearly matches a listed skill, read its SKILL.md with read_file FIRST and follow it end to end — its templates, layouts and checklists beat hand-rolled equivalents. Unrelated skills must be ignored: never steer toward a skill's domain just because it is listed.\n")
 	used := len([]rune(b.String()))
 	for i, sk := range skills {
 		line := fmt.Sprintf("- %s: %s (%s)\n", sk.Name, sk.Description, sk.Path)

@@ -19,8 +19,10 @@ func TestSaveDiagnosisDedup(t *testing.T) {
 	if err != nil || !saved {
 		t.Fatalf("first save: saved=%v err=%v", saved, err)
 	}
-	if f1.Scope != ScopeProject || !f1.Hot {
-		t.Fatalf("fact must be project-scope and hot: %+v", f1)
+	// Cold-only since 2026-11-11: a hot post-mortem about one incident
+	// hijacked unrelated sessions (budget chat → FQC skill).
+	if f1.Scope != ScopeProject || f1.Hot {
+		t.Fatalf("fact must be project-scope and cold: %+v", f1)
 	}
 	if !strings.HasPrefix(f1.Name, DiagCategory+"-") {
 		t.Fatalf("name not in category %q: %q", DiagCategory, f1.Name)
@@ -62,41 +64,77 @@ func TestSaveDiagnosisDedup(t *testing.T) {
 	}
 }
 
-// TestSaveDiagnosisHotWindow: the just-saved lesson plus the newest
-// diagHotKeep-1 of the rest stay hot (what MemoryFacts injects); older
-// lessons drop to the cold layer — still listed, no longer pinned.
-func TestSaveDiagnosisHotWindow(t *testing.T) {
+// TestSaveDiagnosisColdOnly: post-mortems never ride the hot tier —
+// MemoryFacts must not inject them, only read_memory/search finds them.
+func TestSaveDiagnosisColdOnly(t *testing.T) {
 	st := freshStore(t)
-	var last Fact
-	for i := 0; i < diagHotKeep+2; i++ {
-		f, saved, err := st.SaveDiagnosis(
+	for i := 0; i < 4; i++ {
+		if _, saved, err := st.SaveDiagnosis(
 			[]string{fmt.Sprintf("lesson number %d", i)},
 			fmt.Sprintf("patch number %d", i),
-		)
-		if err != nil || !saved {
+		); err != nil || !saved {
 			t.Fatalf("save %d: saved=%v err=%v", i, saved, err)
 		}
-		last = f
 	}
-	if got := len(st.List(ScopeProject)); got != diagHotKeep+2 {
+	if got := len(st.List(ScopeProject)); got != 4 {
 		t.Fatalf("all lessons must stay on file: %d facts", got)
 	}
-	hot := 0
 	for _, f := range st.List(ScopeProject) {
 		if f.Hot {
-			hot++
+			t.Fatalf("diagnosis %q rode the hot tier: %+v", f.Name, f)
 		}
 	}
-	if hot != diagHotKeep {
-		t.Fatalf("hot lessons = %d, want %d", hot, diagHotKeep)
+	if hot := st.HotText(0); strings.Contains(hot, DiagCategory) {
+		t.Fatalf("hot injection leaked a post-mortem:\n%s", hot)
 	}
-	if cur, ok := st.Get(ScopeProject, last.Name); !ok || !cur.Hot {
-		t.Fatalf("newest lesson must stay hot: ok=%v fact=%+v", ok, cur)
+}
+
+// TestOpenDemotesLegacyHotDiagnosis: facts saved hot by the pre-2026-11-11
+// policy are demoted when the store loads, so old incident-bound lessons
+// stop steering fresh sessions without a manual /memory pass.
+func TestOpenDemotesLegacyHotDiagnosis(t *testing.T) {
+	st := freshStore(t)
+	// Simulate a legacy save: hot flag written straight to disk.
+	if _, err := st.Save(Fact{
+		Name:   "failed-conditions-legacyhot",
+		Scope:  ScopeProject,
+		Tags:   []string{DiagCategory},
+		Hot:    true,
+		Body:   "old lesson that used to inject",
+	}); err != nil {
+		t.Fatalf("seed legacy hot fact: %v", err)
+	}
+	if f, ok := st.Get(ScopeProject, "failed-conditions-legacyhot"); !ok || !f.Hot {
+		t.Fatalf("seed must start hot: ok=%v fact=%+v", ok, f)
+	}
+	// Non-diag hot facts are untouched — standing preferences stay hot.
+	if _, err := st.Save(Fact{
+		Name:  "standing-preference",
+		Scope: ScopeProject,
+		Hot:   true,
+		Body:  "always ask before destructive ops",
+	}); err != nil {
+		t.Fatalf("seed hot preference: %v", err)
+	}
+
+	// Drop the cached store and Open the same workspace again — the
+	// load-time sweep in Open is what the test pins.
+	ws := st.workspace
+	storesMu.Lock()
+	delete(stores, ws)
+	storesMu.Unlock()
+	st2 := Open(ws)
+
+	if f, ok := st2.Get(ScopeProject, "failed-conditions-legacyhot"); !ok || f.Hot {
+		t.Fatalf("legacy hot diagnosis must be demoted: ok=%v fact=%+v", ok, f)
+	}
+	if f, ok := st2.Get(ScopeProject, "standing-preference"); !ok || !f.Hot {
+		t.Fatalf("non-diag hot fact must survive the sweep: ok=%v fact=%+v", ok, f)
 	}
 }
 
 // TestSaveDiagnosisRoundTrip: what lands on disk reloads as the same
-// lesson — a fresh Store over the same dirs reads the fact back hot
+// lesson — a fresh Store over the same dirs reads the fact back cold
 // with the patch intact (the next process's view).
 func TestSaveDiagnosisRoundTrip(t *testing.T) {
 	st := freshStore(t)
@@ -110,8 +148,8 @@ func TestSaveDiagnosisRoundTrip(t *testing.T) {
 		if !strings.HasPrefix(f.Name, DiagCategory+"-") {
 			continue
 		}
-		if !f.Hot || !strings.Contains(f.Body, patch) {
-			t.Fatalf("roundtrip lost the lesson: %+v", f)
+		if f.Hot || !strings.Contains(f.Body, patch) {
+			t.Fatalf("roundtrip lost the lesson (or re-hot it): %+v", f)
 		}
 		return
 	}

@@ -42,6 +42,18 @@ const (
 	// MemoryServiceDeleteMemoryProcedure is the fully-qualified name of the MemoryService's
 	// DeleteMemory RPC.
 	MemoryServiceDeleteMemoryProcedure = "/lyon.v1.MemoryService/DeleteMemory"
+	// MemoryServiceTransformMemoryProcedure is the fully-qualified name of the MemoryService's
+	// TransformMemory RPC.
+	MemoryServiceTransformMemoryProcedure = "/lyon.v1.MemoryService/TransformMemory"
+)
+
+// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
+var (
+	memoryServiceServiceDescriptor               = v1.File_lyon_v1_memory_proto.Services().ByName("MemoryService")
+	memoryServiceListMemoryMethodDescriptor      = memoryServiceServiceDescriptor.Methods().ByName("ListMemory")
+	memoryServiceUpdateMemoryMethodDescriptor    = memoryServiceServiceDescriptor.Methods().ByName("UpdateMemory")
+	memoryServiceDeleteMemoryMethodDescriptor    = memoryServiceServiceDescriptor.Methods().ByName("DeleteMemory")
+	memoryServiceTransformMemoryMethodDescriptor = memoryServiceServiceDescriptor.Methods().ByName("TransformMemory")
 )
 
 // MemoryServiceClient is a client for the lyon.v1.MemoryService service.
@@ -49,6 +61,11 @@ type MemoryServiceClient interface {
 	ListMemory(context.Context, *connect.Request[v1.ListMemoryRequest]) (*connect.Response[v1.ListMemoryResponse], error)
 	UpdateMemory(context.Context, *connect.Request[v1.UpdateMemoryRequest]) (*connect.Response[v1.UpdateMemoryResponse], error)
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// TransformMemory runs one AI curation pass over the SELECTED facts
+	// (panel multi-select → 简化 / 合并 / 提取): a server-side one-shot
+	// model call reads them and writes the result straight back into the
+	// Store — instant for the UI, no session occupied.
+	TransformMemory(context.Context, *connect.Request[v1.TransformMemoryRequest]) (*connect.Response[v1.TransformMemoryResponse], error)
 }
 
 // NewMemoryServiceClient constructs a client for the lyon.v1.MemoryService service. By default, it
@@ -60,24 +77,29 @@ type MemoryServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewMemoryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MemoryServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	memoryServiceMethods := v1.File_lyon_v1_memory_proto.Services().ByName("MemoryService").Methods()
 	return &memoryServiceClient{
 		listMemory: connect.NewClient[v1.ListMemoryRequest, v1.ListMemoryResponse](
 			httpClient,
 			baseURL+MemoryServiceListMemoryProcedure,
-			connect.WithSchema(memoryServiceMethods.ByName("ListMemory")),
+			connect.WithSchema(memoryServiceListMemoryMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		updateMemory: connect.NewClient[v1.UpdateMemoryRequest, v1.UpdateMemoryResponse](
 			httpClient,
 			baseURL+MemoryServiceUpdateMemoryProcedure,
-			connect.WithSchema(memoryServiceMethods.ByName("UpdateMemory")),
+			connect.WithSchema(memoryServiceUpdateMemoryMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		deleteMemory: connect.NewClient[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse](
 			httpClient,
 			baseURL+MemoryServiceDeleteMemoryProcedure,
-			connect.WithSchema(memoryServiceMethods.ByName("DeleteMemory")),
+			connect.WithSchema(memoryServiceDeleteMemoryMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		transformMemory: connect.NewClient[v1.TransformMemoryRequest, v1.TransformMemoryResponse](
+			httpClient,
+			baseURL+MemoryServiceTransformMemoryProcedure,
+			connect.WithSchema(memoryServiceTransformMemoryMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -85,9 +107,10 @@ func NewMemoryServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // memoryServiceClient implements MemoryServiceClient.
 type memoryServiceClient struct {
-	listMemory   *connect.Client[v1.ListMemoryRequest, v1.ListMemoryResponse]
-	updateMemory *connect.Client[v1.UpdateMemoryRequest, v1.UpdateMemoryResponse]
-	deleteMemory *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	listMemory      *connect.Client[v1.ListMemoryRequest, v1.ListMemoryResponse]
+	updateMemory    *connect.Client[v1.UpdateMemoryRequest, v1.UpdateMemoryResponse]
+	deleteMemory    *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	transformMemory *connect.Client[v1.TransformMemoryRequest, v1.TransformMemoryResponse]
 }
 
 // ListMemory calls lyon.v1.MemoryService.ListMemory.
@@ -105,11 +128,21 @@ func (c *memoryServiceClient) DeleteMemory(ctx context.Context, req *connect.Req
 	return c.deleteMemory.CallUnary(ctx, req)
 }
 
+// TransformMemory calls lyon.v1.MemoryService.TransformMemory.
+func (c *memoryServiceClient) TransformMemory(ctx context.Context, req *connect.Request[v1.TransformMemoryRequest]) (*connect.Response[v1.TransformMemoryResponse], error) {
+	return c.transformMemory.CallUnary(ctx, req)
+}
+
 // MemoryServiceHandler is an implementation of the lyon.v1.MemoryService service.
 type MemoryServiceHandler interface {
 	ListMemory(context.Context, *connect.Request[v1.ListMemoryRequest]) (*connect.Response[v1.ListMemoryResponse], error)
 	UpdateMemory(context.Context, *connect.Request[v1.UpdateMemoryRequest]) (*connect.Response[v1.UpdateMemoryResponse], error)
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// TransformMemory runs one AI curation pass over the SELECTED facts
+	// (panel multi-select → 简化 / 合并 / 提取): a server-side one-shot
+	// model call reads them and writes the result straight back into the
+	// Store — instant for the UI, no session occupied.
+	TransformMemory(context.Context, *connect.Request[v1.TransformMemoryRequest]) (*connect.Response[v1.TransformMemoryResponse], error)
 }
 
 // NewMemoryServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -118,23 +151,28 @@ type MemoryServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMemoryServiceHandler(svc MemoryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	memoryServiceMethods := v1.File_lyon_v1_memory_proto.Services().ByName("MemoryService").Methods()
 	memoryServiceListMemoryHandler := connect.NewUnaryHandler(
 		MemoryServiceListMemoryProcedure,
 		svc.ListMemory,
-		connect.WithSchema(memoryServiceMethods.ByName("ListMemory")),
+		connect.WithSchema(memoryServiceListMemoryMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	memoryServiceUpdateMemoryHandler := connect.NewUnaryHandler(
 		MemoryServiceUpdateMemoryProcedure,
 		svc.UpdateMemory,
-		connect.WithSchema(memoryServiceMethods.ByName("UpdateMemory")),
+		connect.WithSchema(memoryServiceUpdateMemoryMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	memoryServiceDeleteMemoryHandler := connect.NewUnaryHandler(
 		MemoryServiceDeleteMemoryProcedure,
 		svc.DeleteMemory,
-		connect.WithSchema(memoryServiceMethods.ByName("DeleteMemory")),
+		connect.WithSchema(memoryServiceDeleteMemoryMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	memoryServiceTransformMemoryHandler := connect.NewUnaryHandler(
+		MemoryServiceTransformMemoryProcedure,
+		svc.TransformMemory,
+		connect.WithSchema(memoryServiceTransformMemoryMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.MemoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +183,8 @@ func NewMemoryServiceHandler(svc MemoryServiceHandler, opts ...connect.HandlerOp
 			memoryServiceUpdateMemoryHandler.ServeHTTP(w, r)
 		case MemoryServiceDeleteMemoryProcedure:
 			memoryServiceDeleteMemoryHandler.ServeHTTP(w, r)
+		case MemoryServiceTransformMemoryProcedure:
+			memoryServiceTransformMemoryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -164,4 +204,8 @@ func (UnimplementedMemoryServiceHandler) UpdateMemory(context.Context, *connect.
 
 func (UnimplementedMemoryServiceHandler) DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.MemoryService.DeleteMemory is not implemented"))
+}
+
+func (UnimplementedMemoryServiceHandler) TransformMemory(context.Context, *connect.Request[v1.TransformMemoryRequest]) (*connect.Response[v1.TransformMemoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.MemoryService.TransformMemory is not implemented"))
 }

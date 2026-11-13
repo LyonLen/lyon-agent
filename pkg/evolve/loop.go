@@ -461,9 +461,10 @@ func clipRunes(s string, n int) string {
 }
 
 // RememberDiagnosis is the post-mortem memory writeback (断点 2): the
-// lesson joins the project memory layer, deduped by content and pinned
-// into the hot tier, so the NEXT session's MemoryFacts injection carries
-// it. A real write audits one EvMemorySave line — deliberately not
+// lesson joins the project memory layer's COLD tier, deduped by content
+// (cold since 2026-11-11 — a hot post-mortem about one paste image
+// hijacked an unrelated session; lessons stay reachable via search).
+// A real write audits one EvMemorySave line — deliberately not
 // EvDiagnosis, which already records the diagnosis itself. Best-effort.
 func RememberDiagnosis(workspace string, fire func(hooks.Record), d eval.Diagnosis) error {
 	f, saved, err := memory.Open(workspace).SaveDiagnosis(d.FailedConditions, d.Patch)
@@ -477,7 +478,7 @@ func RememberDiagnosis(workspace string, fire func(hooks.Record), d eval.Diagnos
 		fire(hooks.Record{
 			Event:  hooks.EvMemorySave,
 			Tool:   f.Name,
-			Detail: fmt.Sprintf("%s scope, hot — %s writeback", f.Scope, memory.DiagCategory),
+			Detail: fmt.Sprintf("%s scope, cold — %s writeback", f.Scope, memory.DiagCategory),
 		})
 	}
 	return nil

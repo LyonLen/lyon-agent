@@ -15,6 +15,11 @@ service MemoryService {
   rpc ListMemory(ListMemoryRequest) returns (ListMemoryResponse);
   rpc UpdateMemory(UpdateMemoryRequest) returns (UpdateMemoryResponse);
   rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
+  // TransformMemory runs one AI curation pass over the SELECTED facts
+  // (panel multi-select → 简化 / 合并 / 提取): a server-side one-shot
+  // model call reads them and writes the result straight back into the
+  // Store — instant for the UI, no session occupied.
+  rpc TransformMemory(TransformMemoryRequest) returns (TransformMemoryResponse);
 }
 
 // MemoryFact mirrors pkg/memory.Fact (no timestamps — the panel shows
@@ -57,3 +62,22 @@ message DeleteMemoryRequest {
 }
 
 message DeleteMemoryResponse {}
+
+// MemoryRef points at one stored fact (the selection unit of
+// TransformMemory).
+message MemoryRef {
+  string scope = 1;
+  string name = 2;
+}
+
+message TransformMemoryRequest {
+  string op = 1; // simplify | merge | extract
+  repeated MemoryRef targets = 2; // the panel's checked rows
+}
+
+message TransformMemoryResponse {
+  string op = 1;
+  string summary = 2;             // the model's one-paragraph account of the pass
+  repeated MemoryFact changed = 3; // facts written/updated, re-read from the Store
+  repeated MemoryRef removed = 4;  // sources the merge consumed
+}

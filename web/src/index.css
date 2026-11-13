@@ -19,6 +19,7 @@
   --warn-line: #6b5a20;
   --accent-line: #2c4a6d;
   --ok-line: #2c5540;
+  --ok-a10: #5fcf8e1a;      /* green tint — skill badge / selection fill */
   --danger-line: #6b3030;
   --line-soft: #33445c;
   --line-faint: #3a4757;
@@ -161,7 +162,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
 .picker-card {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-3);
   padding: 12px 14px; min-width: 220px; box-shadow: var(--shadow-3);
-  animation: rise-in var(--dur-2) var(--ease) both;
+  animation: rise-in var(--dur-2) var(--ease) backwards;
 }
 .picker-head {
   font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
@@ -248,6 +249,27 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
 }
 .pv-pre {
   white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px;
+}
+/* zip listing — central-directory table: name left, sizes right; dirs
+   dimmed with their trailing slash baked into the name */
+.pv-zip {
+  display: flex; flex-direction: column;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+}
+.pv-zip-row {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 2px 6px; font-size: 12px;
+  border-bottom: 1px solid var(--line-faint);
+}
+.pv-zip-row:hover { background: var(--bg-hover); }
+.pv-zip-row.dir .pv-zip-name { color: var(--dim); }
+.pv-zip-name {
+  flex: 1; min-width: 0; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pv-zip-size {
+  flex-shrink: 0; color: var(--dim); font-size: 11px;
+  font-variant-numeric: tabular-nums; text-align: right;
 }
 /* the zoomable image used to be capped by the 45% embed — a full pane
    gives it the whole body */
@@ -388,7 +410,7 @@ button:focus-visible,
 /* output drawer: multi-line command results above the status line */
 .out-drawer {
   border-top: 1px solid var(--line); background: var(--bg-sunken);
-  animation: rise-in var(--dur-2) var(--ease) both; flex-shrink: 0;
+  animation: rise-in var(--dur-2) var(--ease) backwards; flex-shrink: 0;
 }
 .out-head {
   display: flex; align-items: center; gap: 10px;
@@ -432,6 +454,13 @@ button:focus-visible,
 .chat-input textarea::placeholder { color: var(--fg-faint); }
 .chat-input button { flex-shrink: 0; border-radius: 9px; padding: 6px 14px; }
 .chat-input:focus-within button:not(:disabled) { box-shadow: none; }
+/* fold toggle: only rendered when the draft exceeds 3 lines (long paste
+   folded to one line by the auto-grow cap) */
+.chat-input .fold-btn {
+  padding: 5px 8px; font-size: 11px; line-height: 1;
+  color: var(--dim); border-color: var(--line-faint);
+}
+.chat-input .fold-btn:hover { color: var(--fg); border-color: var(--line); }
 
 /* --- motion: blocks rise in once on mount; the stream cursor breathes
        only while the seat is busy (Phase F) -------------------------------- */
@@ -448,7 +477,7 @@ button:focus-visible,
 .chat-feed .blk-files,
 .chat-feed .mindmap-card,
 .chat-feed .err {
-  animation: rise-in var(--dur-2) var(--ease) both;
+  animation: rise-in var(--dur-2) var(--ease) backwards;
 }
 /* streaming caret on the block receiving live deltas */
 .chat.streaming .blk-text:last-child::after {
@@ -488,6 +517,11 @@ button:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .run-badge::before { animation: none; }
 }
+/* waiting-for-you variant: the seat is parked on an approval card —
+   amber so a background session's ask is visible from the sidebar
+   without switching to it (the 3s toast alone was easy to miss). */
+.run-badge.wait { color: var(--warn); }
+.run-badge.wait::before { background: var(--warn); }
 
 /* file-list context menu (sibling FileExplorer parity) */
 .ctx-menu {
@@ -652,6 +686,13 @@ button:focus-visible,
   border-radius: var(--radius-1); padding: 0 4px;
 }
 .tool-badge.server { color: var(--accent); border-color: var(--accent-line); }
+/* skill_used card — a run_shell-level tool card tinted green: the
+   transcript's "this skill was pulled in" receipt */
+.blk-skill { border-color: var(--ok-line); }
+.blk-skill .tool-name { color: var(--ok); }
+.tool-badge.skill {
+  color: var(--ok); border-color: var(--ok-line); background: var(--ok-a10);
+}
 /* Folded-header digest of the call (command / path / pattern…) — the
    glanceable half of "what is the AI doing right now". */
 .tool-summary {
@@ -671,6 +712,36 @@ button:focus-visible,
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 👁 image peek on a view_image card (Image #17): one click floats the
+   picture over the transcript — a wrong upload is catchable without
+   expanding the card or reading the filename. */
+.img-peek { position: relative; display: inline-flex; flex: none; }
+.img-peek-btn {
+  border: 1px solid var(--line); background: transparent; color: var(--dim);
+  border-radius: var(--radius-1); font-size: 12px; line-height: 1;
+  padding: 2px 5px; cursor: pointer;
+}
+.img-peek-btn:hover, .img-peek-btn.on {
+  color: var(--accent); border-color: var(--accent-line);
+}
+.img-peek-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  padding: 8px; max-width: min(420px, 70vw);
+  background: var(--bg-card); border: 1px solid var(--line-soft);
+  border-radius: var(--radius-2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  cursor: default;
+}
+.img-peek-pop img {
+  max-width: min(400px, 66vw); max-height: 320px;
+  object-fit: contain; border-radius: var(--radius-1); background: #000;
+}
+.img-peek-path {
+  font-size: 11px; color: var(--fg-faint);
+  max-width: min(400px, 66vw);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .tool-input, .tool-output {
   white-space: pre-wrap; word-break: break-word; margin: 4px 0 0;
   font-size: 12px; color: var(--dim); max-height: 320px; overflow-y: auto;
@@ -1444,7 +1515,7 @@ button.mm-chip b { color: var(--accent); }
   border: 1px solid var(--accent);
   border-radius: 8px;
   font-size: 12px; color: var(--fg);
-  animation: rise-in var(--dur-2) var(--ease) both;
+  animation: rise-in var(--dur-2) var(--ease) backwards;
 }
 .mm-selhint-count { flex: 1; min-width: 0; }
 .mm-selhint-clear { font-size: 11.5px; padding: 2px 8px; }
@@ -1503,7 +1574,7 @@ button.mm-chip.mm-mem:hover { background: var(--bg-hover); }
 }
 .files-tabs button.tab:hover { color: var(--fg); }
 .panel-body { flex: 1; min-height: 0; position: relative; display: flex; }
-.panel-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: rise-in var(--dur-2) var(--ease) both; }
+.panel-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: rise-in var(--dur-2) var(--ease) backwards; }
 .panel-slot[hidden] { display: none; }
 
 /* steps: the audit list — one row per tool execution */
@@ -1593,7 +1664,7 @@ button.mm-chip.mm-mem:hover { background: var(--bg-hover); }
 .slash-panel {
   display: flex; flex-direction: column; max-height: 240px; overflow-y: auto;
   border-top: 1px solid var(--line); background: var(--bg-bar);
-  animation: rise-in var(--dur-2) var(--ease) both;
+  animation: rise-in var(--dur-2) var(--ease) backwards;
 }
 .slash-row {
   display: flex; align-items: baseline; gap: 10px; padding: 5px 12px;
@@ -1612,6 +1683,12 @@ button.mm-chip.mm-mem:hover { background: var(--bg-hover); }
 .slash-kind.model { color: var(--warn); border-color: var(--warn-line); }
 .slash-kind.panel { color: var(--accent); border-color: var(--accent-line); }
 .slash-kind.misc { color: var(--dim); }
+/* dynamic skill invocations (`/<skill-name>`) — dashed so they read as
+   "not a built-in command" at a glance */
+.slash-kind.skill {
+  color: var(--ok); border-color: var(--ok-line);
+  border-style: dashed;
+}
 .slash-desc { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* category tab row on top of the slash panel (bare "/" browses one tab;
@@ -1768,6 +1845,113 @@ button.mm-chip.mm-mem:hover { background: var(--bg-hover); }
   font-size: 10px; color: var(--dim); border: 1px solid var(--line);
   border-radius: 999px; padding: 0 7px;
 }
+
+/* ── Image #15/#16 batch: foldable scope groups + checkbox multi-select
+   + the AI toolbar (simplify / merge / extract → TransformMemory). ──── */
+.mem-group-head.fold { cursor: pointer; user-select: none; }
+.mem-group-head.fold:hover { color: var(--fg); }
+.mem-fold { font-size: 9px; width: 10px; color: var(--dim); }
+.mem-check {
+  background: none; border: none; cursor: pointer; padding: 0 1px;
+  color: var(--line); font-size: 13px; line-height: 1;
+}
+.mem-check:hover { color: var(--dim); }
+.mem-check.on { color: var(--ok); }
+.mem-row.sel { background: var(--ok-a10); }
+.mem-row.open .mem-check { margin-top: 1px; }
+.mem-ai {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  background: var(--bg-bar);
+}
+.mem-selcount { font-size: 11px; color: var(--dim); }
+.mem-selcount b {
+  color: var(--fg); font-weight: 650; font-variant-numeric: tabular-nums;
+}
+.mem-aibtn { font-size: 11px; color: var(--accent); border-color: var(--accent-line); }
+.mem-aibtn:disabled { color: var(--dim); border-color: var(--line); opacity: 0.6; cursor: default; }
+.mem-aibusy { font-size: 11px; color: var(--warn); }
+.mem-aiout {
+  margin: 6px 10px; padding: 7px 9px;
+  background: var(--bg-sunken); border: 1px solid var(--ok-line);
+  border-radius: var(--radius-1);
+  font-size: 11.5px; line-height: 1.55; color: var(--fg);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* ── Skill pane (SkillPanel): 本会话命中 / 已安装 / 推荐安装 — same
+   rhythm as the memory rail: sticky head, section heads, flat rows,
+   expand-in-place SKILL.md viewer. ─────────────────────────────────── */
+.sk-panel { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+.sk-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--bg-bar); z-index: 1;
+}
+.sk-title {
+  font-size: 11px; color: var(--dim); text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.sk-meta { font-size: 11px; color: var(--dim); flex: 1; }
+.sk-globalerr { padding: 6px 10px; font-size: 12px; }
+.sk-sec { padding-bottom: 8px; }
+.sk-sechead {
+  display: flex; align-items: center; gap: 6px;
+  padding: 9px 10px 4px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.sk-badge {
+  min-width: 16px; text-align: center;
+  font-size: 10px; line-height: 14px; padding: 0 4px;
+  color: var(--accent); background: var(--accent-a10);
+  border: 1px solid var(--accent-line); border-radius: 7px;
+}
+.sk-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 5px 10px; border-bottom: 1px solid var(--line);
+}
+.sk-row.open { flex-direction: column; align-items: stretch; }
+.sk-main {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px;
+  flex-wrap: wrap;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: inherit; text-align: left; font: inherit;
+}
+.sk-main:hover .sk-name { color: var(--accent); }
+.sk-name {
+  font-size: 12px; color: var(--fg); font-weight: 600;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+}
+.sk-src {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--dim); border: 1px solid var(--line); border-radius: var(--radius-1);
+  padding: 0 4px; flex-shrink: 0;
+}
+.sk-src.hit { color: var(--ok); border-color: var(--ok-line); }
+.sk-desc {
+  font-size: 11px; color: var(--dim); flex: 1; min-width: 120px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sk-pkg {
+  font-size: 11px; color: var(--fg-faint); width: 100%;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+}
+.sk-install { font-size: 11px; flex-shrink: 0; padding: 3px 10px; }
+.sk-view { width: 100%; margin-top: 4px; }
+.sk-loading { font-size: 11px; color: var(--dim); padding: 4px 0; }
+.sk-err { padding: 4px 0; font-size: 11px; }
+.sk-content {
+  margin: 0; padding: 8px 9px;
+  background: var(--bg-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius-1);
+  font-size: 11.5px; line-height: 1.55; color: var(--fg);
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 420px; overflow: auto;
+}
+.sk-empty { padding: 8px 10px; font-size: 11.5px; color: var(--dim); }
+.sk-rec .sk-main { cursor: default; }
 
 /* ── Settings pane: the live engine card + knowledge-base picker + the
    environment inventory. Same rhythm as memory: sticky head, flat rows,

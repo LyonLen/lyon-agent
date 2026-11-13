@@ -85,6 +85,7 @@ func Open(workspace string) *Store {
 	// store is fully built so readers never see a half-loaded store.
 	s.rescanLocked()
 	migrateLegacy(key, s)
+	s.demoteDiagHot() // legacy failed-conditions landed hot; cold-only now
 	storesMu.Lock()
 	stores[key] = s
 	storesMu.Unlock()

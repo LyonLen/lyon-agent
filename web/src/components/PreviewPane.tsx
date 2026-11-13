@@ -121,6 +121,19 @@ function baseName(p: string): string {
   return p.split("/").pop() ?? p;
 }
 
+// fmtBytes — zip listing sizes: 1.2 KB / 3.4 MB, the browser-native way.
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
+}
+
 /** True for the render-mode file types (#38b): .html / .htm. */
 function isHtmlPath(p: string): boolean {
   return /\.html?$/i.test(p);
@@ -450,6 +463,31 @@ export default function PreviewPane(props: {
               </a>
             </>
           ))}
+        {preview.kind === "zip" && (
+          <>
+            <div className="files-preview-head">
+              {preview.path} · {preview.entries.length} entries
+              {preview.truncated ? " · truncated" : ""} · {fmtBytes(preview.sizeBytes)}
+            </div>
+            <div className="pv-zip">
+              {preview.entries.map((e) => (
+                <div key={e.name} className={"pv-zip-row" + (e.isDir ? " dir" : "")}>
+                  <span className="pv-zip-name">
+                    {e.isDir && "📁 "}
+                    {e.name}
+                    {e.isDir && "/"}
+                  </span>
+                  <span className="pv-zip-size">
+                    {e.isDir ? "" : `${fmtBytes(e.sizeBytes)} · ${fmtBytes(e.compressedBytes)}`}
+                  </span>
+                </div>
+              ))}
+              {preview.entries.length === 0 && (
+                <div className="pv-zip-row">empty archive</div>
+              )}
+            </div>
+          </>
+        )}
         </div>
       )}
     </div>

@@ -41,6 +41,13 @@ const (
 	MindmapServiceUpdateMindmapProcedure = "/lyon.v1.MindmapService/UpdateMindmap"
 )
 
+// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
+var (
+	mindmapServiceServiceDescriptor             = v1.File_lyon_v1_mindmap_proto.Services().ByName("MindmapService")
+	mindmapServiceGetMindmapMethodDescriptor    = mindmapServiceServiceDescriptor.Methods().ByName("GetMindmap")
+	mindmapServiceUpdateMindmapMethodDescriptor = mindmapServiceServiceDescriptor.Methods().ByName("UpdateMindmap")
+)
+
 // MindmapServiceClient is a client for the lyon.v1.MindmapService service.
 type MindmapServiceClient interface {
 	GetMindmap(context.Context, *connect.Request[v1.GetMindmapRequest]) (*connect.Response[v1.GetMindmapResponse], error)
@@ -56,18 +63,17 @@ type MindmapServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewMindmapServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MindmapServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	mindmapServiceMethods := v1.File_lyon_v1_mindmap_proto.Services().ByName("MindmapService").Methods()
 	return &mindmapServiceClient{
 		getMindmap: connect.NewClient[v1.GetMindmapRequest, v1.GetMindmapResponse](
 			httpClient,
 			baseURL+MindmapServiceGetMindmapProcedure,
-			connect.WithSchema(mindmapServiceMethods.ByName("GetMindmap")),
+			connect.WithSchema(mindmapServiceGetMindmapMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		updateMindmap: connect.NewClient[v1.UpdateMindmapRequest, v1.UpdateMindmapResponse](
 			httpClient,
 			baseURL+MindmapServiceUpdateMindmapProcedure,
-			connect.WithSchema(mindmapServiceMethods.ByName("UpdateMindmap")),
+			connect.WithSchema(mindmapServiceUpdateMindmapMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -101,17 +107,16 @@ type MindmapServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMindmapServiceHandler(svc MindmapServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	mindmapServiceMethods := v1.File_lyon_v1_mindmap_proto.Services().ByName("MindmapService").Methods()
 	mindmapServiceGetMindmapHandler := connect.NewUnaryHandler(
 		MindmapServiceGetMindmapProcedure,
 		svc.GetMindmap,
-		connect.WithSchema(mindmapServiceMethods.ByName("GetMindmap")),
+		connect.WithSchema(mindmapServiceGetMindmapMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	mindmapServiceUpdateMindmapHandler := connect.NewUnaryHandler(
 		MindmapServiceUpdateMindmapProcedure,
 		svc.UpdateMindmap,
-		connect.WithSchema(mindmapServiceMethods.ByName("UpdateMindmap")),
+		connect.WithSchema(mindmapServiceUpdateMindmapMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.MindmapService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

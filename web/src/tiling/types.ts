@@ -13,6 +13,7 @@ export type PaneKind =
   | "preview"
   | "terminal"
   | "memory"
+  | "skills"
   | "settings"
   | "evolve";
 
@@ -26,6 +27,7 @@ export const PANE_KINDS: readonly PaneKind[] = [
   "preview",
   "terminal",
   "memory",
+  "skills",
   "settings",
   "evolve",
 ];

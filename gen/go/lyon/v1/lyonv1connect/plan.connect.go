@@ -47,6 +47,17 @@ const (
 	PlanServiceGuideNodeProcedure = "/lyon.v1.PlanService/GuideNode"
 )
 
+// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
+var (
+	planServiceServiceDescriptor           = v1.File_lyon_v1_plan_proto.Services().ByName("PlanService")
+	planServiceGetPlanMethodDescriptor     = planServiceServiceDescriptor.Methods().ByName("GetPlan")
+	planServiceWatchPlanMethodDescriptor   = planServiceServiceDescriptor.Methods().ByName("WatchPlan")
+	planServiceUpdateNodeMethodDescriptor  = planServiceServiceDescriptor.Methods().ByName("UpdateNode")
+	planServiceApproveNodeMethodDescriptor = planServiceServiceDescriptor.Methods().ByName("ApproveNode")
+	planServiceExecutePlanMethodDescriptor = planServiceServiceDescriptor.Methods().ByName("ExecutePlan")
+	planServiceGuideNodeMethodDescriptor   = planServiceServiceDescriptor.Methods().ByName("GuideNode")
+)
+
 // PlanServiceClient is a client for the lyon.v1.PlanService service.
 type PlanServiceClient interface {
 	GetPlan(context.Context, *connect.Request[v1.GetPlanRequest]) (*connect.Response[v1.GetPlanResponse], error)
@@ -66,42 +77,41 @@ type PlanServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewPlanServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PlanServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	planServiceMethods := v1.File_lyon_v1_plan_proto.Services().ByName("PlanService").Methods()
 	return &planServiceClient{
 		getPlan: connect.NewClient[v1.GetPlanRequest, v1.GetPlanResponse](
 			httpClient,
 			baseURL+PlanServiceGetPlanProcedure,
-			connect.WithSchema(planServiceMethods.ByName("GetPlan")),
+			connect.WithSchema(planServiceGetPlanMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		watchPlan: connect.NewClient[v1.WatchPlanRequest, v1.WatchPlanResponse](
 			httpClient,
 			baseURL+PlanServiceWatchPlanProcedure,
-			connect.WithSchema(planServiceMethods.ByName("WatchPlan")),
+			connect.WithSchema(planServiceWatchPlanMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		updateNode: connect.NewClient[v1.UpdateNodeRequest, v1.UpdateNodeResponse](
 			httpClient,
 			baseURL+PlanServiceUpdateNodeProcedure,
-			connect.WithSchema(planServiceMethods.ByName("UpdateNode")),
+			connect.WithSchema(planServiceUpdateNodeMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		approveNode: connect.NewClient[v1.ApproveNodeRequest, v1.ApproveNodeResponse](
 			httpClient,
 			baseURL+PlanServiceApproveNodeProcedure,
-			connect.WithSchema(planServiceMethods.ByName("ApproveNode")),
+			connect.WithSchema(planServiceApproveNodeMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		executePlan: connect.NewClient[v1.ExecutePlanRequest, v1.ExecutePlanResponse](
 			httpClient,
 			baseURL+PlanServiceExecutePlanProcedure,
-			connect.WithSchema(planServiceMethods.ByName("ExecutePlan")),
+			connect.WithSchema(planServiceExecutePlanMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		guideNode: connect.NewClient[v1.GuideNodeRequest, v1.GuideNodeResponse](
 			httpClient,
 			baseURL+PlanServiceGuideNodeProcedure,
-			connect.WithSchema(planServiceMethods.ByName("GuideNode")),
+			connect.WithSchema(planServiceGuideNodeMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -163,41 +173,40 @@ type PlanServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewPlanServiceHandler(svc PlanServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	planServiceMethods := v1.File_lyon_v1_plan_proto.Services().ByName("PlanService").Methods()
 	planServiceGetPlanHandler := connect.NewUnaryHandler(
 		PlanServiceGetPlanProcedure,
 		svc.GetPlan,
-		connect.WithSchema(planServiceMethods.ByName("GetPlan")),
+		connect.WithSchema(planServiceGetPlanMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	planServiceWatchPlanHandler := connect.NewServerStreamHandler(
 		PlanServiceWatchPlanProcedure,
 		svc.WatchPlan,
-		connect.WithSchema(planServiceMethods.ByName("WatchPlan")),
+		connect.WithSchema(planServiceWatchPlanMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	planServiceUpdateNodeHandler := connect.NewUnaryHandler(
 		PlanServiceUpdateNodeProcedure,
 		svc.UpdateNode,
-		connect.WithSchema(planServiceMethods.ByName("UpdateNode")),
+		connect.WithSchema(planServiceUpdateNodeMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	planServiceApproveNodeHandler := connect.NewUnaryHandler(
 		PlanServiceApproveNodeProcedure,
 		svc.ApproveNode,
-		connect.WithSchema(planServiceMethods.ByName("ApproveNode")),
+		connect.WithSchema(planServiceApproveNodeMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	planServiceExecutePlanHandler := connect.NewUnaryHandler(
 		PlanServiceExecutePlanProcedure,
 		svc.ExecutePlan,
-		connect.WithSchema(planServiceMethods.ByName("ExecutePlan")),
+		connect.WithSchema(planServiceExecutePlanMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	planServiceGuideNodeHandler := connect.NewUnaryHandler(
 		PlanServiceGuideNodeProcedure,
 		svc.GuideNode,
-		connect.WithSchema(planServiceMethods.ByName("GuideNode")),
+		connect.WithSchema(planServiceGuideNodeMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.PlanService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

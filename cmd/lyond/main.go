@@ -143,7 +143,7 @@ func main() {
 	// so the list shows the same conversations under the same ids and the
 	// first RPC to one reads it back (Server.acquire) instead of 404ing or
 	// minting a duplicate row.
-	if n, err := store.LoadDrafts(eng.Config().Workspace); err != nil {
+	if n, err := store.LoadDrafts(); err != nil {
 		log.Printf("sessions: loaded %d, then: %v", n, err)
 	} else if n > 0 {
 		log.Printf("sessions: %d saved conversation(s) indexed from disk", n)

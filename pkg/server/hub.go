@@ -60,6 +60,13 @@ type hub struct {
 	ws     string
 	writes *writeLog
 
+	// Skill-hit seam (skillhit.go): candidates stashed at exec_start,
+	// resolved to one skill_used card at exec_end. Consumer-goroutine
+	// only (run's loop) — no lock; lastSkill collapses chunked re-reads
+	// of one skill and resets at prompt_end.
+	skillPending map[uint64]skillHit
+	lastSkill    string
+
 	// autoMu serializes the side-ref auto-commit (the filecards goroutine's
 	// tail, autocommit.go) against UndoLastRun: an /undo landing mid-commit
 	// must see a consistent chain tip, never an orphaned link.
@@ -109,11 +116,23 @@ func (h *hub) run() {
 		// subscribers.
 		if ev.Type == agent.EventToolExecStart {
 			h.noteWrite(ev)
+			h.noteSkill(ev)
+		}
+		if ev.Type == agent.EventToolExecEnd {
+			h.skillHitEnd(ev)
 		}
 		// After the fan-out so a slow hook never delays subscribers; the
 		// handler itself only schedules (never blocks on an LLM call).
-		if ev.Type == agent.EventPromptEnd && h.onPromptEnd != nil {
-			h.onPromptEnd(ev)
+		if ev.Type == agent.EventPromptEnd {
+			// One skill card per skill per run: the next run may hit the
+			// same skill again. Pending entries are resolved by now (tools
+			// end before prompt_end) — this is the leak guard for an exec
+			// whose end never arrived (interrupted mid-flight).
+			h.lastSkill = ""
+			h.skillPending = nil
+			if h.onPromptEnd != nil {
+				h.onPromptEnd(ev)
+			}
 		}
 	}
 	// Session closed (event chan drained and closed): close every

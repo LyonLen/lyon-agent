@@ -6,7 +6,7 @@ import { ModeAction, type WatchPendingResponse } from "../gen/lyon/v1/approval_p
 import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { errText, fileClient, mindmapClient, sessionClient, settingsClient } from "../api";
+import { errText, fileClient, mindmapClient, sessionClient, settingsClient, skillClient } from "../api";
 import { FileIcon, gitBadge } from "../fileIcons";
 import { uploadPaste } from "../paste";
 import { parseTodos } from "../todos";
@@ -15,6 +15,7 @@ import { parseNodes } from "../mindmap";
 import type { MapNode, MindmapSnap } from "../mindmap";
 import { buildSelAsk, SEL_MARKER_RE, stripWireForDisplay } from "../selask";
 import { classifySteer } from "../steer";
+import { loadComposer, patchComposer } from "../composerState";
 // (MindMapCard moved to App — the map renders in its own pane, #51)
 import type { StepRow } from "../types";
 import { todoProgress } from "./PlanPane";
@@ -32,7 +33,7 @@ const MarkdownView = lazy(() => import("./Markdown"));
 // /flow) opens the read-only evolve panel (BACKLOG §2.6 web v1) — runs
 // stay TUI; unknown tokens fall through to App's runCommand and get a
 // toast.
-type SlashKind = "session" | "model" | "panel" | "misc";
+type SlashKind = "session" | "model" | "panel" | "misc" | "skill";
 const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/new", desc: "start a fresh session", kind: "session" },
   { cmd: "/resume", desc: "pick a saved session (N = restore slot N)", kind: "session" },
@@ -45,6 +46,7 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/steps", desc: "open|close the audit panel · width N resizes", kind: "panel" },
   { cmd: "/mindmap", desc: "session mindmap — live understanding map", kind: "panel" },
   { cmd: "/memory", desc: "browse project memory — hot toggle, forget", kind: "panel" },
+  { cmd: "/skills", desc: "skills panel — 本会话命中 / 已安装 / 推荐安装", kind: "panel" },
   { cmd: "/evolve", desc: "evolution panel — lineage, seats, exam banks", kind: "panel" },
   { cmd: "/exam", desc: "exam bank & clock (panel view)", kind: "panel" },
   { cmd: "/contest", desc: "contest field (panel view) — run in TUI", kind: "panel" },
@@ -69,6 +71,22 @@ const REMEMBER_PROMPT =
   "shorter is better; skip transient task state, files currently in " +
   "flight, and anything obvious from the repo. Reply with one line per " +
   "fact saved.";
+
+// Direct skill invocation ("/name [task]"): steer the model to the
+// SKILL.md first. read_file rejects absolute paths outside the workspace
+// (tools.Confine — dump forensics), so the prompt names the run_shell
+// fallback up front instead of paying for a failed-read turn.
+const skillInvokePrompt = (
+  s: { name: string; description: string; path: string },
+  task: string,
+) =>
+  `Invoke the "${s.name}" skill${s.description ? ` — ${s.description}` : ""}. ` +
+  `Read its SKILL.md at ${s.path} first and follow it end to end — its templates and ` +
+  `checklists beat hand-rolled equivalents. read_file rejects absolute paths outside ` +
+  `the workspace, so if it errors, fall back to run_shell (cat/head) for that path. ` +
+  (task
+    ? `Apply the skill to this task: ${task}`
+    : "If no task is in flight, summarize the skill's core workflow in two lines and wait.");
 
 // Pick popups (/resume, /rollback): the numbered list shares one row
 // shape and one keyboard grammar (↑↓ walk, Enter restore, Esc cancel —
@@ -149,7 +167,11 @@ type Block =
   // The run's file footprint (server-side git delta at prompt_end,
   // files_changed): rows click straight into the preview pane — new +
   // touched files the run produced, badge-colored like the files panel.
-  | { kind: "files"; files: FileCard[] };
+  | { kind: "files"; files: FileCard[] }
+  // A skill invocation (skill_used — hub-synthesized at exec_end,
+  // files_changed precedent): carded at tool weight so "the model ran a
+  // skill" reads at the same glance as a run_shell.
+  | { kind: "skill"; name: string; path: string; desc: string };
 
 // One row of the files_changed card — GitChange's JSON shape off the
 // server's diff (pkg/server/filecards.go), so gitBadge applies as-is.
@@ -473,6 +495,20 @@ function reduceMut(blocks: Block[], ev: SessionEvent): void {
       if (files.length) blocks.push({ kind: "files", files });
       return;
     }
+    case "skill_used": {
+      // Hub-synthesized skill hit (skillhit.go), flat attrs — a card
+      // with no name would say nothing, so it is skipped like a
+      // malformed files_changed.
+      const name = ev.attrs["name"];
+      if (!name) return;
+      blocks.push({
+        kind: "skill",
+        name,
+        path: ev.attrs["path"] || "",
+        desc: ev.attrs["desc"] || "",
+      });
+      return;
+    }
     case "error":
       blocks.push({ kind: "error", text: ev.error || ev.detail });
       return;
@@ -546,6 +582,22 @@ function prettyInput(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+// inputPath pulls the "path" field out of a tool input JSON — the eye
+// preview reads a view_image's target before the card is expanded. Empty
+// while the input is still streaming (not JSON yet) or absent.
+function inputPath(raw: string): string {
+  try {
+    const o: unknown = JSON.parse(raw);
+    if (o && typeof o === "object" && "path" in o) {
+      const p = (o as { path: unknown }).path;
+      if (typeof p === "string") return p;
+    }
+  } catch {
+    // not JSON — no path to preview
+  }
+  return "";
 }
 
 // ---- tool output coloring (lightweight heuristics, never a parser) ----
@@ -842,7 +894,13 @@ export default function ChatView(props: {
 }) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [busy, setBusy] = useState(false);
-  const [input, setInput] = useState("");
+  // Hydrated from the per-session snapshot: App keys this pane by
+  // session, so a switch remounts it — the draft must not evaporate.
+  const [input, setInput] = useState(() => loadComposer(props.sessionId).draft);
+  // Long pastes (a WeChat export, a log dump) fold to one line instead
+  // of filling the composer; the chip toggles, short content auto-unfolds.
+  const [folded, setFolded] = useState(false);
+  const foldOnPaste = useRef(false);
   const [err, setErr] = useState("");
   const [apprSel, setApprSel] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -855,10 +913,24 @@ export default function ChatView(props: {
     if (!el) return;
     el.style.height = "auto";
     const line = parseFloat(getComputedStyle(el).lineHeight) || 21;
-    const cap = Math.round(line * 6 + 10); // 6 lines + the 5px pad top/bottom
+    // Folded = one line; expanded = 6 lines + the 5px pad top/bottom.
+    const cap = folded ? Math.round(line + 10) : Math.round(line * 6 + 10);
     el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
     el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
-  }, [input]);
+  }, [input, folded]);
+
+  // Fold lifecycle: a text paste that lands >3 lines folds itself (the
+  // complaint: a long WeChat export filling the whole composer); content
+  // that shrinks back to ≤3 lines can't need the fold, so it opens.
+  useEffect(() => {
+    const lines = input.split("\n").length;
+    if (foldOnPaste.current) {
+      foldOnPaste.current = false;
+      if (lines > 3) setFolded(true);
+    } else if (folded && lines <= 3) {
+      setFolded(false);
+    }
+  }, [input, folded]);
   // Phase D: plan corner / status line / slash panel local state.
   const [todos, setTodos] = useState<TodoItem[]>([]);
   // The session mindmap (§7.1): ONE revision-guarded snapshot, not a
@@ -1098,7 +1170,7 @@ export default function ChatView(props: {
   // Bare "/" browses one category tab at a time (TUI sugCat parity);
   // a typed prefix still searches across every category.
   const [slashCat, setSlashCat] = useState(0);
-  const [hist, setHist] = useState<string[]>([]);
+  const [hist, setHist] = useState<string[]>(() => loadComposer(props.sessionId).hist);
   const [histIdx, setHistIdx] = useState(-1); // -1 = editing a fresh line
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Output drawer: multi-line command results land here (TUI cmdOutView).
@@ -1110,8 +1182,12 @@ export default function ChatView(props: {
   // on the matching queue_injected (FIFO, first equal string — same rule as
   // queueInjected in tui.go); whatever is left at prompt_end was dropped by
   // the session (#2) and is re-submitted here, exactly like kickQueued.
-  const [queued, setQueuedState] = useState<string[]>([]);
-  const queuedRef = useRef<string[]>([]);
+  // Hydrated from the per-session snapshot — a switch used to remount this
+  // pane empty while the backend still held the lines (Image #12).
+  const [queued, setQueuedState] = useState<string[]>(() =>
+    loadComposer(props.sessionId).queued,
+  );
+  const queuedRef = useRef<string[]>(queued);
   const setQueued = useCallback(
     (upd: (q: string[]) => string[]) => {
       queuedRef.current = upd(queuedRef.current);
@@ -1119,6 +1195,22 @@ export default function ChatView(props: {
     },
     [],
   );
+
+  // Write-through to the per-session snapshot (sessionStorage): every
+  // state change of the three durable composer bits lands on disk, so
+  // the next mount of this session picks them up. Mount itself rewrites
+  // the hydrated values — an idempotent no-op. The App key={selectedId}
+  // remount contract keeps one session's state from ever leaking into
+  // another session's slot.
+  useEffect(() => {
+    patchComposer(props.sessionId, { queued });
+  }, [props.sessionId, queued]);
+  useEffect(() => {
+    patchComposer(props.sessionId, { hist });
+  }, [props.sessionId, hist]);
+  useEffect(() => {
+    patchComposer(props.sessionId, { draft: input });
+  }, [props.sessionId, input]);
   const [atSel, setAtSel] = useState(0);
   const [atOff, setAtOff] = useState(false); // Esc dismissed until the input changes
   // /resume and /rollback open a numbered pick list in the pane; the
@@ -1513,19 +1605,47 @@ export default function ChatView(props: {
   // The slash panel only matches a single bare token ("/sta"), so a
   // command with args falls through to send()'s dispatcher. Bare "/"
   // browses the current category tab (TUI sugCat parity); a prefix
-  // searches across every category.
-  const SLASH_CATS: SlashKind[] = ["session", "model", "panel", "misc"];
+  // searches across every category — static rows plus the dynamic
+  // /skillname entries fed by SkillService.ListSkills.
+  const SLASH_CATS: SlashKind[] = ["session", "model", "panel", "misc", "skill"];
+  const [skillList, setSkillList] = useState<
+    Array<{ name: string; description: string; path: string }>
+  >([]);
+  useEffect(() => {
+    let live = true;
+    skillClient
+      .listSkills({})
+      .then((r) => {
+        if (live) {
+          setSkillList(
+            r.skills.map((s) => ({ name: s.name, description: s.description, path: s.path })),
+          );
+        }
+      })
+      .catch(() => {
+        // skills are a bonus — the static slash table still works
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
   const slashOpen = input.startsWith("/") && !/\s/.test(input);
   const slashBare = input === "/";
   const slashMatches = useMemo(() => {
     if (!slashOpen) return [];
+    const dyn = skillList.map((s) => ({
+      cmd: "/" + s.name,
+      desc: s.description,
+      kind: "skill" as SlashKind,
+    }));
+    const all = [...SLASH, ...dyn];
     const q = input.trim().toLowerCase();
     if (q === "/") {
-      return SLASH.filter((c) => c.kind === SLASH_CATS[slashCat]);
+      return all.filter((c) => c.kind === SLASH_CATS[slashCat]);
     }
-    return SLASH.filter((c) => c.cmd.startsWith(q));
+    return all.filter((c) => c.cmd.toLowerCase().startsWith(q));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slashOpen, input, slashCat]);
+  }, [slashOpen, input, slashCat, skillList]);
   const ssel = Math.min(slashSel, Math.max(0, slashMatches.length - 1));
   useEffect(() => setSlashSel(0), [input, slashCat]);
 
@@ -1669,7 +1789,12 @@ export default function ChatView(props: {
       const f = item.getAsFile();
       if (f && (f.type.startsWith("image/") || f.type === "")) files.push(f);
     }
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      // Text-only paste falls through to the browser; the fold effect
+      // consumes this flag once the value lands (>3 lines → fold).
+      foldOnPaste.current = true;
+      return;
+    }
     e.preventDefault(); // don't also paste the filename as text
     void pasteImages(files);
   };
@@ -1870,9 +1995,19 @@ export default function ChatView(props: {
         note("distilling… — watch for save_memory calls");
         await dispatchPrompt(REMEMBER_PROMPT);
         break;
-      default:
+      default: {
+        // Dynamic skill entry ("/graphify [task]"): dispatch as a prompt
+        // that makes the model read and follow the SKILL.md. Static rows
+        // above win the name (a skill called "stats" never shadows /stats).
+        const hit = skillList.find((s) => "/" + s.name.toLowerCase() === cmd.toLowerCase());
+        if (hit) {
+          note(`skill ${hit.name} — invoking`);
+          await dispatchPrompt(skillInvokePrompt(hit, arg));
+          break;
+        }
         // Keep the argument tail — App parses "/steps width N" itself.
         void props.onCommand(raw.trim());
+      }
     }
   };
 
@@ -1983,7 +2118,9 @@ export default function ChatView(props: {
       props.mmSelIds && props.mmSelIds.length > 0 && !SEL_MARKER_RE.test(typed)
         ? buildSelAsk(props.mmSelIds, typed)
         : typed;
-    setHist((h) => [...h, typed]); // ↑ browses what the human typed
+    // ↑ browses what the human typed; capped so the sessionStorage
+    // snapshot can't grow without bound over a long-lived tab.
+    setHist((h) => [...h, typed].slice(-200));
     setHistIdx(-1);
     await dispatchPrompt(prompt);
   };
@@ -2536,6 +2673,20 @@ export default function ChatView(props: {
             }
           }}
         />
+        {input.split("\n").length > 3 && (
+          <button
+            type="button"
+            className="ghost fold-btn"
+            title={
+              folded
+                ? "expand the draft (long paste folded to one line)"
+                : "fold the draft to one line"
+            }
+            onClick={() => setFolded((f) => !f)}
+          >
+            {folded ? `展开 ${input.split("\n").length} 行` : "折叠"}
+          </button>
+        )}
         <button onClick={() => void send()} disabled={busy && false}>
           {busy ? "queue" : "send"}
         </button>
@@ -2665,6 +2816,9 @@ function BlockView({
       // (command, path, pattern…). Empty until the exec event fills
       // input; the <details> body keeps the full input/output.
       const summary = toolSummary(block.name, block.input);
+      // 👁 preview for view_image: the card carries only a path, so a
+      // wrong upload was unverifiable at a glance (Image #17).
+      const imgPath = block.name === "view_image" ? inputPath(block.input) : "";
       // Result peek: the output's first line rides the folded row so a
       // finished call reads as "what ran → what came back" without a
       // click; failures prefer the error line. Hidden while open — the
@@ -2708,6 +2862,7 @@ function BlockView({
                 )}
               </span>
               {summary && <span className="tool-summary">{summary}</span>}
+              {imgPath && <ImagePeek path={imgPath} />}
               <span className={`tool-status ${block.status}`}>
                 {block.status === "running" && (
                   <span className="spin" aria-hidden="true" />
@@ -2810,6 +2965,28 @@ function BlockView({
           ))}
         </div>
       );
+    case "skill":
+      // Tool-weight card (blk-tool reuses the run_shell chrome): the
+      // folded row reads "skill · name — why it matched"; the body
+      // carries the SKILL.md path the hit resolved to.
+      return (
+        <details className="blk-tool blk-skill">
+          <summary className="blk-tool-head">
+            <div className="blk-tool-row">
+              <span className="tool-title">
+                <span className="tool-chevron" aria-hidden="true">
+                  ▸
+                </span>
+                <span className="tool-name">⚡ skill</span>
+                <span className="tool-badge skill">{block.name}</span>
+              </span>
+              {block.desc && <span className="tool-summary">{block.desc}</span>}
+              <span className="tool-status done">invoked</span>
+            </div>
+          </summary>
+          {block.path && <pre className="tool-input">{block.path}</pre>}
+        </details>
+      );
     case "notice":
       if (block.detail) {
         return (
@@ -2839,6 +3016,88 @@ function RunningClock({ since }: { since: number }) {
   const elapsed = Date.now() - since;
   if (elapsed < 5000) return null;
   return <span className="tool-elapsed">{fmtDuration(elapsed)}</span>;
+}
+
+// ImagePeek — the 👁 on a view_image card. The tool only carries a path,
+// so a wrong upload used to be unverifiable without expanding the card and
+// squinting at the filename; one click fetches the bytes and floats the
+// picture over the card (👁 again or Esc closes). Mounted inside <summary>:
+// every click must preventDefault or the native details toggle fires
+// underneath the preview. The bytes load once and the object URL is
+// revoked on unmount.
+function ImagePeek({ path }: { path: string }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const fetched = useRef(false);
+
+  const load = async () => {
+    if (fetched.current) return;
+    fetched.current = true;
+    setLoading(true);
+    setErr("");
+    try {
+      const res = await fileClient.readBinaryFile({ path });
+      const blob = new Blob([new Uint8Array(res.data)], {
+        type: res.contentType || "image/png",
+      });
+      setUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      fetched.current = false; // transient failure — allow the next click to retry
+      setErr(errText(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggle = () =>
+    setOpen((o) => {
+      if (!o) void load();
+      return !o;
+    });
+
+  // Revoke on unmount (url in deps: the cleanup of a replaced URL would
+  // fire on change too — we never replace, so it only ever fires once).
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <span className="img-peek" onClick={(e) => e.preventDefault()}>
+      <button
+        type="button"
+        className={"img-peek-btn" + (open ? " on" : "")}
+        title={`预览这张图 — ${path}`}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggle();
+        }}
+      >
+        👁
+      </button>
+      {open && (
+        <span className="img-peek-pop" onClick={(e) => e.preventDefault()}>
+          {loading && <span className="spin" aria-hidden="true" />}
+          {!loading && err && <span className="err">{err}</span>}
+          {!loading && !err && url && <img src={url} alt={path} />}
+          <span className="img-peek-path">{path}</span>
+        </span>
+      )}
+    </span>
+  );
 }
 
 // ThinkingBlock splits out so it can track its own open state: ctrl+o

@@ -2,8 +2,9 @@ package space
 
 // Agent spaces (2026-10-23 重定义): every evolved agent owns two
 // specialist stores under $LYON_HOME/agents/<id>/ — knowledge/*.md
-// (markdown documents) and skills/<name>/SKILL.md (the same format
-// ~/.claude/skills uses, so the scanner reads them unchanged).
+// (markdown documents) and skills/<name>/SKILL.md (the same SKILL.md
+// layout Claude Code popularized — format only; skill scans themselves
+// stay under .lyon).
 // $LYON_HOME/commons/{knowledge,skills}/ is the consensus tier: an item
 // promoted there is shared by every agent (commons skills ride the
 // system prompt's skills section).
@@ -58,6 +59,12 @@ func CommonsDir() string { return filepath.Join(homeDir(), "commons") }
 // CommonsSkillsDir is the commons skill directory in the exact layout
 // agent.ScanSkills consumes (dir-per-skill with SKILL.md inside).
 func CommonsSkillsDir() string { return filepath.Join(CommonsDir(), "skills") }
+
+// SkillsDir is the operator's global skill directory — the personal
+// root of the skills precedence list, also under .lyon. Skill scans
+// read only .lyon roots (this, commons, the workspace's own .lyon);
+// Claude Code's ~/.claude/skills is never touched.
+func SkillsDir() string { return filepath.Join(homeDir(), "skills") }
 
 func agentKnowledgeDir(id string) string { return filepath.Join(AgentsDir(), id, "knowledge") }
 func agentSkillsDir(id string) string    { return filepath.Join(AgentsDir(), id, "skills") }
