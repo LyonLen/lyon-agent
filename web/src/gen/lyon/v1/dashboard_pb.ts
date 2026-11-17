@@ -6,15 +6,13 @@ import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegen
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { Usage } from "./event_pb";
-import { file_lyon_v1_event } from "./event_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file lyon/v1/dashboard.proto.
  */
 export const file_lyon_v1_dashboard: GenFile = /*@__PURE__*/
-  fileDesc("ChdseW9uL3YxL2Rhc2hib2FyZC5wcm90bxIHbHlvbi52MSKhAQoMUm91dGluZ0VudHJ5Eg0KBWNsYXNzGAEgASgJEg0KBWFnZW50GAIgASgJEg0KBW1vZGVsGAMgASgJEhIKCmNvbmZpZGVuY2UYBCABKAESDwoHc2FtcGxlcxgFIAEoBRISCgptZWFuX3Njb3JlGAYgASgBEisKB3VwZGF0ZWQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIsQBCg9MZWFkZXJib2FyZFZpZXcSDQoFY2xhc3MYASABKAkSDwoHb25fZHV0eRgCIAEoCRIOCgZyb3VuZHMYAyABKAUSEgoKZXhhbV9mYWlscxgEIAEoBRINCgVjYXJkcxgFIAEoBRIMCgRtZWFuGAYgASgBEhIKCmxhc3RfYWdlbnQYByABKAkSEgoKbGFzdF90b3RhbBgIIAEoARITCgtsYXN0X3Bhc3NlZBgJIAEoCBITCgtsYXN0X3NvdXJjZRgKIAEoCSIUChJHZXRPdmVydmlld1JlcXVlc3QiugEKE0dldE92ZXJ2aWV3UmVzcG9uc2USEAoIc2Vzc2lvbnMYASABKAUSFgoOdXB0aW1lX3NlY29uZHMYAiABKAMSDQoFbW9kZWwYAyABKAkSEwoLY2FjaGVfc2hhcmUYBCABKAESJgoHcm91dGluZxgFIAMoCzIVLmx5b24udjEuUm91dGluZ0VudHJ5Ei0KC2xlYWRlcmJvYXJkGAYgAygLMhgubHlvbi52MS5MZWFkZXJib2FyZFZpZXcinwEKBlJ1blJlZhIOCgZydW5faWQYASABKAkSEQoJd29ya3NwYWNlGAIgASgJEg0KBW1vZGVsGAMgASgJEg4KBnByb21wdBgEIAEoCRIuCgpzdGFydGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBITCgtkdXJhdGlvbl9tcxgGIAEoAxIOCgZmYWlsZWQYByABKAgiLQoPTGlzdFJ1bnNSZXF1ZXN0EgsKA2RheRgBIAEoCRINCgVsaW1pdBgCIAEoBSIxChBMaXN0UnVuc1Jlc3BvbnNlEh0KBHJ1bnMYASADKAsyDy5seW9uLnYxLlJ1blJlZiKAAwoJRHVtcEV2ZW50EgsKA3NlcRgBIAEoBRIMCgR0eXBlGAIgASgJEgwKBHRleHQYAyABKAkSEAoIdGhpbmtpbmcYBCABKAkSDwoHdG9vbF9pZBgFIAEoCRIPCgdleGVjX2lkGAYgASgDEhEKCXRvb2xfbmFtZRgHIAEoCRISCgppbnB1dF9qc29uGAggASgJEg4KBnNlcnZlchgJIAEoCBILCgNzdWIYCiABKAgSDgoGc3ViX2lkGAsgASgJEhMKC2R1cmF0aW9uX21zGAwgASgDEhAKCGlzX2Vycm9yGA0gASgIEg0KBWVycm9yGA4gASgJEgwKBHR1cm4YDyABKAUSEwoLc3RvcF9yZWFzb24YECABKAkSHQoFdXNhZ2UYESABKAsyDi5seW9uLnYxLlVzYWdlEhIKCml0ZXJhdGlvbnMYEiABKAUSJgoCdHMYEyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBmRldGFpbBgUIAEoCSIfCg1HZXRSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSLnAwoOR2V0UnVuUmVzcG9uc2USDgoGcnVuX2lkGAEgASgJEhEKCXdvcmtzcGFjZRgCIAEoCRINCgVtb2RlbBgDIAEoCRIOCgZwcm9tcHQYBCABKAkSFAoMZmlyc3RfcHJvbXB0GAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKCGVuZGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBITCgtkdXJhdGlvbl9tcxgIIAEoAxISCgppdGVyYXRpb25zGAkgASgFEhMKC3N0b3BfcmVhc29uGAogASgJEhIKCnByb21wdF9lcnIYCyABKAkSHQoFdXNhZ2UYDCABKAsyDi5seW9uLnYxLlVzYWdlEjgKCXN1Yl91c2FnZRgNIAMoCzIlLmx5b24udjEuR2V0UnVuUmVzcG9uc2UuU3ViVXNhZ2VFbnRyeRIiCgZldmVudHMYDiADKAsyEi5seW9uLnYxLkR1bXBFdmVudBIPCgdoaXN0b3J5GA8gASgJGj8KDVN1YlVzYWdlRW50cnkSCwoDa2V5GAEgASgJEh0KBXZhbHVlGAIgASgLMg4ubHlvbi52MS5Vc2FnZToCOAEiagoLU25hcHNob3RSZWYSDQoFdGl0bGUYASABKAkSEAoIbWVzc2FnZXMYAiABKAUSLAoIc2F2ZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEgwKBHBhdGgYBCABKAkiFgoUTGlzdFNuYXBzaG90c1JlcXVlc3QiQAoVTGlzdFNuYXBzaG90c1Jlc3BvbnNlEicKCXNuYXBzaG90cxgBIAMoCzIULmx5b24udjEuU25hcHNob3RSZWYinQEKC0F1ZGl0UmVjb3JkEgwKBHRpbWUYASABKAkSDQoFZXZlbnQYAiABKAkSDwoHc2Vzc2lvbhgDIAEoCRIMCgR0b29sGAQgASgJEg4KBnByb21wdBgFIAEoCRIOCgZkZXRhaWwYBiABKAkSEAoIaXNfZXJyb3IYByABKAgSCwoDZXJyGAggASgJEhMKC2R1cmF0aW9uX21zGAkgASgDIi0KEExpc3RBdWRpdFJlcXVlc3QSCwoDZGF5GAEgASgJEgwKBHRhaWwYAiABKAUiOgoRTGlzdEF1ZGl0UmVzcG9uc2USJQoHcmVjb3JkcxgBIAMoCzIULmx5b24udjEuQXVkaXRSZWNvcmQy7AIKEERhc2hib2FyZFNlcnZpY2USSAoLR2V0T3ZlcnZpZXcSGy5seW9uLnYxLkdldE92ZXJ2aWV3UmVxdWVzdBocLmx5b24udjEuR2V0T3ZlcnZpZXdSZXNwb25zZRI/CghMaXN0UnVucxIYLmx5b24udjEuTGlzdFJ1bnNSZXF1ZXN0GhkubHlvbi52MS5MaXN0UnVuc1Jlc3BvbnNlEjkKBkdldFJ1bhIWLmx5b24udjEuR2V0UnVuUmVxdWVzdBoXLmx5b24udjEuR2V0UnVuUmVzcG9uc2USTgoNTGlzdFNuYXBzaG90cxIdLmx5b24udjEuTGlzdFNuYXBzaG90c1JlcXVlc3QaHi5seW9uLnYxLkxpc3RTbmFwc2hvdHNSZXNwb25zZRJCCglMaXN0QXVkaXQSGS5seW9uLnYxLkxpc3RBdWRpdFJlcXVlc3QaGi5seW9uLnYxLkxpc3RBdWRpdFJlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_lyon_v1_event]);
+  fileDesc("ChdseW9uL3YxL2Rhc2hib2FyZC5wcm90bxIHbHlvbi52MSKhAQoMUm91dGluZ0VudHJ5Eg0KBWNsYXNzGAEgASgJEg0KBWFnZW50GAIgASgJEg0KBW1vZGVsGAMgASgJEhIKCmNvbmZpZGVuY2UYBCABKAESDwoHc2FtcGxlcxgFIAEoBRISCgptZWFuX3Njb3JlGAYgASgBEisKB3VwZGF0ZWQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIsQBCg9MZWFkZXJib2FyZFZpZXcSDQoFY2xhc3MYASABKAkSDwoHb25fZHV0eRgCIAEoCRIOCgZyb3VuZHMYAyABKAUSEgoKZXhhbV9mYWlscxgEIAEoBRINCgVjYXJkcxgFIAEoBRIMCgRtZWFuGAYgASgBEhIKCmxhc3RfYWdlbnQYByABKAkSEgoKbGFzdF90b3RhbBgIIAEoARITCgtsYXN0X3Bhc3NlZBgJIAEoCBITCgtsYXN0X3NvdXJjZRgKIAEoCSIUChJHZXRPdmVydmlld1JlcXVlc3QiugEKE0dldE92ZXJ2aWV3UmVzcG9uc2USEAoIc2Vzc2lvbnMYASABKAUSFgoOdXB0aW1lX3NlY29uZHMYAiABKAMSDQoFbW9kZWwYAyABKAkSEwoLY2FjaGVfc2hhcmUYBCABKAESJgoHcm91dGluZxgFIAMoCzIVLmx5b24udjEuUm91dGluZ0VudHJ5Ei0KC2xlYWRlcmJvYXJkGAYgAygLMhgubHlvbi52MS5MZWFkZXJib2FyZFZpZXciagoLU25hcHNob3RSZWYSDQoFdGl0bGUYASABKAkSEAoIbWVzc2FnZXMYAiABKAUSLAoIc2F2ZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEgwKBHBhdGgYBCABKAkiFgoUTGlzdFNuYXBzaG90c1JlcXVlc3QiQAoVTGlzdFNuYXBzaG90c1Jlc3BvbnNlEicKCXNuYXBzaG90cxgBIAMoCzIULmx5b24udjEuU25hcHNob3RSZWYyrAEKEERhc2hib2FyZFNlcnZpY2USSAoLR2V0T3ZlcnZpZXcSGy5seW9uLnYxLkdldE92ZXJ2aWV3UmVxdWVzdBocLmx5b24udjEuR2V0T3ZlcnZpZXdSZXNwb25zZRJOCg1MaXN0U25hcHNob3RzEh0ubHlvbi52MS5MaXN0U25hcHNob3RzUmVxdWVzdBoeLmx5b24udjEuTGlzdFNuYXBzaG90c1Jlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * pkg/routing Entry (routing.go:23)
@@ -189,325 +187,6 @@ export const GetOverviewResponseSchema: GenMessage<GetOverviewResponse> = /*@__P
   messageDesc(file_lyon_v1_dashboard, 3);
 
 /**
- * run dump header (pkg/agent/dump.go:139)
- *
- * @generated from message lyon.v1.RunRef
- */
-export type RunRef = Message<"lyon.v1.RunRef"> & {
-  /**
-   * "YYYYMMDD-HHMMSS-rand12"; also the file locator
-   *
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: string workspace = 2;
-   */
-  workspace: string;
-
-  /**
-   * @generated from field: string model = 3;
-   */
-  model: string;
-
-  /**
-   * @generated from field: string prompt = 4;
-   */
-  prompt: string;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp started_at = 5;
-   */
-  startedAt?: Timestamp | undefined;
-
-  /**
-   * @generated from field: int64 duration_ms = 6;
-   */
-  durationMs: bigint;
-
-  /**
-   * prompt_err != ""
-   *
-   * @generated from field: bool failed = 7;
-   */
-  failed: boolean;
-};
-
-/**
- * Describes the message lyon.v1.RunRef.
- * Use `create(RunRefSchema)` to create a new message.
- */
-export const RunRefSchema: GenMessage<RunRef> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 4);
-
-/**
- * @generated from message lyon.v1.ListRunsRequest
- */
-export type ListRunsRequest = Message<"lyon.v1.ListRunsRequest"> & {
-  /**
-   * "YYYY-MM-DD"; "" = today
-   *
-   * @generated from field: string day = 1;
-   */
-  day: string;
-
-  /**
-   * 0 = default 50, newest first
-   *
-   * @generated from field: int32 limit = 2;
-   */
-  limit: number;
-};
-
-/**
- * Describes the message lyon.v1.ListRunsRequest.
- * Use `create(ListRunsRequestSchema)` to create a new message.
- */
-export const ListRunsRequestSchema: GenMessage<ListRunsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 5);
-
-/**
- * @generated from message lyon.v1.ListRunsResponse
- */
-export type ListRunsResponse = Message<"lyon.v1.ListRunsResponse"> & {
-  /**
-   * @generated from field: repeated lyon.v1.RunRef runs = 1;
-   */
-  runs: RunRef[];
-};
-
-/**
- * Describes the message lyon.v1.ListRunsResponse.
- * Use `create(ListRunsResponseSchema)` to create a new message.
- */
-export const ListRunsResponseSchema: GenMessage<ListRunsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 6);
-
-/**
- * dump.go:172 — Event embedded + seq
- *
- * @generated from message lyon.v1.DumpEvent
- */
-export type DumpEvent = Message<"lyon.v1.DumpEvent"> & {
-  /**
-   * @generated from field: int32 seq = 1;
-   */
-  seq: number;
-
-  /**
-   * @generated from field: string type = 2;
-   */
-  type: string;
-
-  /**
-   * @generated from field: string text = 3;
-   */
-  text: string;
-
-  /**
-   * @generated from field: string thinking = 4;
-   */
-  thinking: string;
-
-  /**
-   * @generated from field: string tool_id = 5;
-   */
-  toolId: string;
-
-  /**
-   * @generated from field: int64 exec_id = 6;
-   */
-  execId: bigint;
-
-  /**
-   * @generated from field: string tool_name = 7;
-   */
-  toolName: string;
-
-  /**
-   * @generated from field: string input_json = 8;
-   */
-  inputJson: string;
-
-  /**
-   * @generated from field: bool server = 9;
-   */
-  server: boolean;
-
-  /**
-   * @generated from field: bool sub = 10;
-   */
-  sub: boolean;
-
-  /**
-   * @generated from field: string sub_id = 11;
-   */
-  subId: string;
-
-  /**
-   * @generated from field: int64 duration_ms = 12;
-   */
-  durationMs: bigint;
-
-  /**
-   * @generated from field: bool is_error = 13;
-   */
-  isError: boolean;
-
-  /**
-   * @generated from field: string error = 14;
-   */
-  error: string;
-
-  /**
-   * @generated from field: int32 turn = 15;
-   */
-  turn: number;
-
-  /**
-   * @generated from field: string stop_reason = 16;
-   */
-  stopReason: string;
-
-  /**
-   * @generated from field: lyon.v1.Usage usage = 17;
-   */
-  usage?: Usage | undefined;
-
-  /**
-   * @generated from field: int32 iterations = 18;
-   */
-  iterations: number;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp ts = 19;
-   */
-  ts?: Timestamp | undefined;
-
-  /**
-   * @generated from field: string detail = 20;
-   */
-  detail: string;
-};
-
-/**
- * Describes the message lyon.v1.DumpEvent.
- * Use `create(DumpEventSchema)` to create a new message.
- */
-export const DumpEventSchema: GenMessage<DumpEvent> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 7);
-
-/**
- * @generated from message lyon.v1.GetRunRequest
- */
-export type GetRunRequest = Message<"lyon.v1.GetRunRequest"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-};
-
-/**
- * Describes the message lyon.v1.GetRunRequest.
- * Use `create(GetRunRequestSchema)` to create a new message.
- */
-export const GetRunRequestSchema: GenMessage<GetRunRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 8);
-
-/**
- * GetRunResponse is the full dump document (was "RunDump" in the draft;
- * renamed for lint STANDARD's RPC_RESPONSE_STANDARD_NAME).
- *
- * @generated from message lyon.v1.GetRunResponse
- */
-export type GetRunResponse = Message<"lyon.v1.GetRunResponse"> & {
-  /**
-   * @generated from field: string run_id = 1;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: string workspace = 2;
-   */
-  workspace: string;
-
-  /**
-   * @generated from field: string model = 3;
-   */
-  model: string;
-
-  /**
-   * @generated from field: string prompt = 4;
-   */
-  prompt: string;
-
-  /**
-   * @generated from field: string first_prompt = 5;
-   */
-  firstPrompt: string;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp started_at = 6;
-   */
-  startedAt?: Timestamp | undefined;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp ended_at = 7;
-   */
-  endedAt?: Timestamp | undefined;
-
-  /**
-   * @generated from field: int64 duration_ms = 8;
-   */
-  durationMs: bigint;
-
-  /**
-   * @generated from field: int32 iterations = 9;
-   */
-  iterations: number;
-
-  /**
-   * @generated from field: string stop_reason = 10;
-   */
-  stopReason: string;
-
-  /**
-   * @generated from field: string prompt_err = 11;
-   */
-  promptErr: string;
-
-  /**
-   * @generated from field: lyon.v1.Usage usage = 12;
-   */
-  usage?: Usage | undefined;
-
-  /**
-   * @generated from field: map<string, lyon.v1.Usage> sub_usage = 13;
-   */
-  subUsage: { [key: string]: Usage };
-
-  /**
-   * the replayable timeline
-   *
-   * @generated from field: repeated lyon.v1.DumpEvent events = 14;
-   */
-  events: DumpEvent[];
-
-  /**
-   * @generated from field: string history = 15;
-   */
-  history: string;
-};
-
-/**
- * Describes the message lyon.v1.GetRunResponse.
- * Use `create(GetRunResponseSchema)` to create a new message.
- */
-export const GetRunResponseSchema: GenMessage<GetRunResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 9);
-
-/**
  * @generated from message lyon.v1.SnapshotRef
  */
 export type SnapshotRef = Message<"lyon.v1.SnapshotRef"> & {
@@ -537,7 +216,7 @@ export type SnapshotRef = Message<"lyon.v1.SnapshotRef"> & {
  * Use `create(SnapshotRefSchema)` to create a new message.
  */
 export const SnapshotRefSchema: GenMessage<SnapshotRef> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 10);
+  messageDesc(file_lyon_v1_dashboard, 4);
 
 /**
  * @generated from message lyon.v1.ListSnapshotsRequest
@@ -550,7 +229,7 @@ export type ListSnapshotsRequest = Message<"lyon.v1.ListSnapshotsRequest"> & {
  * Use `create(ListSnapshotsRequestSchema)` to create a new message.
  */
 export const ListSnapshotsRequestSchema: GenMessage<ListSnapshotsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 11);
+  messageDesc(file_lyon_v1_dashboard, 5);
 
 /**
  * @generated from message lyon.v1.ListSnapshotsResponse
@@ -567,115 +246,12 @@ export type ListSnapshotsResponse = Message<"lyon.v1.ListSnapshotsResponse"> & {
  * Use `create(ListSnapshotsResponseSchema)` to create a new message.
  */
 export const ListSnapshotsResponseSchema: GenMessage<ListSnapshotsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 12);
-
-/**
- * pkg/hooks Record subset (JSONL line)
- *
- * @generated from message lyon.v1.AuditRecord
- */
-export type AuditRecord = Message<"lyon.v1.AuditRecord"> & {
-  /**
-   * @generated from field: string time = 1;
-   */
-  time: string;
-
-  /**
-   * prompt_start / approve_request / security_block / ...
-   *
-   * @generated from field: string event = 2;
-   */
-  event: string;
-
-  /**
-   * @generated from field: string session = 3;
-   */
-  session: string;
-
-  /**
-   * @generated from field: string tool = 4;
-   */
-  tool: string;
-
-  /**
-   * @generated from field: string prompt = 5;
-   */
-  prompt: string;
-
-  /**
-   * @generated from field: string detail = 6;
-   */
-  detail: string;
-
-  /**
-   * @generated from field: bool is_error = 7;
-   */
-  isError: boolean;
-
-  /**
-   * @generated from field: string err = 8;
-   */
-  err: string;
-
-  /**
-   * @generated from field: int64 duration_ms = 9;
-   */
-  durationMs: bigint;
-};
-
-/**
- * Describes the message lyon.v1.AuditRecord.
- * Use `create(AuditRecordSchema)` to create a new message.
- */
-export const AuditRecordSchema: GenMessage<AuditRecord> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 13);
-
-/**
- * @generated from message lyon.v1.ListAuditRequest
- */
-export type ListAuditRequest = Message<"lyon.v1.ListAuditRequest"> & {
-  /**
-   * "YYYY-MM-DD"; "" = today
-   *
-   * @generated from field: string day = 1;
-   */
-  day: string;
-
-  /**
-   * 0 = default 200, newest last
-   *
-   * @generated from field: int32 tail = 2;
-   */
-  tail: number;
-};
-
-/**
- * Describes the message lyon.v1.ListAuditRequest.
- * Use `create(ListAuditRequestSchema)` to create a new message.
- */
-export const ListAuditRequestSchema: GenMessage<ListAuditRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 14);
-
-/**
- * @generated from message lyon.v1.ListAuditResponse
- */
-export type ListAuditResponse = Message<"lyon.v1.ListAuditResponse"> & {
-  /**
-   * @generated from field: repeated lyon.v1.AuditRecord records = 1;
-   */
-  records: AuditRecord[];
-};
-
-/**
- * Describes the message lyon.v1.ListAuditResponse.
- * Use `create(ListAuditResponseSchema)` to create a new message.
- */
-export const ListAuditResponseSchema: GenMessage<ListAuditResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 15);
+  messageDesc(file_lyon_v1_dashboard, 6);
 
 /**
  * DashboardService: read-only panels over $LYON_HOME on-disk data plus the
- * process aggregates /metrics already computes.
+ * process aggregates /metrics already computes. Run dumps / audit are read
+ * by the agent itself (pkg/agent/dumpread.go), not over the wire.
  *
  * @generated from service lyon.v1.DashboardService
  */
@@ -689,24 +265,6 @@ export const DashboardService: GenService<{
     output: typeof GetOverviewResponseSchema;
   },
   /**
-   * run dumps (#3)
-   *
-   * @generated from rpc lyon.v1.DashboardService.ListRuns
-   */
-  listRuns: {
-    methodKind: "unary";
-    input: typeof ListRunsRequestSchema;
-    output: typeof ListRunsResponseSchema;
-  },
-  /**
-   * @generated from rpc lyon.v1.DashboardService.GetRun
-   */
-  getRun: {
-    methodKind: "unary";
-    input: typeof GetRunRequestSchema;
-    output: typeof GetRunResponseSchema;
-  },
-  /**
    * saved sessions
    *
    * @generated from rpc lyon.v1.DashboardService.ListSnapshots
@@ -715,14 +273,6 @@ export const DashboardService: GenService<{
     methodKind: "unary";
     input: typeof ListSnapshotsRequestSchema;
     output: typeof ListSnapshotsResponseSchema;
-  },
-  /**
-   * @generated from rpc lyon.v1.DashboardService.ListAudit
-   */
-  listAudit: {
-    methodKind: "unary";
-    input: typeof ListAuditRequestSchema;
-    output: typeof ListAuditResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_lyon_v1_dashboard, 0);

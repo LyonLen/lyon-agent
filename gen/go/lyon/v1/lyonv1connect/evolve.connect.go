@@ -38,12 +38,6 @@ const (
 	EvolveServiceGetEvolveStateProcedure = "/lyon.v1.EvolveService/GetEvolveState"
 )
 
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	evolveServiceServiceDescriptor              = v1.File_lyon_v1_evolve_proto.Services().ByName("EvolveService")
-	evolveServiceGetEvolveStateMethodDescriptor = evolveServiceServiceDescriptor.Methods().ByName("GetEvolveState")
-)
-
 // EvolveServiceClient is a client for the lyon.v1.EvolveService service.
 type EvolveServiceClient interface {
 	GetEvolveState(context.Context, *connect.Request[v1.GetEvolveStateRequest]) (*connect.Response[v1.GetEvolveStateResponse], error)
@@ -58,11 +52,12 @@ type EvolveServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewEvolveServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) EvolveServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	evolveServiceMethods := v1.File_lyon_v1_evolve_proto.Services().ByName("EvolveService").Methods()
 	return &evolveServiceClient{
 		getEvolveState: connect.NewClient[v1.GetEvolveStateRequest, v1.GetEvolveStateResponse](
 			httpClient,
 			baseURL+EvolveServiceGetEvolveStateProcedure,
-			connect.WithSchema(evolveServiceGetEvolveStateMethodDescriptor),
+			connect.WithSchema(evolveServiceMethods.ByName("GetEvolveState")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -89,10 +84,11 @@ type EvolveServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewEvolveServiceHandler(svc EvolveServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	evolveServiceMethods := v1.File_lyon_v1_evolve_proto.Services().ByName("EvolveService").Methods()
 	evolveServiceGetEvolveStateHandler := connect.NewUnaryHandler(
 		EvolveServiceGetEvolveStateProcedure,
 		svc.GetEvolveState,
-		connect.WithSchema(evolveServiceGetEvolveStateMethodDescriptor),
+		connect.WithSchema(evolveServiceMethods.ByName("GetEvolveState")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.EvolveService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -175,10 +175,11 @@ export function FileIcon({ name, isDir }: { name: string; isDir: boolean }) {
 
 // Git badge: kind → letter + color class. 新增(green)/变更(blue)/删除(gray)
 // are the panel's contract; conflicted gets orange as the extra state.
-export type GitBadge = { letter: string; cls: "added" | "changed" | "deleted" | "conflict" };
+// Untracked is a gray "?": green read as "added", which it is not.
+export type GitBadge = { letter: string; cls: "added" | "changed" | "deleted" | "conflict" | "faint" };
 
 const BADGES: Record<string, GitBadge> = {
-  untracked: { letter: "U", cls: "added" },
+  untracked: { letter: "?", cls: "faint" },
   added: { letter: "A", cls: "added" },
   modified: { letter: "M", cls: "changed" },
   renamed: { letter: "R", cls: "changed" },

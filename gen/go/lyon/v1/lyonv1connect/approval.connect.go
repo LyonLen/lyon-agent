@@ -40,13 +40,6 @@ const (
 	ApprovalServiceDecideProcedure = "/lyon.v1.ApprovalService/Decide"
 )
 
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	approvalServiceServiceDescriptor            = v1.File_lyon_v1_approval_proto.Services().ByName("ApprovalService")
-	approvalServiceWatchPendingMethodDescriptor = approvalServiceServiceDescriptor.Methods().ByName("WatchPending")
-	approvalServiceDecideMethodDescriptor       = approvalServiceServiceDescriptor.Methods().ByName("Decide")
-)
-
 // ApprovalServiceClient is a client for the lyon.v1.ApprovalService service.
 type ApprovalServiceClient interface {
 	WatchPending(context.Context, *connect.Request[v1.WatchPendingRequest]) (*connect.ServerStreamForClient[v1.WatchPendingResponse], error)
@@ -62,17 +55,18 @@ type ApprovalServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewApprovalServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ApprovalServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	approvalServiceMethods := v1.File_lyon_v1_approval_proto.Services().ByName("ApprovalService").Methods()
 	return &approvalServiceClient{
 		watchPending: connect.NewClient[v1.WatchPendingRequest, v1.WatchPendingResponse](
 			httpClient,
 			baseURL+ApprovalServiceWatchPendingProcedure,
-			connect.WithSchema(approvalServiceWatchPendingMethodDescriptor),
+			connect.WithSchema(approvalServiceMethods.ByName("WatchPending")),
 			connect.WithClientOptions(opts...),
 		),
 		decide: connect.NewClient[v1.DecideRequest, v1.DecideResponse](
 			httpClient,
 			baseURL+ApprovalServiceDecideProcedure,
-			connect.WithSchema(approvalServiceDecideMethodDescriptor),
+			connect.WithSchema(approvalServiceMethods.ByName("Decide")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -106,16 +100,17 @@ type ApprovalServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewApprovalServiceHandler(svc ApprovalServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	approvalServiceMethods := v1.File_lyon_v1_approval_proto.Services().ByName("ApprovalService").Methods()
 	approvalServiceWatchPendingHandler := connect.NewServerStreamHandler(
 		ApprovalServiceWatchPendingProcedure,
 		svc.WatchPending,
-		connect.WithSchema(approvalServiceWatchPendingMethodDescriptor),
+		connect.WithSchema(approvalServiceMethods.ByName("WatchPending")),
 		connect.WithHandlerOptions(opts...),
 	)
 	approvalServiceDecideHandler := connect.NewUnaryHandler(
 		ApprovalServiceDecideProcedure,
 		svc.Decide,
-		connect.WithSchema(approvalServiceDecideMethodDescriptor),
+		connect.WithSchema(approvalServiceMethods.ByName("Decide")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.ApprovalService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,14 +1,16 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Session } from "./gen/lyon/v1/session_pb";
 import type { SnapshotRef } from "./gen/lyon/v1/dashboard_pb";
 import { ModeAction, type WatchPendingResponse } from "./gen/lyon/v1/approval_pb";
 import { approvalClient, dashboardClient, errText, fileClient, getToken, sessionClient, setToken, setWorkspace, fetchSessionWorkspace, saveSessionWorkspace, rememberWorkspace } from "./api";
+import { toolDisplayName } from "./toolNames";
 import type { FileKind } from "./gen/lyon/v1/file_pb";
 import SessionList from "./components/SessionList";
 import NewSessionDlg from "./components/NewSessionDlg";
 import ChatView from "./components/ChatView";
 import PlanPane from "./components/PlanPane";
+import TodosPane from "./components/TodosPane";
 import StepsPane from "./components/StepsPane";
 import FilePanel from "./components/FilePanel";
 import PreviewPane from "./components/PreviewPane";
@@ -25,9 +27,6 @@ import { collectLeaves, findParentSplit, widthShare } from "./tiling/types";
 import { useFileTabs } from "./useFileTabs";
 import { fmtCount } from "./fmt";
 
-// Dashboard is a separate route-level view — lazy so the chat pane's
-// first paint doesn't pay for replay/audit rendering (Phase F chunking).
-const DashboardPanel = lazy(() => import("./components/DashboardPanel"));
 import type { TodoItem } from "./todos";
 import type { StepRow } from "./types";
 import type { MindmapSnap } from "./mindmap";
@@ -39,7 +38,6 @@ export default function App() {
   const [restoring, setRestoring] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [listErr, setListErr] = useState("");
-  const [view, setView] = useState<"chat" | "dashboard">("chat");
   // Approval watch (Phase B): one process-wide WatchPending stream feeds
   // this list; ChatView renders the slice for the selected seat.
   const [pending, setPending] = useState<WatchPendingResponse[]>([]);
@@ -48,6 +46,17 @@ export default function App() {
   // ChatView's reducer; reloadKey forces the transcript stream to
   // re-anchor after a rollback rewrote the ring.
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  // 拿会话填充待办: sidebar「＋」queues sessions here; TodosPane consumes
+  // the queue (it owns the full-doc save — a second writer would clobber)
+  // and clears it via clearFillQueue.
+  const [fillQueue, setFillQueue] = useState<Session[]>([]);
+  const clearFillQueue = useCallback(() => setFillQueue([]), []);
+  // The todolist is a GLOBAL overlay (topbar「待办」 / /todos / sidebar
+  // 「＋」), not a tile: layouts are session-bound, so a pane would vanish
+  // on seat switch — the doc is global ($LYON_HOME/todos.json), the UI
+  // must be too.
+  const [todosOpen, setTodosOpen] = useState(false);
+  const closeTodos = useCallback(() => setTodosOpen(false), []);
   // Leaf id to shake once after a plan-chip click that only focused an
   // already-open pane (see openPlan). Cleared on a timer.
   const [shakeLeaf, setShakeLeaf] = useState("");
@@ -333,8 +342,8 @@ export default function App() {
                 ev.sessionId.slice(0, 8);
               setToast(
                 ev.modeBlock
-                  ? `plan 拦截 ${ev.toolName} — ${title}`
-                  : `${ev.toolName} needs approval — ${title}`,
+                  ? `plan 拦截 ${toolDisplayName(ev.toolName)} — ${title}`
+                  : `${toolDisplayName(ev.toolName)} needs approval — ${title}`,
               );
               if (toastTimer.current) clearTimeout(toastTimer.current);
               toastTimer.current = setTimeout(() => setToast(""), 3000);
@@ -596,6 +605,12 @@ export default function App() {
         ws.openPane("skills");
         flash("skills pane — 命中 / 已安装 / 推荐安装");
         break;
+      case "/todos":
+      case "/todo":
+      case "/gantt":
+        setTodosOpen(true);
+        flash("todolist — 全局待办 · 月历 / 甘特 · 拿会话填充");
+        break;
       case "/mindmap":
       case "/mm":
         ws.openPane("mindmap");
@@ -801,6 +816,10 @@ export default function App() {
           onRefresh={() => void refresh()}
           onRestore={(p) => void restore(p)}
           onDelete={(id) => void removeSession(id)}
+          onFill={(s) => {
+            setFillQueue((q) => (q.some((x) => x.id === s.id) ? q : [...q, s]));
+            setTodosOpen(true);
+          }}
         />
       ),
     },
@@ -1102,16 +1121,26 @@ export default function App() {
       <header className="topbar">
         <span className="brand">lyon</span>
         <button
-          className={"ghost nav" + (view === "chat" ? " active" : "")}
-          onClick={() => setView("chat")}
+          type="button"
+          className={"topbar-todos" + (todosOpen ? " on" : "")}
+          title="全局待办 — 整体目标 / 月历 / 甘特 (/todos)"
+          onClick={() => setTodosOpen((v) => !v)}
         >
-          sessions
-        </button>
-        <button
-          className={"ghost nav" + (view === "dashboard" ? " active" : "")}
-          onClick={() => setView("dashboard")}
-        >
-          dashboard
+          <svg
+            viewBox="0 0 14 14"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <rect x="1.8" y="2" width="10.4" height="10" rx="1.2" />
+            <path d="M4.2 5l1 1 1.8-1.8M4.2 9l1 1 1.8-1.8M8.6 5.4H10.4M8.6 9.4H10.4" />
+          </svg>
+          待办
         </button>
         <input
           className="token"
@@ -1124,25 +1153,20 @@ export default function App() {
         />
         {listErr && <span className="err">{listErr}</span>}
       </header>
-      {view === "dashboard" ? (
-        <Suspense
-          fallback={
-            <div className="dash">
-              <div className="skeleton-rows" aria-hidden="true">
-                {Array.from({ length: 6 }, (_, i) => (
-                  <div key={i} className="skeleton-row" style={{ width: `${60 + ((i * 13) % 35)}%` }} />
-                ))}
-              </div>
-            </div>
-          }
-        >
-          <DashboardPanel />
-        </Suspense>
-      ) : (
-        <TilingWorkspace
-          ws={ws}
-          panes={panes}
-          shakeLeaf={shakeLeaf}
+      <TilingWorkspace
+        ws={ws}
+        panes={panes}
+        shakeLeaf={shakeLeaf}
+      />
+      {/* the todolist rides above the workspace as a global overlay */}
+      {todosOpen && (
+        <TodosPane
+          sessions={sessions}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          fillQueue={fillQueue}
+          onFillConsumed={clearFillQueue}
+          onClose={closeTodos}
         />
       )}
       {/* (the resident mode chip + legend now live inside the chat pane —

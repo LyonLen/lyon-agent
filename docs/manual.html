@@ -129,7 +129,6 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       </tbody>
     </table>
     <p>
-      顶部可切换 <strong>dashboard</strong> 视图（任务执行统计面板）。
       <strong>心智图</strong>与聊天平级：<code class="inline">ctrl+wheel</code> 缩放、
       中键拖拽平移；选 mindmap 模式时图在前，<strong>图上编辑会回流成一条追问</strong>推进对话。
     </p>
@@ -372,7 +371,6 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>LYON_HOOKS</code></td><td>hook（审计/统计）配置路径</td></tr>
         <tr><td><code>LYON_NOTIFY</code></td><td>完成通知开关</td></tr>
         <tr><td><code>LYON_AUTOFREEZE</code></td><td>空闲会话自动冻结开关</td></tr>
-        <tr><td><code>LYON_DASHBOARD</code></td><td>dashboard 开关</td></tr>
         <tr><td><code>LYON_DUMP</code></td><td>运行 dump 开关</td></tr>
         <tr><td><code>LYON_AUDIT</code> / <code>LYON_DEBUG</code> / <code>LYON_DISTILL</code></td><td>审计落盘 / 调试输出 / 记忆蒸馏开关</td></tr>
         <tr><td><code>LYON_PRICE_IN</code> / <code>LYON_PRICE_OUT</code></td><td>覆盖内置价格表（USD / 百万 token，花费显示用）</td></tr>
@@ -489,7 +487,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       <thead><tr><th>路径</th><th>职责</th></tr></thead>
       <tbody>
         <tr><td><code>cmd/lyond</code></td><td>Go 守护进程：HTTP/SSE + Connect RPC（Session/Settings/Approval/File/Plan…）、准入控制、OpenAI 兼容网关；prompt_end 挂 <code>evolve.Hook</code></td></tr>
-        <tr><td><code>web/</code></td><td>React + Vite + connect-es 前端：SessionList 侧栏 / ChatView 转录与审批 / tiling 平铺面板 / MindMapCard / SettingsPane / EvolvePanel / Dashboard…</td></tr>
+        <tr><td><code>web/</code></td><td>React + Vite + connect-es 前端：SessionList 侧栏 / ChatView 转录与审批 / tiling 平铺面板 / MindMapCard / SettingsPane / EvolvePanel…</td></tr>
         <tr><td><code>pkg/server</code></td><td>Event Hub（seq 环、订阅重放）、connectRPC 服务实现、x-lyon-workspace 工作区头、审批与文件端点</td></tr>
         <tr><td><code>pkg/agent</code></td><td>引擎核心：Engine（连接池/并发信号量/预热）、Session（单驱动 goroutine + 事件流）、compact.go 客户端压缩、snapshot.go 会话存档、flow 工具</td></tr>
         <tr><td><code>pkg/tools</code></td><td>工具系统：run_shell / 文件读写（工作区禁闭）/ view_image / web_* / 记忆 / todo_write / prompt-cache 字节稳定化</td></tr>

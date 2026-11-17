@@ -17,6 +17,9 @@ export type PaneKind =
   | "settings"
   | "evolve";
 
+// NOTE: the todolist is deliberately NOT a pane kind — it is a global
+// overlay (topbar / /todos / sidebar fill). Layouts are session-bound, so
+// a tile would vanish on seat switch; sanitizeNode drops the old kind.
 export const PANE_KINDS: readonly PaneKind[] = [
   "sessions",
   "chat",

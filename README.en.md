@@ -31,8 +31,7 @@ disk and restored verbatim after a restart, directly readable in the Web panels.
 
 - **Web workbench**: tiling layout — chat, plan, step audit, files, preview,
   terminal, mindmap, memory, settings, and evolution panels are all splittable
-  panes; the layout is saved per session. Plus a Dashboard overview route
-  (aggregates · routing & leaderboard · run replay · audit tail).
+  panes; the layout is saved per session.
 - **Session sidebar**: groups per workspace, click a header to **fold/unfold**
   that group, green **git** badge on repository workspaces, two-click confirmed
   delete, `running`/`queued` badges; new sessions pick a workspace (local
@@ -70,7 +69,7 @@ disk and restored verbatim after a restart, directly readable in the Web panels.
 - **Evolution mechanism**: blind grading onto the leaderboard → closed-book
   exam every 10 rounds (two fails and the seat opens) → task-class routing —
   all run by `lyond` in the background on prompt_end (`LYON_EVOLVE` master
-  gate), read-only in the Web evolution panel and Dashboard, every ledger
+  gate), read-only in the Web evolution panel, every ledger
   persisted and restored on restart.
 - **OpenAI-compatible gateway**: HTTP-layer protocol translation
   (`-openai-base`, any endpoint) — tool system, compaction, and subagents
@@ -192,13 +191,6 @@ Panes splittable around the chat (opened via `/` commands or UI affordances):
 Layouts are saved per session: switching sessions restores that session's own
 pane tree and open tabs.
 
-### Dashboard (overview route)
-
-A separate view behind the sidebar nav, four loads firing concurrently
-(overview polls every 10s): **overview** (aggregates · routing recommendations ·
-on-duty leaderboard) · **run list → replay timeline** · **audit tail** (hooks
-jsonl) · **saved snapshots**.
-
 ### Full slash-command table
 
 Type `/` for the categorized candidate panel, ↑/↓ to pick, enter to run:
@@ -254,7 +246,7 @@ web/                React + TypeScript frontend (Vite · @connectrpc/connect-es)
                       mode dock, context gauge
   src/components/    ChatView / SessionList / StepsPane / MindMapCard /
                       FilePanel / ScmView / TerminalPane / PreviewPane /
-                      PlanPane / MemoryPanel / SettingsPane / DashboardPanel /
+                      PlanPane / MemoryPanel / SettingsPane /
                       EvolvePanel / NewSessionDlg / CodeEditor …
 pkg/agent           engine core
   engine.go           Engine: tuned HTTP connection pool, global concurrent
@@ -270,7 +262,7 @@ pkg/agent           engine core
 pkg/tools           tool system (registry / shell / files / search / image /
                       paste / web / memory / todos / stable / metrics)
 pkg/server          HTTP services & RPC: hub ring replay, session store,
-                      approvals, file/memory/dashboard/evolution services,
+                      approvals, file/memory/evolution services,
                       x-lyon-workspace
 pkg/hooks           audit (~/.lyon/audit/*.jsonl), aggregate stats, policy/hooks gates
 pkg/memory          three-tier memory: BM25 retrieval, hot-tier injection, distill, sync
@@ -488,8 +480,7 @@ consumers — `prompt_start/end`, `turn_end`, `tool_use/exec_start/end`,
 - **Audit**: `~/.lyon/audit/<date>.jsonl`, one JSON Record per line (time,
   event, tool, truncated input, duration, approval result, token usage, block
   reason). Written on a dedicated goroutine — zero I/O on the hot path;
-  30-day retention. `LYON_AUDIT=off` disables. The Dashboard's "audit tail"
-  reads it directly.
+  30-day retention. `LYON_AUDIT=off` disables.
 - **Stats**: `~/.lyon/stats.json` aggregates — prompt/iteration/compaction/
   subagent counts, approval yes/no, security blocks, cumulative tokens, per-tool
   calls/failures/latency. Web `/stats` shows session and global usage. Flushed
@@ -743,7 +734,7 @@ Design doc `docs/design/agent-evolution.md`. Four code layers: `pkg/eval`
 loop — `lyond` wires it onto its prompt_end observer), `pkg/routing` (task
 classification & recommendation network), `pkg/models` (capability profiles),
 `pkg/flow` (mechanical executor). Ledgers live under `$LYON_HOME/`, **read-only
-in the Web evolution panel and Dashboard**; master gate `LYON_EVOLVE=off`,
+in the Web evolution panel**; master gate `LYON_EVOLVE=off`,
 leg gates `LYON_SCORE` / `LYON_EXAM` / `LYON_DIAGNOSE`.
 
 ### Production scoring & on-duty leaderboard
@@ -782,7 +773,7 @@ leg gates `LYON_SCORE` / `LYON_EXAM` / `LYON_DIAGNOSE`.
   earn their seat with real scores.
 - **Capability profiles** `pkg/models`: all 32 registered models carry
   Reasoning/LongHaul/Openness/Speed/Thrift five-dimension 0–5 profiles.
-- The routing table and leaderboard read directly in Dashboard / evolve panels;
+- The routing table and leaderboard read directly in the evolve panel;
   exams and scores rewrite who sits, so evolution output becomes behavior.
 
 ### Knowledge coverage gate (design §2)
@@ -832,7 +823,7 @@ leg gates `LYON_SCORE` / `LYON_EXAM` / `LYON_DIAGNOSE`.
 
 ## Roadmap
 
-- ✅ Web workbench v1–v2 (tiling panes, approvals, memory/evolution/dashboard
+- ✅ Web workbench v1–v2 (tiling panes, approvals, memory/evolution
   panels, per-session workspaces)
 - 🚧 Release prebuilt distribution & one-click install · in-process and OS-level
   timers
@@ -857,7 +848,7 @@ repair), modes & approvals (plan gate matrix, bypass short-circuit, mode
 audit), model knowledge base, OpenAI translation layer (protocol
 conversion, SSE synthesis, error mapping, SDK through-layer, engine-level
 e2e), MCP, services (connectRPC, SSE, hub replay, session store,
-file/memory/approval/dashboard), evolution (four-dimension scoring,
+file/memory/approval), evolution (four-dimension scoring,
 leaderboard persistence & demotions, exam authoring & grading, classification
 & routing confidence, coverage injection, every flow-executor branch),
 mockapi, bench (performance acceptance). All offline — no network, no real keys.

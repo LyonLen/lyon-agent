@@ -8,6 +8,7 @@ import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { errText, fileClient, mindmapClient, sessionClient, settingsClient, skillClient } from "../api";
 import { FileIcon, gitBadge } from "../fileIcons";
+import { toolDisplayName } from "../toolNames";
 import { uploadPaste } from "../paste";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
@@ -47,6 +48,7 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/mindmap", desc: "session mindmap — live understanding map", kind: "panel" },
   { cmd: "/memory", desc: "browse project memory — hot toggle, forget", kind: "panel" },
   { cmd: "/skills", desc: "skills panel — 本会话命中 / 已安装 / 推荐安装", kind: "panel" },
+  { cmd: "/todos", desc: "todolist — 月历 / 甘特图, 整体目标, 从会话填充", kind: "panel" },
   { cmd: "/evolve", desc: "evolution panel — lineage, seats, exam banks", kind: "panel" },
   { cmd: "/exam", desc: "exam bank & clock (panel view)", kind: "panel" },
   { cmd: "/contest", desc: "contest field (panel view) — run in TUI", kind: "panel" },
@@ -598,6 +600,53 @@ function inputPath(raw: string): string {
     // not JSON — no path to preview
   }
   return "";
+}
+
+// searchQuery pulls the "query" field out of a web_search input JSON —
+// the card's folded summary. Empty while the input is still streaming.
+function searchQuery(raw: string): string {
+  try {
+    const o: unknown = JSON.parse(raw);
+    if (o && typeof o === "object" && "query" in o) {
+      const q = (o as { query: unknown }).query;
+      if (typeof q === "string") return q;
+    }
+  } catch {
+    // not JSON yet
+  }
+  return "";
+}
+
+type SearchRow = { title: string; url: string; snippet: string };
+
+// parseSearchResults folds web_search's numbered output ("1. Title\n
+//    URL\n   snippet") into rows for the dedicated card. Tolerant by
+// design: format drift yields [] and the card degrades to the raw pre —
+// a renderer bug must never hide the tool's text.
+function parseSearchResults(output: string): SearchRow[] {
+  const out: SearchRow[] = [];
+  const lines = output.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(\d+)\.\s+(.+)$/.exec(lines[i]);
+    if (!m) continue;
+    const url = (lines[i + 1] ?? "").trim();
+    if (!/^https?:\/\//.test(url)) continue;
+    const tail = (lines[i + 2] ?? "").trim();
+    const hasSnippet = tail !== "" && !/^\d+\.\s/.test(tail);
+    out.push({ title: m[2].trim(), url, snippet: hasSnippet ? tail : "" });
+    i += hasSnippet ? 2 : 1;
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+// hostOf shortens a result URL to its host for the row's second line.
+function hostOf(u: string): string {
+  try {
+    return new URL(u).host;
+  } catch {
+    return u;
+  }
 }
 
 // ---- tool output coloring (lightweight heuristics, never a parser) ----
@@ -2295,7 +2344,7 @@ export default function ChatView(props: {
                 <div className="appr-head">
                   <span className="appr-title">
                     <span className="appr-q">{isMode ? "plan 拦截" : "approve?"}</span>
-                    <span className="tool-name">{p.toolName}</span>
+                    <span className="tool-name">{toolDisplayName(p.toolName)}</span>
                   </span>
                   {isMode ? (
                     i === sel && (
@@ -2812,6 +2861,100 @@ function BlockView({
       );
     }
     case "tool": {
+      // web_search gets its own card (skill-card precedent): the folded
+      // row reads "🌐 search — query", the body is a linkable result
+      // list instead of a numbered wall of text. Parse failure degrades
+      // to the raw pre, so the tool's text is never hidden by the UI.
+      if (block.name === "web_search") {
+        const results = block.output ? parseSearchResults(block.output) : [];
+        const query = searchQuery(block.input) || toolSummary(block.name, block.input);
+        return (
+          <details
+            className={
+              "blk-tool blk-search" +
+              (block.status === "failed" ? " failed" : "") +
+              (block.sub ? " sub" : "")
+            }
+            style={ord ? { borderLeftColor: subHue(ord) } : undefined}
+          >
+            <summary className="blk-tool-head">
+              <div className="blk-tool-row">
+                <span className="tool-title">
+                  <span className="tool-chevron" aria-hidden="true">
+                    ▸
+                  </span>
+                  <span className="tool-name">{toolDisplayName(block.name)}</span>
+                  {block.sub && (
+                    <span
+                      className="tool-badge sub"
+                      style={ord ? { color: subHue(ord), borderColor: subHue(ord) } : undefined}
+                    >
+                      {ord ? `sub ${ord}` : "sub"}
+                    </span>
+                  )}
+                  {block.server && (
+                    <span className="tool-badge server">server</span>
+                  )}
+                </span>
+                {query && <span className="tool-summary">{query}</span>}
+                <span className={`tool-status ${block.status}`}>
+                  {block.status === "running" && (
+                    <span className="spin" aria-hidden="true" />
+                  )}
+                  {block.status === "pending" && "…"}
+                  {block.status === "running" && "searching"}
+                  {block.status === "running" && block.startedAt !== undefined && (
+                    <RunningClock since={block.startedAt} />
+                  )}
+                  {block.status === "done" &&
+                    (block.durationMs ? `✓ ${fmtDuration(block.durationMs)}` : "✓")}
+                  {block.status === "failed" &&
+                    (block.durationMs ? `✗ ${fmtDuration(block.durationMs)}` : "✗")}
+                  {block.status === "server" && "🌐 server"}
+                </span>
+              </div>
+              {block.status === "done" && results.length > 0 && (
+                <div className="tool-out-peek">
+                  {results.length} results — {results[0].title}
+                </div>
+              )}
+            </summary>
+            {results.length > 0 ? (
+              <div className="search-list">
+                {results.map((r, i) => (
+                  <a
+                    key={r.url}
+                    className="search-row"
+                    href={r.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={r.url}
+                  >
+                    <span className="search-idx">{i + 1}</span>
+                    <span className="search-body">
+                      <span className="search-title">{r.title}</span>
+                      <span className="search-host">{hostOf(r.url)}</span>
+                      {r.snippet && (
+                        <span className="search-snippet">{r.snippet}</span>
+                      )}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <>
+                {block.input && (
+                  <pre className="tool-input">{prettyInput(block.input)}</pre>
+                )}
+                {block.output && (
+                  <pre className="tool-output">{colorizeOutput(block.output)}</pre>
+                )}
+                {block.error && <div className="err">{block.error}</div>}
+              </>
+            )}
+          </details>
+        );
+      }
       // Folded-header digest: what this call is about, at a glance
       // (command, path, pattern…). Empty until the exec event fills
       // input; the <details> body keeps the full input/output.
@@ -2848,7 +2991,7 @@ function BlockView({
                 <span className="tool-chevron" aria-hidden="true">
                   ▸
                 </span>
-                <span className="tool-name">{block.name}</span>
+                <span className="tool-name">{toolDisplayName(block.name)}</span>
                 {block.sub && (
                   <span
                     className="tool-badge sub"

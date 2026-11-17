@@ -23,8 +23,7 @@
 ## 特性
 
 - **Web 工作台**：平铺窗口（tiling）布局——聊天、计划、步骤审计、文件、预览、
-  终端、思维导图、记忆、设置、演化面板都是可拆分的 pane，布局随会话保存；
-  另有 Dashboard 总览视图（聚合指标 · 路由与榜单 · 运行回放 · 审计尾）。
+  终端、思维导图、记忆、设置、演化面板都是可拆分的 pane，布局随会话保存。
 - **会话侧栏**：按工作区分组、分组点击折叠、git 仓库徽章（一眼区分代码库）、
   两次点击确认删除、running/queued 状态徽章；新会话可选工作区（本地目录 /
   直接 git clone）。
@@ -51,7 +50,7 @@
   正则拦截 + 外部阻塞钩子（`LYON_AUDIT`/`LYON_HOOKS` 可关）。
 - **演化机制**：盲评入榜 → 每 10 轮闭卷考核（连挂 2 次撤职）→ 任务分类推荐
   路由——全部由 `lyond` 在 prompt_end 后台自动执行（`LYON_EVOLVE` 总闸），
-  Web 演化面板与 Dashboard 只读展示，账本落盘、重启恢复。
+  Web 演化面板只读展示，账本落盘、重启恢复。
 - **OpenAI 兼容网关**：HTTP 层协议翻译（`-openai-base` 任意端点），工具系统、
   压缩、子代理零改动复用。
 - **并发子代理**：`run_subagent(s)` 只读子代理，一次扇出 2–6 个独立子任务
@@ -154,12 +153,6 @@ cd web && npm run dev
 
 布局随会话保存：切会话即恢复该会话自己的窗格树与打开的标签。
 
-### Dashboard（总览视图）
-
-侧栏导航切换的独立视图，四块并发加载（总览 10s 轮询）：
-**总览**（聚合指标 · 路由推荐 · 在岗榜单）· **运行列表 → 回放时间线** ·
-**审计尾**（hooks jsonl）· **saved 快照列表**。
-
 ### 斜杠命令全表
 
 输入 `/` 唤出分类候选面板，↑/↓ 选择、enter 执行：
@@ -210,7 +203,7 @@ web/                React + TypeScript 前端（Vite · @connectrpc/connect-es�
   src/App.tsx        会话生命周期、斜杠命令路由、平铺窗格、模式坞、油量表
   src/components/    ChatView / SessionList / StepsPane / MindMapCard /
                       FilePanel / ScmView / TerminalPane / PreviewPane /
-                      PlanPane / MemoryPanel / SettingsPane / DashboardPanel /
+                      PlanPane / MemoryPanel / SettingsPane /
                       EvolvePanel / NewSessionDlg / CodeEditor …
 pkg/agent           引擎核心
   engine.go           Engine：HTTP 连接池调优、全局并发 turn 信号量、Warmup
@@ -406,7 +399,6 @@ context——API 流与运行中的工具一起停，会话本身存活，prompt
 - **审计**：`~/.lyon/audit/<日期>.jsonl`，每行一个 JSON Record（时间、事件、工具、
   截断后的输入、耗时、审批结果、token 用量、拦截原因）。写盘在独立 goroutine，
   热路径零 I/O；保留 30 天自动清理。`LYON_AUDIT=off` 关闭。
-  Web 的 Dashboard「审计尾」直接读它展示。
 - **统计**：`~/.lyon/stats.json` 持久化聚合——prompt/迭代/compaction/subagent 次数、
   审批 yes/no、安全拦截数、token 累计、每工具调用/失败/耗时。Web `/stats`
   展示会话与全局用量。prompt_end 落盘（≤2s 延迟），`Session.Close` 时
@@ -610,7 +602,7 @@ hits: 3
 设计文档 `docs/design/agent-evolution.md`。四层代码：`pkg/eval`（评分/榜单/考核/
 覆盖率/错因归纳）、`pkg/evolve`（演化循环——`lyond` 把它接在 prompt_end 观察者
 上）、`pkg/routing`（任务分类与推荐网络）、`pkg/models`（模型能力画像）、
-`pkg/flow`（机械执行器）。账本落盘 `$LYON_HOME/`，**Web 演化面板与 Dashboard
+`pkg/flow`（机械执行器）。账本落盘 `$LYON_HOME/`，**Web 演化面板
 只读展示**；总闸 `LYON_EVOLVE=off`，分闸 `LYON_SCORE` / `LYON_EXAM` /
 `LYON_DIAGNOSE`。
 
@@ -643,7 +635,7 @@ hits: 3
   真实分数挣位置。
 - **能力画像** `pkg/models`：注册表 32 个模型全部标注 Reasoning/LongHaul/
   Openness/Speed/Thrift 五维 0–5 画像。
-- 路由表与榜单在 Dashboard / evolve 面板直接可读；考试与评分改写谁在岗，
+- 路由表与榜单在 evolve 面板直接可读；考试与评分改写谁在岗，
   进化的输出真正变成行为。
 
 ### 知识覆盖率门禁（设计 §2）

@@ -39,13 +39,6 @@ const (
 	SkillServiceGetSkillProcedure = "/lyon.v1.SkillService/GetSkill"
 )
 
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	skillServiceServiceDescriptor          = v1.File_lyon_v1_skill_proto.Services().ByName("SkillService")
-	skillServiceListSkillsMethodDescriptor = skillServiceServiceDescriptor.Methods().ByName("ListSkills")
-	skillServiceGetSkillMethodDescriptor   = skillServiceServiceDescriptor.Methods().ByName("GetSkill")
-)
-
 // SkillServiceClient is a client for the lyon.v1.SkillService service.
 type SkillServiceClient interface {
 	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
@@ -61,17 +54,18 @@ type SkillServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewSkillServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) SkillServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	skillServiceMethods := v1.File_lyon_v1_skill_proto.Services().ByName("SkillService").Methods()
 	return &skillServiceClient{
 		listSkills: connect.NewClient[v1.ListSkillsRequest, v1.ListSkillsResponse](
 			httpClient,
 			baseURL+SkillServiceListSkillsProcedure,
-			connect.WithSchema(skillServiceListSkillsMethodDescriptor),
+			connect.WithSchema(skillServiceMethods.ByName("ListSkills")),
 			connect.WithClientOptions(opts...),
 		),
 		getSkill: connect.NewClient[v1.GetSkillRequest, v1.GetSkillResponse](
 			httpClient,
 			baseURL+SkillServiceGetSkillProcedure,
-			connect.WithSchema(skillServiceGetSkillMethodDescriptor),
+			connect.WithSchema(skillServiceMethods.ByName("GetSkill")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -105,16 +99,17 @@ type SkillServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewSkillServiceHandler(svc SkillServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	skillServiceMethods := v1.File_lyon_v1_skill_proto.Services().ByName("SkillService").Methods()
 	skillServiceListSkillsHandler := connect.NewUnaryHandler(
 		SkillServiceListSkillsProcedure,
 		svc.ListSkills,
-		connect.WithSchema(skillServiceListSkillsMethodDescriptor),
+		connect.WithSchema(skillServiceMethods.ByName("ListSkills")),
 		connect.WithHandlerOptions(opts...),
 	)
 	skillServiceGetSkillHandler := connect.NewUnaryHandler(
 		SkillServiceGetSkillProcedure,
 		svc.GetSkill,
-		connect.WithSchema(skillServiceGetSkillMethodDescriptor),
+		connect.WithSchema(skillServiceMethods.ByName("GetSkill")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.SkillService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

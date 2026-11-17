@@ -58,7 +58,7 @@ export default function EvolvePanel() {
   useEffect(() => {
     void load();
     // The ledger moves with every prompt; 15s keeps the panel live
-    // without hammering the disk (DashboardPanel polls overview at 10s).
+    // without hammering the disk.
     const t = setInterval(() => void load(), 15000);
     return () => clearInterval(t);
   }, [load]);

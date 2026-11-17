@@ -4,7 +4,11 @@
 //   A. new-session chooser rows respond to clicks (the 点不动 report);
 //   B. a session creates from 当前目录;
 //   C. the mock reply renders EXACTLY once (StrictMode double-fold bug);
-//   D. breadcrumbs live under the 文件 tab and hide under git.
+//   D. breadcrumbs live under the 文件 tab and hide under git;
+//   E. 拿会话填充待办: sidebar「＋」/ popover fill into the global
+//     todolist, per-session dedupe, reload round-trip;
+//   F. drag-to-schedule: a 未排期 tray chip dropped on a day cell
+//     schedules it (tray count down, grid chip up, flash).
 import { chromium } from "playwright-core";
 
 const BASE = process.env.BASE_URL;
@@ -66,6 +70,79 @@ try {
   if ((await page.locator(".files-crumbs").count()) === 0)
     ok("breadcrumb hidden under the git tab");
   else bad("breadcrumb visible under the git tab");
+
+  // E — 拿会话填充待办 (global overlay). Two sessions are needed so the
+  // sidebar can fill one while the popover still finds an unlinked row.
+  await page.getByText("+ new session", { exact: true }).click();
+  await page.getByText("当前目录", { exact: true }).click();
+  await page.waitForSelector('[placeholder*="prompt"]', { timeout: 10000 });
+
+  // The sidebar「＋」queues the session; TodosPane (the single doc
+  // writer) consumes it, opens via the queue, flashes. The ＋ overlays
+  // the row edge and only joins hit-testing on hover — hover first.
+  await page.locator(".session-row").first().hover();
+  await page.locator(".session-fill").first().click();
+  await page.getByText("已填充 1 条会话", { exact: false }).waitFor({ timeout: 10000 });
+  ok("sidebar ＋ fills a session into the todolist");
+  let gn = await page.locator(".td-goal").first().locator(".td-gn").textContent();
+  if (gn === "1") ok("rail count = 1 after sidebar fill");
+  else bad(`rail count = ${gn}, want 1`);
+
+  // The popover adds the other (still unlinked) session — the row
+  // picker skips linked rows (:not(.on)), so this stays order-proof.
+  await page.getByText("从会话填充", { exact: true }).click();
+  await page.locator(".td-fillrow:not(.on)").first().click();
+  await page.getByText("已加入待办", { exact: false }).waitFor({ timeout: 5000 });
+  ok("popover row adds a session");
+  gn = await page.locator(".td-goal").first().locator(".td-gn").textContent();
+  if (gn === "2") ok("rail count = 2 after popover add");
+  else bad(`rail count = ${gn}, want 2`);
+  // The overlay backdrop covers the sidebar — dismiss the popover, then
+  // the overlay itself, before reaching for the sidebar「＋」again.
+  await page.keyboard.press("Escape"); // close the popover
+  await page.keyboard.press("Escape"); // close the overlay
+
+  // Dedupe: every session is linked now — re-filling must not double-add.
+  await page.locator(".session-row").first().hover();
+  await page.locator(".session-fill").first().click();
+  await page.getByText("会话已在待办中", { exact: true }).waitFor({ timeout: 10000 });
+  ok("re-filling a linked session is deduped");
+
+  // Persistence: reload, then the valve still reports already-in-list —
+  // the entries round-tripped through todos.json.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText("+ new session", { exact: true }).waitFor({ timeout: 10000 });
+  await page.locator(".session-row").first().hover();
+  await page.locator(".session-fill").first().click();
+  await page.getByText("会话已在待办中", { exact: true }).waitFor({ timeout: 10000 });
+  ok("filled entries survive reload (todos.json round-trip)");
+
+  // F — drag-to-schedule: the 未排期 tray chip drops onto a day cell
+  // (the post-reload sidebar fill above reopened the overlay). Playwright's
+  // mouse drag does not fire native HTML5 DnD, so dispatch the DragEvent
+  // sequence synthetically with a real DataTransfer.
+  await page.locator(".td-uchip").first().waitFor({ timeout: 10000 });
+  const trayN = await page.locator(".td-uchip").count();
+  const gridN = await page.locator(".td-grid .td-chip").count();
+  await page.evaluate(() => {
+    const src = document.querySelector(".td-uchip");
+    const dst = document.querySelector(".td-cell.now") ?? document.querySelector(".td-cell");
+    const dt = new DataTransfer();
+    src.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+    dst.dispatchEvent(
+      new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+    dst.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+    src.dispatchEvent(new DragEvent("dragend", { dataTransfer: dt, bubbles: true }));
+  });
+  await page.getByText("已排期", { exact: false }).waitFor({ timeout: 5000 });
+  ok("dropping a tray chip onto a day schedules it");
+  const trayAfter = await page.locator(".td-uchip").count();
+  if (trayAfter === trayN - 1) ok("scheduled chip leaves the 未排期 tray");
+  else bad(`tray count = ${trayAfter}, want ${trayN - 1}`);
+  const gridAfter = await page.locator(".td-grid .td-chip").count();
+  if (gridAfter === gridN + 1) ok("scheduled chip renders in the grid");
+  else bad(`grid chip count = ${gridAfter}, want ${gridN + 1}`);
 } catch (e) {
   failed++;
   console.error("FAIL - exception:", e && e.message);

@@ -136,7 +136,6 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
       </tbody>
     </table>
     <p>
-      The top bar toggles the <strong>dashboard</strong> view (task-execution statistics).
       The <strong>mind map</strong> sits beside chat: <code class="inline">ctrl+wheel</code> zooms,
       middle-drag pans; picking mindmap mode brings the map forward, and
       <strong>editing the map feeds back as a follow-up</strong> that advances the conversation.
@@ -405,7 +404,6 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
         <tr><td><code>LYON_HOOKS</code></td><td>hook (audit/stats) config path</td></tr>
         <tr><td><code>LYON_NOTIFY</code></td><td>completion notification switch</td></tr>
         <tr><td><code>LYON_AUTOFREEZE</code></td><td>idle-session auto-freeze switch</td></tr>
-        <tr><td><code>LYON_DASHBOARD</code></td><td>dashboard switch</td></tr>
         <tr><td><code>LYON_DUMP</code></td><td>runtime dump switch</td></tr>
         <tr><td><code>LYON_AUDIT</code> / <code>LYON_DEBUG</code> / <code>LYON_DISTILL</code></td><td>audit persistence / debug output / memory distillation switches</td></tr>
         <tr><td><code>LYON_PRICE_IN</code> / <code>LYON_PRICE_OUT</code></td><td>override the built-in price table (USD / million tokens, for the cost display)</td></tr>
@@ -533,7 +531,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
       <thead><tr><th>Path</th><th>Responsibility</th></tr></thead>
       <tbody>
         <tr><td><code>cmd/lyond</code></td><td>Go daemon: HTTP/SSE + Connect RPC (Session/Settings/Approval/File/Plan…), admission control, OpenAI-compatible gateway; taps <code>evolve.Hook</code> on prompt_end</td></tr>
-        <tr><td><code>web/</code></td><td>React + Vite + connect-es frontend: SessionList sidebar / ChatView transcript &amp; approvals / tiling panes / MindMapCard / SettingsPane / EvolvePanel / Dashboard…</td></tr>
+        <tr><td><code>web/</code></td><td>React + Vite + connect-es frontend: SessionList sidebar / ChatView transcript &amp; approvals / tiling panes / MindMapCard / SettingsPane / EvolvePanel…</td></tr>
         <tr><td><code>pkg/server</code></td><td>Event Hub (seq ring, subscribe replay), Connect RPC service implementations, x-lyon-workspace header, approvals and file endpoints</td></tr>
         <tr><td><code>pkg/agent</code></td><td>engine core: Engine (connection pool / concurrency semaphore / warmup), Session (single driving goroutine + event stream), compact.go client-side compaction, snapshot.go session archives, the flow tool</td></tr>
         <tr><td><code>pkg/tools</code></td><td>tool system: run_shell / file read-write (workspace confinement) / view_image / web_* / memory / todo_write / prompt-cache byte stabilization</td></tr>

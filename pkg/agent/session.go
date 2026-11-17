@@ -91,6 +91,11 @@ type Session struct {
 	seq       atomic.Uint64        // shared ExecID counter across all tools
 	disSeq    atomic.Uint64        // run_subagents fan-out run ids (#53 SubID attribution)
 
+	// repeat is the Layer 1 runaway guard (repeat.go): run-scoped
+	// fixed-point state shared by the main loop and every subagent —
+	// both pass through preTool. Reset at prompt entry (drive).
+	repeat *repeatGuard
+
 	// runner is owned exclusively by the drive goroutine.
 	runner *anthropic.BetaToolRunnerStreaming
 	busy   atomic.Bool
@@ -328,6 +333,7 @@ func newSession(e *Engine, obs tools.Observer) *Session {
 		events:     make(chan Event, e.cfg.EventBuffer),
 		reqs:       make(chan submitReq, 1),
 		extObs:     obs,
+		repeat:     newRepeatGuard(),
 		memoryText: tools.MemoryFacts(e.cfg.Workspace),
 		skillsText: skillsSection(),
 		shellText:  shellEnvSection(),
@@ -643,7 +649,43 @@ func (s *Session) preTool(ctx context.Context, e tools.ExecEvent) error {
 	if err := s.modeGate(ctx, e); err != nil {
 		return err
 	}
-	return s.eng.hooks.CheckTool(ctx, e.Name, e.Input)
+	if err := s.eng.hooks.CheckTool(ctx, e.Name, e.Input); err != nil {
+		return err
+	}
+	// Repeat guard AFTER the security gates (§1.5.3): a call policy
+	// rejected never becomes guard evidence.
+	return s.repeatGate(e)
+}
+
+// repeatGate turns the guard's verdict into the adapter's instruction
+// (or nil): a sealed read-only call short-circuits with its cached text;
+// a sealed mutating call executes for real with a marker suffix. Both
+// leave an EvRepetition audit only where something was withheld —
+// short-circuit here, the seal's establishment in OnToolResult.
+func (s *Session) repeatGate(e tools.ExecEvent) error {
+	verdict, cached := s.repeat.before(e.Name, e.Input, e.ParallelSafe)
+	switch verdict {
+	case repeatShortCircuit:
+		s.eng.hooks.Fire(hooks.Record{
+			Event:     hooks.EvRepetition,
+			Tool:      e.Name,
+			Input:     string(e.Input),
+			BlockedBy: "guard:repeat",
+			Detail:    "short-circuited (identical result ×2, sealed, read-only)",
+			IsError:   false,
+		})
+		return &repeatInstruction{
+			cached:    cached,
+			haveCache: true,
+			suffix:    s.repeat.suffixFor(e.Name, e.Input),
+		}
+	case repeatSealed:
+		// Mutating: execute — side effects stand. The suffix decides
+		// against live state after the run.
+		return &repeatInstruction{suffix: s.repeat.suffixFor(e.Name, e.Input)}
+	default:
+		return nil
+	}
 }
 
 // wrapApprove brackets the configured approver with audit events so every
@@ -803,6 +845,10 @@ func (s *Session) drive(prompt, runModel string) {
 	defer s.histMu.Unlock()
 	defer s.busy.Store(false)
 	s.iterOffset = 0
+	// Run-scoped runaway guard (repeat.go): each prompt starts with a
+	// clean fixed-point slate — a seal from the previous prompt is not
+	// evidence against a fresh ask.
+	s.repeat.reset()
 	// Settle before anything consumes state: the mirror must carry the
 	// previous prompt's closed history (including any repair results
 	// queued at its prompt_end) even if this prompt dies instantly. For a
@@ -1428,6 +1474,24 @@ func (s *Session) OnToolOutput(e tools.ExecEvent) {
 	})
 	if oo, ok := s.extObs.(tools.OutputObserver); ok {
 		oo.OnToolOutput(e)
+	}
+}
+
+// OnToolResult implements tools.ResultObserver: the capped final text of
+// one successful execution is the repeat guard's fixed-point evidence.
+// Establishing a seal (identical result ×2) is an observable event, so
+// it leaves a repetition_block audit with the evidence in Detail.
+// Not forwarded to extObs — the guard is internal harness policy, not
+// renderable output.
+func (s *Session) OnToolResult(e tools.ExecEvent, result string) {
+	if s.repeat.after(e.Name, e.Input, result) {
+		s.eng.hooks.Fire(hooks.Record{
+			Event:     hooks.EvRepetition,
+			Tool:      e.Name,
+			Input:     string(e.Input),
+			BlockedBy: "guard:repeat",
+			Detail:    "identical result ×2 — sealed",
+		})
 	}
 }
 

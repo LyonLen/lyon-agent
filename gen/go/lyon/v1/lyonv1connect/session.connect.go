@@ -81,27 +81,6 @@ const (
 	SessionServiceUndoLastRunProcedure = "/lyon.v1.SessionService/UndoLastRun"
 )
 
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	sessionServiceServiceDescriptor               = v1.File_lyon_v1_session_proto.Services().ByName("SessionService")
-	sessionServiceCreateSessionMethodDescriptor   = sessionServiceServiceDescriptor.Methods().ByName("CreateSession")
-	sessionServiceListSessionsMethodDescriptor    = sessionServiceServiceDescriptor.Methods().ByName("ListSessions")
-	sessionServiceGetSessionMethodDescriptor      = sessionServiceServiceDescriptor.Methods().ByName("GetSession")
-	sessionServiceDeleteSessionMethodDescriptor   = sessionServiceServiceDescriptor.Methods().ByName("DeleteSession")
-	sessionServiceSubmitPromptMethodDescriptor    = sessionServiceServiceDescriptor.Methods().ByName("SubmitPrompt")
-	sessionServiceEnqueuePromptMethodDescriptor   = sessionServiceServiceDescriptor.Methods().ByName("EnqueuePrompt")
-	sessionServiceInterruptMethodDescriptor       = sessionServiceServiceDescriptor.Methods().ByName("Interrupt")
-	sessionServiceGetStatsMethodDescriptor        = sessionServiceServiceDescriptor.Methods().ByName("GetStats")
-	sessionServiceSetModeMethodDescriptor         = sessionServiceServiceDescriptor.Methods().ByName("SetMode")
-	sessionServiceWatchEventsMethodDescriptor     = sessionServiceServiceDescriptor.Methods().ByName("WatchEvents")
-	sessionServiceGetHistoryMethodDescriptor      = sessionServiceServiceDescriptor.Methods().ByName("GetHistory")
-	sessionServiceRestoreSessionMethodDescriptor  = sessionServiceServiceDescriptor.Methods().ByName("RestoreSession")
-	sessionServiceListCheckpointsMethodDescriptor = sessionServiceServiceDescriptor.Methods().ByName("ListCheckpoints")
-	sessionServiceRollbackSessionMethodDescriptor = sessionServiceServiceDescriptor.Methods().ByName("RollbackSession")
-	sessionServiceSaveCheckpointMethodDescriptor  = sessionServiceServiceDescriptor.Methods().ByName("SaveCheckpoint")
-	sessionServiceUndoLastRunMethodDescriptor     = sessionServiceServiceDescriptor.Methods().ByName("UndoLastRun")
-)
-
 // SessionServiceClient is a client for the lyon.v1.SessionService service.
 type SessionServiceClient interface {
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
@@ -170,101 +149,102 @@ type SessionServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) SessionServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	sessionServiceMethods := v1.File_lyon_v1_session_proto.Services().ByName("SessionService").Methods()
 	return &sessionServiceClient{
 		createSession: connect.NewClient[v1.CreateSessionRequest, v1.CreateSessionResponse](
 			httpClient,
 			baseURL+SessionServiceCreateSessionProcedure,
-			connect.WithSchema(sessionServiceCreateSessionMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("CreateSession")),
 			connect.WithClientOptions(opts...),
 		),
 		listSessions: connect.NewClient[v1.ListSessionsRequest, v1.ListSessionsResponse](
 			httpClient,
 			baseURL+SessionServiceListSessionsProcedure,
-			connect.WithSchema(sessionServiceListSessionsMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("ListSessions")),
 			connect.WithClientOptions(opts...),
 		),
 		getSession: connect.NewClient[v1.GetSessionRequest, v1.GetSessionResponse](
 			httpClient,
 			baseURL+SessionServiceGetSessionProcedure,
-			connect.WithSchema(sessionServiceGetSessionMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("GetSession")),
 			connect.WithClientOptions(opts...),
 		),
 		deleteSession: connect.NewClient[v1.DeleteSessionRequest, v1.DeleteSessionResponse](
 			httpClient,
 			baseURL+SessionServiceDeleteSessionProcedure,
-			connect.WithSchema(sessionServiceDeleteSessionMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("DeleteSession")),
 			connect.WithClientOptions(opts...),
 		),
 		submitPrompt: connect.NewClient[v1.SubmitPromptRequest, v1.SubmitPromptResponse](
 			httpClient,
 			baseURL+SessionServiceSubmitPromptProcedure,
-			connect.WithSchema(sessionServiceSubmitPromptMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("SubmitPrompt")),
 			connect.WithClientOptions(opts...),
 		),
 		enqueuePrompt: connect.NewClient[v1.EnqueuePromptRequest, v1.EnqueuePromptResponse](
 			httpClient,
 			baseURL+SessionServiceEnqueuePromptProcedure,
-			connect.WithSchema(sessionServiceEnqueuePromptMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("EnqueuePrompt")),
 			connect.WithClientOptions(opts...),
 		),
 		interrupt: connect.NewClient[v1.InterruptRequest, v1.InterruptResponse](
 			httpClient,
 			baseURL+SessionServiceInterruptProcedure,
-			connect.WithSchema(sessionServiceInterruptMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("Interrupt")),
 			connect.WithClientOptions(opts...),
 		),
 		getStats: connect.NewClient[v1.GetStatsRequest, v1.GetStatsResponse](
 			httpClient,
 			baseURL+SessionServiceGetStatsProcedure,
-			connect.WithSchema(sessionServiceGetStatsMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("GetStats")),
 			connect.WithClientOptions(opts...),
 		),
 		setMode: connect.NewClient[v1.SetModeRequest, v1.SetModeResponse](
 			httpClient,
 			baseURL+SessionServiceSetModeProcedure,
-			connect.WithSchema(sessionServiceSetModeMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("SetMode")),
 			connect.WithClientOptions(opts...),
 		),
 		watchEvents: connect.NewClient[v1.WatchEventsRequest, v1.WatchEventsResponse](
 			httpClient,
 			baseURL+SessionServiceWatchEventsProcedure,
-			connect.WithSchema(sessionServiceWatchEventsMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 			connect.WithClientOptions(opts...),
 		),
 		getHistory: connect.NewClient[v1.GetHistoryRequest, v1.GetHistoryResponse](
 			httpClient,
 			baseURL+SessionServiceGetHistoryProcedure,
-			connect.WithSchema(sessionServiceGetHistoryMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("GetHistory")),
 			connect.WithClientOptions(opts...),
 		),
 		restoreSession: connect.NewClient[v1.RestoreSessionRequest, v1.RestoreSessionResponse](
 			httpClient,
 			baseURL+SessionServiceRestoreSessionProcedure,
-			connect.WithSchema(sessionServiceRestoreSessionMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("RestoreSession")),
 			connect.WithClientOptions(opts...),
 		),
 		listCheckpoints: connect.NewClient[v1.ListCheckpointsRequest, v1.ListCheckpointsResponse](
 			httpClient,
 			baseURL+SessionServiceListCheckpointsProcedure,
-			connect.WithSchema(sessionServiceListCheckpointsMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("ListCheckpoints")),
 			connect.WithClientOptions(opts...),
 		),
 		rollbackSession: connect.NewClient[v1.RollbackSessionRequest, v1.RollbackSessionResponse](
 			httpClient,
 			baseURL+SessionServiceRollbackSessionProcedure,
-			connect.WithSchema(sessionServiceRollbackSessionMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("RollbackSession")),
 			connect.WithClientOptions(opts...),
 		),
 		saveCheckpoint: connect.NewClient[v1.SaveCheckpointRequest, v1.SaveCheckpointResponse](
 			httpClient,
 			baseURL+SessionServiceSaveCheckpointProcedure,
-			connect.WithSchema(sessionServiceSaveCheckpointMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("SaveCheckpoint")),
 			connect.WithClientOptions(opts...),
 		),
 		undoLastRun: connect.NewClient[v1.UndoLastRunRequest, v1.UndoLastRunResponse](
 			httpClient,
 			baseURL+SessionServiceUndoLastRunProcedure,
-			connect.WithSchema(sessionServiceUndoLastRunMethodDescriptor),
+			connect.WithSchema(sessionServiceMethods.ByName("UndoLastRun")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -435,100 +415,101 @@ type SessionServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	sessionServiceMethods := v1.File_lyon_v1_session_proto.Services().ByName("SessionService").Methods()
 	sessionServiceCreateSessionHandler := connect.NewUnaryHandler(
 		SessionServiceCreateSessionProcedure,
 		svc.CreateSession,
-		connect.WithSchema(sessionServiceCreateSessionMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("CreateSession")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceListSessionsHandler := connect.NewUnaryHandler(
 		SessionServiceListSessionsProcedure,
 		svc.ListSessions,
-		connect.WithSchema(sessionServiceListSessionsMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("ListSessions")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceGetSessionHandler := connect.NewUnaryHandler(
 		SessionServiceGetSessionProcedure,
 		svc.GetSession,
-		connect.WithSchema(sessionServiceGetSessionMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("GetSession")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceDeleteSessionHandler := connect.NewUnaryHandler(
 		SessionServiceDeleteSessionProcedure,
 		svc.DeleteSession,
-		connect.WithSchema(sessionServiceDeleteSessionMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("DeleteSession")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceSubmitPromptHandler := connect.NewUnaryHandler(
 		SessionServiceSubmitPromptProcedure,
 		svc.SubmitPrompt,
-		connect.WithSchema(sessionServiceSubmitPromptMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("SubmitPrompt")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceEnqueuePromptHandler := connect.NewUnaryHandler(
 		SessionServiceEnqueuePromptProcedure,
 		svc.EnqueuePrompt,
-		connect.WithSchema(sessionServiceEnqueuePromptMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("EnqueuePrompt")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceInterruptHandler := connect.NewUnaryHandler(
 		SessionServiceInterruptProcedure,
 		svc.Interrupt,
-		connect.WithSchema(sessionServiceInterruptMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("Interrupt")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceGetStatsHandler := connect.NewUnaryHandler(
 		SessionServiceGetStatsProcedure,
 		svc.GetStats,
-		connect.WithSchema(sessionServiceGetStatsMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("GetStats")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceSetModeHandler := connect.NewUnaryHandler(
 		SessionServiceSetModeProcedure,
 		svc.SetMode,
-		connect.WithSchema(sessionServiceSetModeMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("SetMode")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceWatchEventsHandler := connect.NewServerStreamHandler(
 		SessionServiceWatchEventsProcedure,
 		svc.WatchEvents,
-		connect.WithSchema(sessionServiceWatchEventsMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceGetHistoryHandler := connect.NewUnaryHandler(
 		SessionServiceGetHistoryProcedure,
 		svc.GetHistory,
-		connect.WithSchema(sessionServiceGetHistoryMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("GetHistory")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceRestoreSessionHandler := connect.NewUnaryHandler(
 		SessionServiceRestoreSessionProcedure,
 		svc.RestoreSession,
-		connect.WithSchema(sessionServiceRestoreSessionMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("RestoreSession")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceListCheckpointsHandler := connect.NewUnaryHandler(
 		SessionServiceListCheckpointsProcedure,
 		svc.ListCheckpoints,
-		connect.WithSchema(sessionServiceListCheckpointsMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("ListCheckpoints")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceRollbackSessionHandler := connect.NewUnaryHandler(
 		SessionServiceRollbackSessionProcedure,
 		svc.RollbackSession,
-		connect.WithSchema(sessionServiceRollbackSessionMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("RollbackSession")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceSaveCheckpointHandler := connect.NewUnaryHandler(
 		SessionServiceSaveCheckpointProcedure,
 		svc.SaveCheckpoint,
-		connect.WithSchema(sessionServiceSaveCheckpointMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("SaveCheckpoint")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sessionServiceUndoLastRunHandler := connect.NewUnaryHandler(
 		SessionServiceUndoLastRunProcedure,
 		svc.UndoLastRun,
-		connect.WithSchema(sessionServiceUndoLastRunMethodDescriptor),
+		connect.WithSchema(sessionServiceMethods.ByName("UndoLastRun")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

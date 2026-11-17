@@ -58,21 +58,6 @@ const (
 	FileServiceListZipProcedure = "/lyon.v1.FileService/ListZip"
 )
 
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	fileServiceServiceDescriptor              = v1.File_lyon_v1_file_proto.Services().ByName("FileService")
-	fileServiceListDirectoryMethodDescriptor  = fileServiceServiceDescriptor.Methods().ByName("ListDirectory")
-	fileServiceReadTextFileMethodDescriptor   = fileServiceServiceDescriptor.Methods().ByName("ReadTextFile")
-	fileServiceReadBinaryFileMethodDescriptor = fileServiceServiceDescriptor.Methods().ByName("ReadBinaryFile")
-	fileServiceWriteFileMethodDescriptor      = fileServiceServiceDescriptor.Methods().ByName("WriteFile")
-	fileServiceMkdirMethodDescriptor          = fileServiceServiceDescriptor.Methods().ByName("Mkdir")
-	fileServiceRenameMethodDescriptor         = fileServiceServiceDescriptor.Methods().ByName("Rename")
-	fileServiceMoveMethodDescriptor           = fileServiceServiceDescriptor.Methods().ByName("Move")
-	fileServiceDeleteMethodDescriptor         = fileServiceServiceDescriptor.Methods().ByName("Delete")
-	fileServiceUploadFileMethodDescriptor     = fileServiceServiceDescriptor.Methods().ByName("UploadFile")
-	fileServiceListZipMethodDescriptor        = fileServiceServiceDescriptor.Methods().ByName("ListZip")
-)
-
 // FileServiceClient is a client for the lyon.v1.FileService service.
 type FileServiceClient interface {
 	ListDirectory(context.Context, *connect.Request[v1.ListDirectoryRequest]) (*connect.Response[v1.ListDirectoryResponse], error)
@@ -99,65 +84,66 @@ type FileServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewFileServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) FileServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	fileServiceMethods := v1.File_lyon_v1_file_proto.Services().ByName("FileService").Methods()
 	return &fileServiceClient{
 		listDirectory: connect.NewClient[v1.ListDirectoryRequest, v1.ListDirectoryResponse](
 			httpClient,
 			baseURL+FileServiceListDirectoryProcedure,
-			connect.WithSchema(fileServiceListDirectoryMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("ListDirectory")),
 			connect.WithClientOptions(opts...),
 		),
 		readTextFile: connect.NewClient[v1.ReadTextFileRequest, v1.ReadTextFileResponse](
 			httpClient,
 			baseURL+FileServiceReadTextFileProcedure,
-			connect.WithSchema(fileServiceReadTextFileMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("ReadTextFile")),
 			connect.WithClientOptions(opts...),
 		),
 		readBinaryFile: connect.NewClient[v1.ReadBinaryFileRequest, v1.ReadBinaryFileResponse](
 			httpClient,
 			baseURL+FileServiceReadBinaryFileProcedure,
-			connect.WithSchema(fileServiceReadBinaryFileMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("ReadBinaryFile")),
 			connect.WithClientOptions(opts...),
 		),
 		writeFile: connect.NewClient[v1.WriteFileRequest, v1.WriteFileResponse](
 			httpClient,
 			baseURL+FileServiceWriteFileProcedure,
-			connect.WithSchema(fileServiceWriteFileMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("WriteFile")),
 			connect.WithClientOptions(opts...),
 		),
 		mkdir: connect.NewClient[v1.MkdirRequest, v1.MkdirResponse](
 			httpClient,
 			baseURL+FileServiceMkdirProcedure,
-			connect.WithSchema(fileServiceMkdirMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("Mkdir")),
 			connect.WithClientOptions(opts...),
 		),
 		rename: connect.NewClient[v1.RenameRequest, v1.RenameResponse](
 			httpClient,
 			baseURL+FileServiceRenameProcedure,
-			connect.WithSchema(fileServiceRenameMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("Rename")),
 			connect.WithClientOptions(opts...),
 		),
 		move: connect.NewClient[v1.MoveRequest, v1.MoveResponse](
 			httpClient,
 			baseURL+FileServiceMoveProcedure,
-			connect.WithSchema(fileServiceMoveMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("Move")),
 			connect.WithClientOptions(opts...),
 		),
 		delete: connect.NewClient[v1.DeleteRequest, v1.DeleteResponse](
 			httpClient,
 			baseURL+FileServiceDeleteProcedure,
-			connect.WithSchema(fileServiceDeleteMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("Delete")),
 			connect.WithClientOptions(opts...),
 		),
 		uploadFile: connect.NewClient[v1.UploadFileRequest, v1.UploadFileResponse](
 			httpClient,
 			baseURL+FileServiceUploadFileProcedure,
-			connect.WithSchema(fileServiceUploadFileMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("UploadFile")),
 			connect.WithClientOptions(opts...),
 		),
 		listZip: connect.NewClient[v1.ListZipRequest, v1.ListZipResponse](
 			httpClient,
 			baseURL+FileServiceListZipProcedure,
-			connect.WithSchema(fileServiceListZipMethodDescriptor),
+			connect.WithSchema(fileServiceMethods.ByName("ListZip")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -250,64 +236,65 @@ type FileServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewFileServiceHandler(svc FileServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	fileServiceMethods := v1.File_lyon_v1_file_proto.Services().ByName("FileService").Methods()
 	fileServiceListDirectoryHandler := connect.NewUnaryHandler(
 		FileServiceListDirectoryProcedure,
 		svc.ListDirectory,
-		connect.WithSchema(fileServiceListDirectoryMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("ListDirectory")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceReadTextFileHandler := connect.NewUnaryHandler(
 		FileServiceReadTextFileProcedure,
 		svc.ReadTextFile,
-		connect.WithSchema(fileServiceReadTextFileMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("ReadTextFile")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceReadBinaryFileHandler := connect.NewUnaryHandler(
 		FileServiceReadBinaryFileProcedure,
 		svc.ReadBinaryFile,
-		connect.WithSchema(fileServiceReadBinaryFileMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("ReadBinaryFile")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceWriteFileHandler := connect.NewUnaryHandler(
 		FileServiceWriteFileProcedure,
 		svc.WriteFile,
-		connect.WithSchema(fileServiceWriteFileMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("WriteFile")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceMkdirHandler := connect.NewUnaryHandler(
 		FileServiceMkdirProcedure,
 		svc.Mkdir,
-		connect.WithSchema(fileServiceMkdirMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("Mkdir")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceRenameHandler := connect.NewUnaryHandler(
 		FileServiceRenameProcedure,
 		svc.Rename,
-		connect.WithSchema(fileServiceRenameMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("Rename")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceMoveHandler := connect.NewUnaryHandler(
 		FileServiceMoveProcedure,
 		svc.Move,
-		connect.WithSchema(fileServiceMoveMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("Move")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceDeleteHandler := connect.NewUnaryHandler(
 		FileServiceDeleteProcedure,
 		svc.Delete,
-		connect.WithSchema(fileServiceDeleteMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("Delete")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceUploadFileHandler := connect.NewUnaryHandler(
 		FileServiceUploadFileProcedure,
 		svc.UploadFile,
-		connect.WithSchema(fileServiceUploadFileMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("UploadFile")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fileServiceListZipHandler := connect.NewUnaryHandler(
 		FileServiceListZipProcedure,
 		svc.ListZip,
-		connect.WithSchema(fileServiceListZipMethodDescriptor),
+		connect.WithSchema(fileServiceMethods.ByName("ListZip")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.FileService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

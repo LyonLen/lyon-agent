@@ -91,6 +91,10 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(apprPath, apprHandler)
 	planPath, planHandler := lyonv1connect.NewPlanServiceHandler(&planService{})
 	s.mux.Handle(planPath, planHandler)
+	// Todo: the global personal todolist ($LYON_HOME/todos.json) backing
+	// the todos pane — goals + dated checklist rows, full-doc replace.
+	todoPath, todoHandler := lyonv1connect.NewTodoServiceHandler(&todoService{})
+	s.mux.Handle(todoPath, todoHandler)
 	// Settings: the effective config + model knowledge base, and the
 	// runtime model switch. Reading and writing both go through the engine
 	// itself, so what the panel shows is what the next turn will use.

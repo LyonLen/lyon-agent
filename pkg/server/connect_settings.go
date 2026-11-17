@@ -69,7 +69,6 @@ var envCatalog = []envEntry{
 	{"LYON_TITLE", "自动标题开关"},
 	{"LYON_PRICE_IN", "输入侧价格覆盖（USD / 百万 token）"},
 	{"LYON_PRICE_OUT", "输出侧价格覆盖（USD / 百万 token）"},
-	{"LYON_DASHBOARD", "dashboard 开关"},
 	{"LYON_SYNC_URL", "远端同步地址"},
 	{"LYON_SYNC_TOKEN", "远端同步令牌"},
 	{"LYON_AUTH_TOKEN", "lyon 服务鉴权令牌"},

@@ -53,6 +53,7 @@ const (
 	EvSubagentEnd   = "subagent_end"
 	EvError         = "error"
 	EvSecurityBlock = "security_block"
+	EvRepetition    = "repetition_block" // repeat guard: sealed short-circuit / identical result ×2
 	EvHookError     = "hook_error"
 	EvMemorySave    = "memory_save"
 	EvMemoryDistill = "memory_distill" // one distill pass: attempt/result incl. skip reason

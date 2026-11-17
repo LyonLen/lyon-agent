@@ -66,6 +66,34 @@ type OutputObserver interface {
 	OnToolOutput(e ExecEvent)
 }
 
+// ResultObserver is an optional Observer extension: implementors receive
+// the final, capped result text of one successful execution — exactly
+// the text the model was handed (post capResults, marker included when
+// the repeat guard appended one). Type-asserted like OutputObserver, so
+// plain Observer implementations keep compiling. An execution that
+// failed or produced no text never calls back: errors and empty results
+// are not fixed-point evidence (WORKORDER-runaway-guard §1.5).
+type ResultObserver interface {
+	OnToolResult(e ExecEvent, result string)
+}
+
+// ToolInstruction is a structured PreTool result: instead of failing the
+// call, the gate steers it. Execute recognizes it with errors.As; any
+// other error keeps the documented contract ("the model sees it as the
+// tool result") and fails the call. Produced by the repeat guard:
+//   - CachedResult ok → the sealed read-only call short-circuits: the
+//     tool is NOT executed and the cached text becomes its result.
+//   - ResultSuffix → appended to the final result text (the guard's
+//     [unchanged] marker) when it still matches the sealed result.
+//
+// The suffix is a function because whether the marker applies is decided
+// against live guard state AFTER the execution completes.
+type ToolInstruction interface {
+	error
+	CachedResult() (string, bool)
+	ResultSuffix() func(plain string) string
+}
+
 // WithOutputSink threads a live-output callback through one tool call's
 // context: the adapter installs it when the session observer opts in via
 // OutputObserver, and streaming tools (shell) publish to it. fn is
@@ -359,6 +387,16 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 				}
 			}
 		}
+		// Fixed-point evidence (repeat guard): the capped final text — the
+		// very string the model receives — feeds ResultObserver before
+		// OnToolEnd. Failures and empty results never call back.
+		if err == nil {
+			if ro, ok := a.cfg.Observer.(ResultObserver); ok {
+				if txt := contentText(content); txt != "" {
+					ro.OnToolResult(ev, txt)
+				}
+			}
+		}
 		if a.cfg.Observer != nil {
 			a.cfg.Observer.OnToolEnd(ev)
 		}
@@ -366,9 +404,22 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 
 	// Security gate first: local policy and blocking hooks decide before
 	// the human is bothered — a blocked tool must never prompt for approval.
+	// The gate may also steer instead of fail: a ToolInstruction carries a
+	// cached result (skip execution — no approval, no lock, no side effect)
+	// and/or a suffix for the final text. Anything else fails the call as
+	// before — the "error = tool result" contract is untouched.
+	var instruction ToolInstruction
 	if a.cfg.PreTool != nil {
 		if err := a.cfg.PreTool(ctx, ev); err != nil {
-			return nil, err
+			var ti ToolInstruction
+			if !errors.As(err, &ti) {
+				return nil, err
+			}
+			instruction = ti
+			if cached, ok := ti.CachedResult(); ok {
+				content = applyResultSuffix(TextResult(cached), ti.ResultSuffix())
+				return content, nil
+			}
 		}
 	}
 
@@ -398,7 +449,45 @@ func (a *adaptedTool) Execute(ctx context.Context, input json.RawMessage) (conte
 	if err != nil {
 		return nil, err
 	}
-	return capResults(content, a.cfg.ResultCap), nil
+	content = capResults(content, a.cfg.ResultCap)
+	if instruction != nil {
+		// Sealed mutating call: the tool really ran (side effects stand);
+		// the guard appends its [unchanged] marker only when this result
+		// still matches the sealed one. Applied here — before the observer
+		// defer — so the card, the guard and the model all see one text.
+		content = applyResultSuffix(content, instruction.ResultSuffix())
+	}
+	return content, nil
+}
+
+// applyResultSuffix asks suffixFor (the guard's live-state checker, fed
+// the plain result text) for the marker and appends it to the last text
+// block of content — the tail the model reads — copying the block first
+// (capResults' rule: never mutate a tool-owned block). No text block →
+// the marker becomes one. Nil suffixFor or "" marker → unchanged.
+func applyResultSuffix(content []anthropic.BetaToolResultBlockParamContentUnion, suffixFor func(string) string) []anthropic.BetaToolResultBlockParamContentUnion {
+	if suffixFor == nil || len(content) == 0 {
+		return content
+	}
+	plain := contentText(content)
+	if plain == "" {
+		return content
+	}
+	suffix := suffixFor(plain)
+	if suffix == "" {
+		return content
+	}
+	for i := len(content) - 1; i >= 0; i-- {
+		if content[i].OfText != nil {
+			cp := *content[i].OfText
+			cp.Text += suffix
+			content[i].OfText = &cp
+			return content
+		}
+	}
+	return append(content, anthropic.BetaToolResultBlockParamContentUnion{
+		OfText: &anthropic.BetaTextBlockParam{Text: strings.TrimPrefix(suffix, "\n")},
+	})
 }
 
 // contentText joins the text blocks of a tool result — the single-piece

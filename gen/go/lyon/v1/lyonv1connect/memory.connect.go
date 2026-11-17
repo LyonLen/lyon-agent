@@ -47,15 +47,6 @@ const (
 	MemoryServiceTransformMemoryProcedure = "/lyon.v1.MemoryService/TransformMemory"
 )
 
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	memoryServiceServiceDescriptor               = v1.File_lyon_v1_memory_proto.Services().ByName("MemoryService")
-	memoryServiceListMemoryMethodDescriptor      = memoryServiceServiceDescriptor.Methods().ByName("ListMemory")
-	memoryServiceUpdateMemoryMethodDescriptor    = memoryServiceServiceDescriptor.Methods().ByName("UpdateMemory")
-	memoryServiceDeleteMemoryMethodDescriptor    = memoryServiceServiceDescriptor.Methods().ByName("DeleteMemory")
-	memoryServiceTransformMemoryMethodDescriptor = memoryServiceServiceDescriptor.Methods().ByName("TransformMemory")
-)
-
 // MemoryServiceClient is a client for the lyon.v1.MemoryService service.
 type MemoryServiceClient interface {
 	ListMemory(context.Context, *connect.Request[v1.ListMemoryRequest]) (*connect.Response[v1.ListMemoryResponse], error)
@@ -77,29 +68,30 @@ type MemoryServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewMemoryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MemoryServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	memoryServiceMethods := v1.File_lyon_v1_memory_proto.Services().ByName("MemoryService").Methods()
 	return &memoryServiceClient{
 		listMemory: connect.NewClient[v1.ListMemoryRequest, v1.ListMemoryResponse](
 			httpClient,
 			baseURL+MemoryServiceListMemoryProcedure,
-			connect.WithSchema(memoryServiceListMemoryMethodDescriptor),
+			connect.WithSchema(memoryServiceMethods.ByName("ListMemory")),
 			connect.WithClientOptions(opts...),
 		),
 		updateMemory: connect.NewClient[v1.UpdateMemoryRequest, v1.UpdateMemoryResponse](
 			httpClient,
 			baseURL+MemoryServiceUpdateMemoryProcedure,
-			connect.WithSchema(memoryServiceUpdateMemoryMethodDescriptor),
+			connect.WithSchema(memoryServiceMethods.ByName("UpdateMemory")),
 			connect.WithClientOptions(opts...),
 		),
 		deleteMemory: connect.NewClient[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse](
 			httpClient,
 			baseURL+MemoryServiceDeleteMemoryProcedure,
-			connect.WithSchema(memoryServiceDeleteMemoryMethodDescriptor),
+			connect.WithSchema(memoryServiceMethods.ByName("DeleteMemory")),
 			connect.WithClientOptions(opts...),
 		),
 		transformMemory: connect.NewClient[v1.TransformMemoryRequest, v1.TransformMemoryResponse](
 			httpClient,
 			baseURL+MemoryServiceTransformMemoryProcedure,
-			connect.WithSchema(memoryServiceTransformMemoryMethodDescriptor),
+			connect.WithSchema(memoryServiceMethods.ByName("TransformMemory")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -151,28 +143,29 @@ type MemoryServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMemoryServiceHandler(svc MemoryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	memoryServiceMethods := v1.File_lyon_v1_memory_proto.Services().ByName("MemoryService").Methods()
 	memoryServiceListMemoryHandler := connect.NewUnaryHandler(
 		MemoryServiceListMemoryProcedure,
 		svc.ListMemory,
-		connect.WithSchema(memoryServiceListMemoryMethodDescriptor),
+		connect.WithSchema(memoryServiceMethods.ByName("ListMemory")),
 		connect.WithHandlerOptions(opts...),
 	)
 	memoryServiceUpdateMemoryHandler := connect.NewUnaryHandler(
 		MemoryServiceUpdateMemoryProcedure,
 		svc.UpdateMemory,
-		connect.WithSchema(memoryServiceUpdateMemoryMethodDescriptor),
+		connect.WithSchema(memoryServiceMethods.ByName("UpdateMemory")),
 		connect.WithHandlerOptions(opts...),
 	)
 	memoryServiceDeleteMemoryHandler := connect.NewUnaryHandler(
 		MemoryServiceDeleteMemoryProcedure,
 		svc.DeleteMemory,
-		connect.WithSchema(memoryServiceDeleteMemoryMethodDescriptor),
+		connect.WithSchema(memoryServiceMethods.ByName("DeleteMemory")),
 		connect.WithHandlerOptions(opts...),
 	)
 	memoryServiceTransformMemoryHandler := connect.NewUnaryHandler(
 		MemoryServiceTransformMemoryProcedure,
 		svc.TransformMemory,
-		connect.WithSchema(memoryServiceTransformMemoryMethodDescriptor),
+		connect.WithSchema(memoryServiceMethods.ByName("TransformMemory")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.MemoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

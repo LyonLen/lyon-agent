@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// TodoService: the global personal todolist ($LYON_HOME/todos.json) —
+// goals organize the overall objectives, todos carry optional date
+// ranges for the calendar / gantt views and may link sessions. The
+// whole document round-trips on every save (todo_write precedent: the
+// newest payload replaces everything — no merge, no drift).
+service TodoService {
+  rpc ListTodos(ListTodosRequest) returns (ListTodosResponse);
+  rpc SaveTodos(SaveTodosRequest) returns (SaveTodosResponse);
+}
+
+// TodoGoal is one 整体目标: a title plus an optional hex color ("" =
+// the frontend hashes the title into its palette, same as the weekcal
+// design package's project colors).
+message TodoGoal {
+  string id = 1;
+  string title = 2;
+  string color = 3; // #rrggbb or ""
+}
+
+// TodoItem is one checklist entry. start/end are YYYY-MM-DD; either may
+// be empty (unscheduled — the item shows in the rail but not on the
+// timeline). status mirrors the plan pane's todo_write vocabulary.
+message TodoItem {
+  string id = 1;
+  string content = 2;
+  string status = 3;             // pending | in_progress | completed
+  string start = 4;              // YYYY-MM-DD, "" = unscheduled
+  string end = 5;                // YYYY-MM-DD, "" = same day as start
+  string goal_id = 6;            // "" = 未分组
+  repeated string session_ids = 7; // linked sessions (loose refs by id)
+  string note = 8;
+}
+
+message TodoDoc {
+  repeated TodoGoal goals = 1;
+  repeated TodoItem todos = 2;
+}
+
+message ListTodosRequest {}
+
+message ListTodosResponse { TodoDoc doc = 1; }
+
+message SaveTodosRequest { TodoDoc doc = 1; }
+
+// SaveTodosResponse returns the canonical stored document — the server
+// normalizes (fills missing ids, drops dangling goal refs, clamps
+// dates) so the UI re-renders from what actually landed on disk.
+message SaveTodosResponse { TodoDoc doc = 1; }

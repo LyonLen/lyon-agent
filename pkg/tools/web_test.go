@@ -243,6 +243,97 @@ func TestWebSearchParsesEndpoint(t *testing.T) {
 	}
 }
 
+func TestParseBingRSS(t *testing.T) {
+	page := `<?xml version="1.0"?>
+<rss><channel>
+<item>
+  <title>Go 1.25 &lt;b&gt;Release&lt;/b&gt; Notes</title>
+  <link>https://go.dev/blog/go1.25</link>
+  <description><![CDATA[<p>The official release notes.</p>]]></description>
+</item>
+<item>
+  <title>duplicate</title>
+  <link>https://go.dev/blog/go1.25</link>
+  <description>ignored</description>
+</item>
+<item>
+  <title>anchor skip</title>
+  <link>#section</link>
+  <description>nope</description>
+</item>
+<item>
+  <title>Second &amp; Final</title>
+  <link>https://example.com/x?a=1&amp;b=2</link>
+  <description>plain snippet</description>
+</item>
+</channel></rss>`
+	got := parseBingRSS(page)
+	if len(got) != 2 {
+		t.Fatalf("got %d results: %+v", len(got), got)
+	}
+	if got[0].Title != "Go 1.25 Release Notes" || got[0].URL != "https://go.dev/blog/go1.25" {
+		t.Fatalf("first: %+v", got[0])
+	}
+	if got[0].Snippet != "The official release notes." {
+		t.Fatalf("snippet = %q", got[0].Snippet)
+	}
+	if got[1].Title != "Second & Final" || got[1].URL != "https://example.com/x?a=1&b=2" {
+		t.Fatalf("entity decode: %+v", got[1])
+	}
+	// A non-XML body (Bing ignored format=rss) must fall through, not panic.
+	if r := parseBingRSS(`<html><body>nope</body></html>`); r != nil {
+		t.Fatalf("html body should yield nil, got %+v", r)
+	}
+}
+
+func TestSearchRSSURLOrLanguage(t *testing.T) {
+	cn := searchRSSURL("国务院 2026 放假")
+	if !strings.Contains(cn, "www.bing.com") || !strings.Contains(cn, "format=rss") {
+		t.Fatalf("CJK query endpoint: %s", cn)
+	}
+	if strings.Contains(cn, "ensearch") {
+		t.Fatalf("CJK query must keep the CN index: %s", cn)
+	}
+	en := searchRSSURL("golang context cancel pattern")
+	if !strings.Contains(en, "cn.bing.com") || !strings.Contains(en, "ensearch=1") || !strings.Contains(en, "format=rss") {
+		t.Fatalf("latin query endpoint: %s", en)
+	}
+	if !hasCJK("千询办公") || hasCJK("go 1.25") || hasCJK("") {
+		t.Fatal("hasCJK split wrong")
+	}
+}
+
+// The RSS path runs end to end against a local feed: numbered output,
+// snippet included — the model-facing format stays byte-identical to the
+// HTML path's.
+func TestWebSearchRSSParsesEndpoint(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.RawQuery, "q=go+1.25") {
+			t.Errorf("query not encoded into URL: %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?>
+<rss><channel>
+<item><title>Go 1.25 Release Notes</title><link>https://go.dev/doc/go1.25</link>
+<description>The official release notes for Go 1.25.</description></item>
+</channel></rss>`))
+	}))
+	defer ts.Close()
+
+	s := &WebSearch{Client: &http.Client{Transport: rewriteTo(ts.URL)}}
+	in, _ := json.Marshal(webSearchInput{Query: "go 1.25"})
+	out, err := s.Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	text := out[0].OfText.Text
+	for _, want := range []string{"1. Go 1.25 Release Notes", "https://go.dev/doc/go1.25", "The official release notes for Go 1.25."} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in %q", want, text)
+		}
+	}
+}
+
 func TestWebSearchEmptyQuery(t *testing.T) {
 	s := &WebSearch{}
 	in, _ := json.Marshal(webSearchInput{Query: "  "})

@@ -205,6 +205,14 @@ func (o subObs) OnToolOutput(e tools.ExecEvent) {
 	}
 }
 
+// OnToolResult forwards to the session's ResultObserver so fan-out inner
+// executions feed the SAME repeat guard as the main loop (§1.6: shared
+// state — both paths pass through preTool, and evidence must land on the
+// map that gate reads).
+func (o subObs) OnToolResult(e tools.ExecEvent, result string) {
+	o.s.OnToolResult(e, result)
+}
+
 // answerHead clips a subagent's final answer to its first line (≤160
 // runes) for the end event's Text — the transcript preview of what the
 // task brought back. The full text still rides the parent tool result.

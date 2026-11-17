@@ -192,7 +192,7 @@ export default function FilePanel({
   // under it (dir prefixes over repo-root-relative porcelain paths).
   const dirDotClass = (
     dir: string,
-  ): "added" | "changed" | "deleted" | "conflict" | null => {
+  ): "added" | "changed" | "deleted" | "conflict" | "faint" | null => {
     if (!git) return null;
     const prefix = dir + "/";
     let best = "";

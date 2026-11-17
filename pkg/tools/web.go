@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"html"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -43,10 +45,16 @@ const (
 	web429MaxCooldown = 2 * time.Minute
 )
 
-// WebSearch performs a keyless web search by scraping Bing's HTML endpoint.
+// WebSearch performs a keyless web search against Bing's RSS output.
 // It is the client-side twin of Anthropic's server-side web_search, used when
 // the API endpoint (e.g. a gateway) rewrites server tools into client tool
 // calls. Parallel-safe: read-only outbound requests.
+//
+// format=rss beats the HTML scrape: stable <item> XML (no b_algo layout
+// to drift), direct URLs (no bing.com/ck/a redirect wrappers), and the
+// description rides along as the snippet. The endpoint splits by query
+// language — see searchRSSURL. The HTML parse stays as a fallback for
+// when Bing ignores the format flag.
 type WebSearch struct {
 	Client *http.Client
 }
@@ -76,8 +84,7 @@ func (w *WebSearch) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 		return nil, fmt.Errorf("empty query")
 	}
 
-	endpoint := "https://www.bing.com/search?q=" + url.QueryEscape(in.Query) + "&setlang=en&count=10"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchRSSURL(in.Query), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +108,12 @@ func (w *WebSearch) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 		return nil, fmt.Errorf("read search results: %w", err)
 	}
 
-	results := parseBingResults(string(body))
+	// RSS first; when Bing ignores format=rss the body is still HTML and
+	// the layout scrape gets the last word before we declare failure.
+	results := parseBingRSS(string(body))
+	if len(results) == 0 {
+		results = parseBingResults(string(body))
+	}
 	if len(results) == 0 {
 		return nil, fmt.Errorf("no parseable results (endpoint layout may have changed)")
 	}
@@ -172,6 +184,86 @@ func parseBingResults(page string) []SearchResult {
 		}
 	}
 	return out
+}
+
+// searchRSSURL picks the Bing RSS endpoint by query language. CJK
+// queries read www.bing.com's China index (that's where 千问/国务院
+// results live); everything else flips cn.bing.com onto its
+// international index (ensearch=1), because setlang/en alone still
+// returned 百度百科 and 放假通知 for English tech queries (dump
+// forensics 2026-11-16 — the model retried a dozen rewrites and gave
+// up on search entirely).
+func searchRSSURL(query string) string {
+	q := url.QueryEscape(query)
+	if hasCJK(query) {
+		return "https://www.bing.com/search?q=" + q + "&format=rss&count=10"
+	}
+	return "https://cn.bing.com/search?q=" + q + "&format=rss&ensearch=1&count=10"
+}
+
+// hasCJK reports whether s carries Han/Kana/Hangul — the market split
+// for searchRSSURL. Loops runes; queries are short.
+func hasCJK(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) ||
+			unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseBingRSS extracts organic results from Bing's RSS feed. Titles and
+// descriptions may carry inline HTML (<b> highlights, <p> wraps) — tags
+// stripped, entities unescaped, capped at 8: same SearchResult shape as
+// parseBingResults so the renderer and the model see one format. A
+// non-XML body (Bing ignored format=rss) unmarshal-fails → nil.
+func parseBingRSS(page string) []SearchResult {
+	var doc struct {
+		Channel struct {
+			Items []struct {
+				Title       string `xml:"title"`
+				Link        string `xml:"link"`
+				Description string `xml:"description"`
+			} `xml:"item"`
+		} `xml:"channel"`
+	}
+	if err := xml.Unmarshal([]byte(page), &doc); err != nil {
+		return nil
+	}
+	var out []SearchResult
+	seen := make(map[string]bool)
+	for _, it := range doc.Channel.Items {
+		u := strings.TrimSpace(it.Link)
+		title := cleanSearchText(it.Title)
+		if u == "" || title == "" || seen[u] {
+			continue
+		}
+		// Skip in-page anchors (same guard as the HTML path).
+		if strings.HasPrefix(u, "#") || strings.HasPrefix(u, "/") {
+			continue
+		}
+		snippet := cleanSearchText(it.Description)
+		// RSS descriptions run long sometimes; clip instead of the HTML
+		// path's discard — the model reads a cut snippet, not none.
+		if len([]rune(snippet)) > 400 {
+			snippet = string([]rune(snippet)[:400]) + "…"
+		}
+		seen[u] = true
+		out = append(out, SearchResult{Title: title, URL: u, Snippet: snippet})
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+// cleanSearchText strips inline HTML, unescapes entities, and folds
+// whitespace into the one line a result row carries.
+func cleanSearchText(s string) string {
+	s = reTag.ReplaceAllString(s, " ")
+	s = html.UnescapeString(s)
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // WebFetch downloads a URL and returns its text content. HTML is stripped

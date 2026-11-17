@@ -41,13 +41,6 @@ const (
 	SettingsServiceUpdateSettingsProcedure = "/lyon.v1.SettingsService/UpdateSettings"
 )
 
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	settingsServiceServiceDescriptor              = v1.File_lyon_v1_settings_proto.Services().ByName("SettingsService")
-	settingsServiceGetSettingsMethodDescriptor    = settingsServiceServiceDescriptor.Methods().ByName("GetSettings")
-	settingsServiceUpdateSettingsMethodDescriptor = settingsServiceServiceDescriptor.Methods().ByName("UpdateSettings")
-)
-
 // SettingsServiceClient is a client for the lyon.v1.SettingsService service.
 type SettingsServiceClient interface {
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
@@ -69,17 +62,18 @@ type SettingsServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewSettingsServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) SettingsServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	settingsServiceMethods := v1.File_lyon_v1_settings_proto.Services().ByName("SettingsService").Methods()
 	return &settingsServiceClient{
 		getSettings: connect.NewClient[v1.GetSettingsRequest, v1.GetSettingsResponse](
 			httpClient,
 			baseURL+SettingsServiceGetSettingsProcedure,
-			connect.WithSchema(settingsServiceGetSettingsMethodDescriptor),
+			connect.WithSchema(settingsServiceMethods.ByName("GetSettings")),
 			connect.WithClientOptions(opts...),
 		),
 		updateSettings: connect.NewClient[v1.UpdateSettingsRequest, v1.UpdateSettingsResponse](
 			httpClient,
 			baseURL+SettingsServiceUpdateSettingsProcedure,
-			connect.WithSchema(settingsServiceUpdateSettingsMethodDescriptor),
+			connect.WithSchema(settingsServiceMethods.ByName("UpdateSettings")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -119,16 +113,17 @@ type SettingsServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewSettingsServiceHandler(svc SettingsServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	settingsServiceMethods := v1.File_lyon_v1_settings_proto.Services().ByName("SettingsService").Methods()
 	settingsServiceGetSettingsHandler := connect.NewUnaryHandler(
 		SettingsServiceGetSettingsProcedure,
 		svc.GetSettings,
-		connect.WithSchema(settingsServiceGetSettingsMethodDescriptor),
+		connect.WithSchema(settingsServiceMethods.ByName("GetSettings")),
 		connect.WithHandlerOptions(opts...),
 	)
 	settingsServiceUpdateSettingsHandler := connect.NewUnaryHandler(
 		SettingsServiceUpdateSettingsProcedure,
 		svc.UpdateSettings,
-		connect.WithSchema(settingsServiceUpdateSettingsMethodDescriptor),
+		connect.WithSchema(settingsServiceMethods.ByName("UpdateSettings")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.SettingsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

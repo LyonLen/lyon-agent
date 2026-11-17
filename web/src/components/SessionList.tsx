@@ -28,6 +28,9 @@ export default function SessionList(props: {
   onRefresh: () => void;
   onRestore: (path: string) => void;
   onDelete: (id: string) => void;
+  // 拿会话填充待办: push this session into the global todolist (App
+  // queues it; TodosPane — the single doc writer — consumes the queue).
+  onFill: (s: Session) => void;
 }) {
   // Two-click delete (the memory-panel forget pattern): first click arms
   // the prompt, a second confirms; the prompt self-expires.
@@ -96,31 +99,45 @@ export default function SessionList(props: {
             : ""}
         </span>
       </button>
-      <button
-        className="ghost danger session-del"
-        title="delete this session"
-        onClick={() => {
-          if (confirmDel !== s.id) {
-            setConfirmDel(s.id);
-            window.setTimeout(
-              () => setConfirmDel((c) => (c === s.id ? "" : c)),
-              3000,
-            );
-            return;
-          }
-          setConfirmDel("");
-          props.onDelete(s.id);
-        }}
-      >
-        {confirmDel === s.id ? "确认?" : "×"}
-      </button>
+      {/* Actions overlay the row's right edge (out of flow) — the title
+          keeps the full row width; hidden state costs zero space and
+          zero hit area. */}
+      <div className="session-acts">
+        <button
+          className="ghost session-fill"
+          title="加入全局待办（会话填充）"
+          onClick={() => props.onFill(s)}
+        >
+          +
+        </button>
+        <button
+          className="ghost danger session-del"
+          title="delete this session"
+          onClick={() => {
+            if (confirmDel !== s.id) {
+              setConfirmDel(s.id);
+              window.setTimeout(
+                () => setConfirmDel((c) => (c === s.id ? "" : c)),
+                3000,
+              );
+              return;
+            }
+            setConfirmDel("");
+            props.onDelete(s.id);
+          }}
+        >
+          {confirmDel === s.id ? "确认?" : "×"}
+        </button>
+      </div>
     </div>
   );
 
   return (
     <div className="session-list">
       <div className="row">
-        <button onClick={props.onCreate}>+ new session</button>
+        <button className="new-session" onClick={props.onCreate}>
+          + new session
+        </button>
         <button className="ghost" onClick={props.onRefresh}>
           ↻
         </button>

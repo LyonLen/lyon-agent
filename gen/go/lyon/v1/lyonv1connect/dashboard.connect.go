@@ -36,36 +36,15 @@ const (
 	// DashboardServiceGetOverviewProcedure is the fully-qualified name of the DashboardService's
 	// GetOverview RPC.
 	DashboardServiceGetOverviewProcedure = "/lyon.v1.DashboardService/GetOverview"
-	// DashboardServiceListRunsProcedure is the fully-qualified name of the DashboardService's ListRuns
-	// RPC.
-	DashboardServiceListRunsProcedure = "/lyon.v1.DashboardService/ListRuns"
-	// DashboardServiceGetRunProcedure is the fully-qualified name of the DashboardService's GetRun RPC.
-	DashboardServiceGetRunProcedure = "/lyon.v1.DashboardService/GetRun"
 	// DashboardServiceListSnapshotsProcedure is the fully-qualified name of the DashboardService's
 	// ListSnapshots RPC.
 	DashboardServiceListSnapshotsProcedure = "/lyon.v1.DashboardService/ListSnapshots"
-	// DashboardServiceListAuditProcedure is the fully-qualified name of the DashboardService's
-	// ListAudit RPC.
-	DashboardServiceListAuditProcedure = "/lyon.v1.DashboardService/ListAudit"
-)
-
-// These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
-var (
-	dashboardServiceServiceDescriptor             = v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService")
-	dashboardServiceGetOverviewMethodDescriptor   = dashboardServiceServiceDescriptor.Methods().ByName("GetOverview")
-	dashboardServiceListRunsMethodDescriptor      = dashboardServiceServiceDescriptor.Methods().ByName("ListRuns")
-	dashboardServiceGetRunMethodDescriptor        = dashboardServiceServiceDescriptor.Methods().ByName("GetRun")
-	dashboardServiceListSnapshotsMethodDescriptor = dashboardServiceServiceDescriptor.Methods().ByName("ListSnapshots")
-	dashboardServiceListAuditMethodDescriptor     = dashboardServiceServiceDescriptor.Methods().ByName("ListAudit")
 )
 
 // DashboardServiceClient is a client for the lyon.v1.DashboardService service.
 type DashboardServiceClient interface {
 	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
-	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
-	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
 	ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error)
-	ListAudit(context.Context, *connect.Request[v1.ListAuditRequest]) (*connect.Response[v1.ListAuditResponse], error)
 }
 
 // NewDashboardServiceClient constructs a client for the lyon.v1.DashboardService service. By
@@ -77,35 +56,18 @@ type DashboardServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewDashboardServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DashboardServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	dashboardServiceMethods := v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService").Methods()
 	return &dashboardServiceClient{
 		getOverview: connect.NewClient[v1.GetOverviewRequest, v1.GetOverviewResponse](
 			httpClient,
 			baseURL+DashboardServiceGetOverviewProcedure,
-			connect.WithSchema(dashboardServiceGetOverviewMethodDescriptor),
-			connect.WithClientOptions(opts...),
-		),
-		listRuns: connect.NewClient[v1.ListRunsRequest, v1.ListRunsResponse](
-			httpClient,
-			baseURL+DashboardServiceListRunsProcedure,
-			connect.WithSchema(dashboardServiceListRunsMethodDescriptor),
-			connect.WithClientOptions(opts...),
-		),
-		getRun: connect.NewClient[v1.GetRunRequest, v1.GetRunResponse](
-			httpClient,
-			baseURL+DashboardServiceGetRunProcedure,
-			connect.WithSchema(dashboardServiceGetRunMethodDescriptor),
+			connect.WithSchema(dashboardServiceMethods.ByName("GetOverview")),
 			connect.WithClientOptions(opts...),
 		),
 		listSnapshots: connect.NewClient[v1.ListSnapshotsRequest, v1.ListSnapshotsResponse](
 			httpClient,
 			baseURL+DashboardServiceListSnapshotsProcedure,
-			connect.WithSchema(dashboardServiceListSnapshotsMethodDescriptor),
-			connect.WithClientOptions(opts...),
-		),
-		listAudit: connect.NewClient[v1.ListAuditRequest, v1.ListAuditResponse](
-			httpClient,
-			baseURL+DashboardServiceListAuditProcedure,
-			connect.WithSchema(dashboardServiceListAuditMethodDescriptor),
+			connect.WithSchema(dashboardServiceMethods.ByName("ListSnapshots")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -114,10 +76,7 @@ func NewDashboardServiceClient(httpClient connect.HTTPClient, baseURL string, op
 // dashboardServiceClient implements DashboardServiceClient.
 type dashboardServiceClient struct {
 	getOverview   *connect.Client[v1.GetOverviewRequest, v1.GetOverviewResponse]
-	listRuns      *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
-	getRun        *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
 	listSnapshots *connect.Client[v1.ListSnapshotsRequest, v1.ListSnapshotsResponse]
-	listAudit     *connect.Client[v1.ListAuditRequest, v1.ListAuditResponse]
 }
 
 // GetOverview calls lyon.v1.DashboardService.GetOverview.
@@ -125,33 +84,15 @@ func (c *dashboardServiceClient) GetOverview(ctx context.Context, req *connect.R
 	return c.getOverview.CallUnary(ctx, req)
 }
 
-// ListRuns calls lyon.v1.DashboardService.ListRuns.
-func (c *dashboardServiceClient) ListRuns(ctx context.Context, req *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {
-	return c.listRuns.CallUnary(ctx, req)
-}
-
-// GetRun calls lyon.v1.DashboardService.GetRun.
-func (c *dashboardServiceClient) GetRun(ctx context.Context, req *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error) {
-	return c.getRun.CallUnary(ctx, req)
-}
-
 // ListSnapshots calls lyon.v1.DashboardService.ListSnapshots.
 func (c *dashboardServiceClient) ListSnapshots(ctx context.Context, req *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error) {
 	return c.listSnapshots.CallUnary(ctx, req)
 }
 
-// ListAudit calls lyon.v1.DashboardService.ListAudit.
-func (c *dashboardServiceClient) ListAudit(ctx context.Context, req *connect.Request[v1.ListAuditRequest]) (*connect.Response[v1.ListAuditResponse], error) {
-	return c.listAudit.CallUnary(ctx, req)
-}
-
 // DashboardServiceHandler is an implementation of the lyon.v1.DashboardService service.
 type DashboardServiceHandler interface {
 	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
-	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
-	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
 	ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error)
-	ListAudit(context.Context, *connect.Request[v1.ListAuditRequest]) (*connect.Response[v1.ListAuditResponse], error)
 }
 
 // NewDashboardServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -160,48 +101,25 @@ type DashboardServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewDashboardServiceHandler(svc DashboardServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	dashboardServiceMethods := v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService").Methods()
 	dashboardServiceGetOverviewHandler := connect.NewUnaryHandler(
 		DashboardServiceGetOverviewProcedure,
 		svc.GetOverview,
-		connect.WithSchema(dashboardServiceGetOverviewMethodDescriptor),
-		connect.WithHandlerOptions(opts...),
-	)
-	dashboardServiceListRunsHandler := connect.NewUnaryHandler(
-		DashboardServiceListRunsProcedure,
-		svc.ListRuns,
-		connect.WithSchema(dashboardServiceListRunsMethodDescriptor),
-		connect.WithHandlerOptions(opts...),
-	)
-	dashboardServiceGetRunHandler := connect.NewUnaryHandler(
-		DashboardServiceGetRunProcedure,
-		svc.GetRun,
-		connect.WithSchema(dashboardServiceGetRunMethodDescriptor),
+		connect.WithSchema(dashboardServiceMethods.ByName("GetOverview")),
 		connect.WithHandlerOptions(opts...),
 	)
 	dashboardServiceListSnapshotsHandler := connect.NewUnaryHandler(
 		DashboardServiceListSnapshotsProcedure,
 		svc.ListSnapshots,
-		connect.WithSchema(dashboardServiceListSnapshotsMethodDescriptor),
-		connect.WithHandlerOptions(opts...),
-	)
-	dashboardServiceListAuditHandler := connect.NewUnaryHandler(
-		DashboardServiceListAuditProcedure,
-		svc.ListAudit,
-		connect.WithSchema(dashboardServiceListAuditMethodDescriptor),
+		connect.WithSchema(dashboardServiceMethods.ByName("ListSnapshots")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/lyon.v1.DashboardService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DashboardServiceGetOverviewProcedure:
 			dashboardServiceGetOverviewHandler.ServeHTTP(w, r)
-		case DashboardServiceListRunsProcedure:
-			dashboardServiceListRunsHandler.ServeHTTP(w, r)
-		case DashboardServiceGetRunProcedure:
-			dashboardServiceGetRunHandler.ServeHTTP(w, r)
 		case DashboardServiceListSnapshotsProcedure:
 			dashboardServiceListSnapshotsHandler.ServeHTTP(w, r)
-		case DashboardServiceListAuditProcedure:
-			dashboardServiceListAuditHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -215,18 +133,6 @@ func (UnimplementedDashboardServiceHandler) GetOverview(context.Context, *connec
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.DashboardService.GetOverview is not implemented"))
 }
 
-func (UnimplementedDashboardServiceHandler) ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.DashboardService.ListRuns is not implemented"))
-}
-
-func (UnimplementedDashboardServiceHandler) GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.DashboardService.GetRun is not implemented"))
-}
-
 func (UnimplementedDashboardServiceHandler) ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.DashboardService.ListSnapshots is not implemented"))
-}
-
-func (UnimplementedDashboardServiceHandler) ListAudit(context.Context, *connect.Request[v1.ListAuditRequest]) (*connect.Response[v1.ListAuditResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.DashboardService.ListAudit is not implemented"))
 }

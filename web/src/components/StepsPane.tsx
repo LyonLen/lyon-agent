@@ -1,5 +1,6 @@
 import type { StepRow } from "../types";
 import { fmtDuration } from "../fmt";
+import { toolDisplayName } from "../toolNames";
 
 // One clipped line of the freshest output — the "live output band" of the
 // TUI right column, per step.
@@ -28,7 +29,7 @@ export default function StepsPane({ steps }: { steps: StepRow[] }) {
               {s.status === "running" && <span className="spin" aria-hidden="true" />}
               {s.status === "done" && <span className="step-ok">✓</span>}
               {s.status === "failed" && <span className="step-bad">✗</span>}
-              <span className="tool-name">{s.toolName}</span>
+              <span className="tool-name">{toolDisplayName(s.toolName)}</span>
               {s.sub && <span className="tool-badge">sub</span>}
             </span>
             <span className="step-meta">

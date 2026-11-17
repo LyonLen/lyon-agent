@@ -63,7 +63,8 @@ export default function ScmView({
 
   useEffect(() => {
     void load();
-    // The tree moves with every agent edit; 10s matches DashboardPanel.
+    // The tree moves with every agent edit; 10s keeps it fresh without
+    // hammering the disk.
     const t = setInterval(() => void load(), 10000);
     return () => clearInterval(t);
   }, [load]);
