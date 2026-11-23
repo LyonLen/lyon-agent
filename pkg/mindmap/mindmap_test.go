@@ -12,8 +12,8 @@ import (
 )
 
 // scratchHome points LYON_HOME at a fresh temp dir with a retrying
-// cleanup — same hardening as pkg/server's scratchHome (and pkg/eval,
-// pkg/market, pkg/memory): these tests write graph files microseconds
+// cleanup — same hardening as pkg/server's scratchHome (and
+// pkg/memory): these tests write graph files microseconds
 // before teardown, and on Windows a transient handle (AV/indexer) on a
 // fresh file keeps its directory entry alive past the framework's
 // one-shot RemoveAll, surfacing as "directory is not empty" even when

@@ -22,334 +22,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type RoutingEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Class         string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
-	Agent         string                 `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
-	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
-	Confidence    float64                `protobuf:"fixed64,4,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	Samples       int32                  `protobuf:"varint,5,opt,name=samples,proto3" json:"samples,omitempty"`
-	MeanScore     float64                `protobuf:"fixed64,6,opt,name=mean_score,json=meanScore,proto3" json:"mean_score,omitempty"`
-	Updated       *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated,proto3" json:"updated,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RoutingEntry) Reset() {
-	*x = RoutingEntry{}
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RoutingEntry) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RoutingEntry) ProtoMessage() {}
-
-func (x *RoutingEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RoutingEntry.ProtoReflect.Descriptor instead.
-func (*RoutingEntry) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *RoutingEntry) GetClass() string {
-	if x != nil {
-		return x.Class
-	}
-	return ""
-}
-
-func (x *RoutingEntry) GetAgent() string {
-	if x != nil {
-		return x.Agent
-	}
-	return ""
-}
-
-func (x *RoutingEntry) GetModel() string {
-	if x != nil {
-		return x.Model
-	}
-	return ""
-}
-
-func (x *RoutingEntry) GetConfidence() float64 {
-	if x != nil {
-		return x.Confidence
-	}
-	return 0
-}
-
-func (x *RoutingEntry) GetSamples() int32 {
-	if x != nil {
-		return x.Samples
-	}
-	return 0
-}
-
-func (x *RoutingEntry) GetMeanScore() float64 {
-	if x != nil {
-		return x.MeanScore
-	}
-	return 0
-}
-
-func (x *RoutingEntry) GetUpdated() *timestamppb.Timestamp {
-	if x != nil {
-		return x.Updated
-	}
-	return nil
-}
-
-type LeaderboardView struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Class         string                 `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
-	OnDuty        string                 `protobuf:"bytes,2,opt,name=on_duty,json=onDuty,proto3" json:"on_duty,omitempty"` // "" = open seat
-	Rounds        int32                  `protobuf:"varint,3,opt,name=rounds,proto3" json:"rounds,omitempty"`
-	ExamFails     int32                  `protobuf:"varint,4,opt,name=exam_fails,json=examFails,proto3" json:"exam_fails,omitempty"`
-	Cards         int32                  `protobuf:"varint,5,opt,name=cards,proto3" json:"cards,omitempty"`
-	Mean          float64                `protobuf:"fixed64,6,opt,name=mean,proto3" json:"mean,omitempty"`
-	LastAgent     string                 `protobuf:"bytes,7,opt,name=last_agent,json=lastAgent,proto3" json:"last_agent,omitempty"`
-	LastTotal     float64                `protobuf:"fixed64,8,opt,name=last_total,json=lastTotal,proto3" json:"last_total,omitempty"`
-	LastPassed    bool                   `protobuf:"varint,9,opt,name=last_passed,json=lastPassed,proto3" json:"last_passed,omitempty"`
-	LastSource    string                 `protobuf:"bytes,10,opt,name=last_source,json=lastSource,proto3" json:"last_source,omitempty"` // "exam" or "" (production)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LeaderboardView) Reset() {
-	*x = LeaderboardView{}
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LeaderboardView) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LeaderboardView) ProtoMessage() {}
-
-func (x *LeaderboardView) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LeaderboardView.ProtoReflect.Descriptor instead.
-func (*LeaderboardView) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *LeaderboardView) GetClass() string {
-	if x != nil {
-		return x.Class
-	}
-	return ""
-}
-
-func (x *LeaderboardView) GetOnDuty() string {
-	if x != nil {
-		return x.OnDuty
-	}
-	return ""
-}
-
-func (x *LeaderboardView) GetRounds() int32 {
-	if x != nil {
-		return x.Rounds
-	}
-	return 0
-}
-
-func (x *LeaderboardView) GetExamFails() int32 {
-	if x != nil {
-		return x.ExamFails
-	}
-	return 0
-}
-
-func (x *LeaderboardView) GetCards() int32 {
-	if x != nil {
-		return x.Cards
-	}
-	return 0
-}
-
-func (x *LeaderboardView) GetMean() float64 {
-	if x != nil {
-		return x.Mean
-	}
-	return 0
-}
-
-func (x *LeaderboardView) GetLastAgent() string {
-	if x != nil {
-		return x.LastAgent
-	}
-	return ""
-}
-
-func (x *LeaderboardView) GetLastTotal() float64 {
-	if x != nil {
-		return x.LastTotal
-	}
-	return 0
-}
-
-func (x *LeaderboardView) GetLastPassed() bool {
-	if x != nil {
-		return x.LastPassed
-	}
-	return false
-}
-
-func (x *LeaderboardView) GetLastSource() string {
-	if x != nil {
-		return x.LastSource
-	}
-	return ""
-}
-
-type GetOverviewRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetOverviewRequest) Reset() {
-	*x = GetOverviewRequest{}
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetOverviewRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetOverviewRequest) ProtoMessage() {}
-
-func (x *GetOverviewRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetOverviewRequest.ProtoReflect.Descriptor instead.
-func (*GetOverviewRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{2}
-}
-
-type GetOverviewResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Sessions      int32                  `protobuf:"varint,1,opt,name=sessions,proto3" json:"sessions,omitempty"`
-	UptimeSeconds int64                  `protobuf:"varint,2,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
-	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
-	CacheShare    float64                `protobuf:"fixed64,4,opt,name=cache_share,json=cacheShare,proto3" json:"cache_share,omitempty"`
-	Routing       []*RoutingEntry        `protobuf:"bytes,5,rep,name=routing,proto3" json:"routing,omitempty"`
-	Leaderboard   []*LeaderboardView     `protobuf:"bytes,6,rep,name=leaderboard,proto3" json:"leaderboard,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetOverviewResponse) Reset() {
-	*x = GetOverviewResponse{}
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetOverviewResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetOverviewResponse) ProtoMessage() {}
-
-func (x *GetOverviewResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetOverviewResponse.ProtoReflect.Descriptor instead.
-func (*GetOverviewResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *GetOverviewResponse) GetSessions() int32 {
-	if x != nil {
-		return x.Sessions
-	}
-	return 0
-}
-
-func (x *GetOverviewResponse) GetUptimeSeconds() int64 {
-	if x != nil {
-		return x.UptimeSeconds
-	}
-	return 0
-}
-
-func (x *GetOverviewResponse) GetModel() string {
-	if x != nil {
-		return x.Model
-	}
-	return ""
-}
-
-func (x *GetOverviewResponse) GetCacheShare() float64 {
-	if x != nil {
-		return x.CacheShare
-	}
-	return 0
-}
-
-func (x *GetOverviewResponse) GetRouting() []*RoutingEntry {
-	if x != nil {
-		return x.Routing
-	}
-	return nil
-}
-
-func (x *GetOverviewResponse) GetLeaderboard() []*LeaderboardView {
-	if x != nil {
-		return x.Leaderboard
-	}
-	return nil
-}
-
 type SnapshotRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Title         string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
@@ -362,7 +34,7 @@ type SnapshotRef struct {
 
 func (x *SnapshotRef) Reset() {
 	*x = SnapshotRef{}
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[4]
+	mi := &file_lyon_v1_dashboard_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -374,7 +46,7 @@ func (x *SnapshotRef) String() string {
 func (*SnapshotRef) ProtoMessage() {}
 
 func (x *SnapshotRef) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[4]
+	mi := &file_lyon_v1_dashboard_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -387,7 +59,7 @@ func (x *SnapshotRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotRef.ProtoReflect.Descriptor instead.
 func (*SnapshotRef) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{4}
+	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *SnapshotRef) GetTitle() string {
@@ -426,7 +98,7 @@ type ListSnapshotsRequest struct {
 
 func (x *ListSnapshotsRequest) Reset() {
 	*x = ListSnapshotsRequest{}
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[5]
+	mi := &file_lyon_v1_dashboard_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -438,7 +110,7 @@ func (x *ListSnapshotsRequest) String() string {
 func (*ListSnapshotsRequest) ProtoMessage() {}
 
 func (x *ListSnapshotsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[5]
+	mi := &file_lyon_v1_dashboard_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -451,7 +123,7 @@ func (x *ListSnapshotsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSnapshotsRequest.ProtoReflect.Descriptor instead.
 func (*ListSnapshotsRequest) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{5}
+	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{1}
 }
 
 type ListSnapshotsResponse struct {
@@ -463,7 +135,7 @@ type ListSnapshotsResponse struct {
 
 func (x *ListSnapshotsResponse) Reset() {
 	*x = ListSnapshotsResponse{}
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[6]
+	mi := &file_lyon_v1_dashboard_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -475,7 +147,7 @@ func (x *ListSnapshotsResponse) String() string {
 func (*ListSnapshotsResponse) ProtoMessage() {}
 
 func (x *ListSnapshotsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lyon_v1_dashboard_proto_msgTypes[6]
+	mi := &file_lyon_v1_dashboard_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -488,7 +160,7 @@ func (x *ListSnapshotsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSnapshotsResponse.ProtoReflect.Descriptor instead.
 func (*ListSnapshotsResponse) Descriptor() ([]byte, []int) {
-	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{6}
+	return file_lyon_v1_dashboard_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ListSnapshotsResponse) GetSnapshots() []*SnapshotRef {
@@ -502,44 +174,7 @@ var File_lyon_v1_dashboard_proto protoreflect.FileDescriptor
 
 const file_lyon_v1_dashboard_proto_rawDesc = "" +
 	"\n" +
-	"\x17lyon/v1/dashboard.proto\x12\alyon.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdf\x01\n" +
-	"\fRoutingEntry\x12\x14\n" +
-	"\x05class\x18\x01 \x01(\tR\x05class\x12\x14\n" +
-	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x14\n" +
-	"\x05model\x18\x03 \x01(\tR\x05model\x12\x1e\n" +
-	"\n" +
-	"confidence\x18\x04 \x01(\x01R\n" +
-	"confidence\x12\x18\n" +
-	"\asamples\x18\x05 \x01(\x05R\asamples\x12\x1d\n" +
-	"\n" +
-	"mean_score\x18\x06 \x01(\x01R\tmeanScore\x124\n" +
-	"\aupdated\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\aupdated\"\xa1\x02\n" +
-	"\x0fLeaderboardView\x12\x14\n" +
-	"\x05class\x18\x01 \x01(\tR\x05class\x12\x17\n" +
-	"\aon_duty\x18\x02 \x01(\tR\x06onDuty\x12\x16\n" +
-	"\x06rounds\x18\x03 \x01(\x05R\x06rounds\x12\x1d\n" +
-	"\n" +
-	"exam_fails\x18\x04 \x01(\x05R\texamFails\x12\x14\n" +
-	"\x05cards\x18\x05 \x01(\x05R\x05cards\x12\x12\n" +
-	"\x04mean\x18\x06 \x01(\x01R\x04mean\x12\x1d\n" +
-	"\n" +
-	"last_agent\x18\a \x01(\tR\tlastAgent\x12\x1d\n" +
-	"\n" +
-	"last_total\x18\b \x01(\x01R\tlastTotal\x12\x1f\n" +
-	"\vlast_passed\x18\t \x01(\bR\n" +
-	"lastPassed\x12\x1f\n" +
-	"\vlast_source\x18\n" +
-	" \x01(\tR\n" +
-	"lastSource\"\x14\n" +
-	"\x12GetOverviewRequest\"\xfc\x01\n" +
-	"\x13GetOverviewResponse\x12\x1a\n" +
-	"\bsessions\x18\x01 \x01(\x05R\bsessions\x12%\n" +
-	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12\x14\n" +
-	"\x05model\x18\x03 \x01(\tR\x05model\x12\x1f\n" +
-	"\vcache_share\x18\x04 \x01(\x01R\n" +
-	"cacheShare\x12/\n" +
-	"\arouting\x18\x05 \x03(\v2\x15.lyon.v1.RoutingEntryR\arouting\x12:\n" +
-	"\vleaderboard\x18\x06 \x03(\v2\x18.lyon.v1.LeaderboardViewR\vleaderboard\"\x8a\x01\n" +
+	"\x17lyon/v1/dashboard.proto\x12\alyon.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8a\x01\n" +
 	"\vSnapshotRef\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12\x1a\n" +
 	"\bmessages\x18\x02 \x01(\x05R\bmessages\x125\n" +
@@ -547,9 +182,8 @@ const file_lyon_v1_dashboard_proto_rawDesc = "" +
 	"\x04path\x18\x04 \x01(\tR\x04path\"\x16\n" +
 	"\x14ListSnapshotsRequest\"K\n" +
 	"\x15ListSnapshotsResponse\x122\n" +
-	"\tsnapshots\x18\x01 \x03(\v2\x14.lyon.v1.SnapshotRefR\tsnapshots2\xac\x01\n" +
-	"\x10DashboardService\x12H\n" +
-	"\vGetOverview\x12\x1b.lyon.v1.GetOverviewRequest\x1a\x1c.lyon.v1.GetOverviewResponse\x12N\n" +
+	"\tsnapshots\x18\x01 \x03(\v2\x14.lyon.v1.SnapshotRefR\tsnapshots2b\n" +
+	"\x10DashboardService\x12N\n" +
 	"\rListSnapshots\x12\x1d.lyon.v1.ListSnapshotsRequest\x1a\x1e.lyon.v1.ListSnapshotsResponseB\"Z lyon-agent/gen/go/lyon/v1;lyonv1b\x06proto3"
 
 var (
@@ -564,32 +198,23 @@ func file_lyon_v1_dashboard_proto_rawDescGZIP() []byte {
 	return file_lyon_v1_dashboard_proto_rawDescData
 }
 
-var file_lyon_v1_dashboard_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_lyon_v1_dashboard_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_lyon_v1_dashboard_proto_goTypes = []any{
-	(*RoutingEntry)(nil),          // 0: lyon.v1.RoutingEntry
-	(*LeaderboardView)(nil),       // 1: lyon.v1.LeaderboardView
-	(*GetOverviewRequest)(nil),    // 2: lyon.v1.GetOverviewRequest
-	(*GetOverviewResponse)(nil),   // 3: lyon.v1.GetOverviewResponse
-	(*SnapshotRef)(nil),           // 4: lyon.v1.SnapshotRef
-	(*ListSnapshotsRequest)(nil),  // 5: lyon.v1.ListSnapshotsRequest
-	(*ListSnapshotsResponse)(nil), // 6: lyon.v1.ListSnapshotsResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*SnapshotRef)(nil),           // 0: lyon.v1.SnapshotRef
+	(*ListSnapshotsRequest)(nil),  // 1: lyon.v1.ListSnapshotsRequest
+	(*ListSnapshotsResponse)(nil), // 2: lyon.v1.ListSnapshotsResponse
+	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
 }
 var file_lyon_v1_dashboard_proto_depIdxs = []int32{
-	7, // 0: lyon.v1.RoutingEntry.updated:type_name -> google.protobuf.Timestamp
-	0, // 1: lyon.v1.GetOverviewResponse.routing:type_name -> lyon.v1.RoutingEntry
-	1, // 2: lyon.v1.GetOverviewResponse.leaderboard:type_name -> lyon.v1.LeaderboardView
-	7, // 3: lyon.v1.SnapshotRef.saved_at:type_name -> google.protobuf.Timestamp
-	4, // 4: lyon.v1.ListSnapshotsResponse.snapshots:type_name -> lyon.v1.SnapshotRef
-	2, // 5: lyon.v1.DashboardService.GetOverview:input_type -> lyon.v1.GetOverviewRequest
-	5, // 6: lyon.v1.DashboardService.ListSnapshots:input_type -> lyon.v1.ListSnapshotsRequest
-	3, // 7: lyon.v1.DashboardService.GetOverview:output_type -> lyon.v1.GetOverviewResponse
-	6, // 8: lyon.v1.DashboardService.ListSnapshots:output_type -> lyon.v1.ListSnapshotsResponse
-	7, // [7:9] is the sub-list for method output_type
-	5, // [5:7] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	3, // 0: lyon.v1.SnapshotRef.saved_at:type_name -> google.protobuf.Timestamp
+	0, // 1: lyon.v1.ListSnapshotsResponse.snapshots:type_name -> lyon.v1.SnapshotRef
+	1, // 2: lyon.v1.DashboardService.ListSnapshots:input_type -> lyon.v1.ListSnapshotsRequest
+	2, // 3: lyon.v1.DashboardService.ListSnapshots:output_type -> lyon.v1.ListSnapshotsResponse
+	3, // [3:4] is the sub-list for method output_type
+	2, // [2:3] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_lyon_v1_dashboard_proto_init() }
@@ -603,7 +228,7 @@ func file_lyon_v1_dashboard_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lyon_v1_dashboard_proto_rawDesc), len(file_lyon_v1_dashboard_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

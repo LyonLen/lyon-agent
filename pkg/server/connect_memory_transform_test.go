@@ -12,7 +12,7 @@ import (
 // freshMemStore opens a store over a throwaway workspace (process-wide
 // cache keys on the abs path — unique per test). Cleanup retries
 // RemoveAll: TempDir races the antivirus scanner on this machine (the
-// same settle loop pkg/evolve's scratchHome uses).
+// same settle loop pkg/server's scratchHome uses).
 func freshMemStore(t *testing.T) *memory.Store {
 	t.Helper()
 	dir := t.TempDir()

@@ -10,14 +10,12 @@ import SessionList from "./components/SessionList";
 import NewSessionDlg from "./components/NewSessionDlg";
 import ChatView from "./components/ChatView";
 import PlanPane from "./components/PlanPane";
-import TodosPane from "./components/TodosPane";
 import StepsPane from "./components/StepsPane";
 import FilePanel from "./components/FilePanel";
 import PreviewPane from "./components/PreviewPane";
 import TerminalPane from "./components/TerminalPane";
 import MemoryPanel from "./components/MemoryPanel";
 import SkillPanel from "./components/SkillPanel";
-import EvolvePanel from "./components/EvolvePanel";
 import SettingsPane from "./components/SettingsPane";
 import ErrorBoundary from "./components/ErrorBoundary";
 import MindMapCard from "./components/MindMapCard";
@@ -46,17 +44,6 @@ export default function App() {
   // ChatView's reducer; reloadKey forces the transcript stream to
   // re-anchor after a rollback rewrote the ring.
   const [todos, setTodos] = useState<TodoItem[]>([]);
-  // 拿会话填充待办: sidebar「＋」queues sessions here; TodosPane consumes
-  // the queue (it owns the full-doc save — a second writer would clobber)
-  // and clears it via clearFillQueue.
-  const [fillQueue, setFillQueue] = useState<Session[]>([]);
-  const clearFillQueue = useCallback(() => setFillQueue([]), []);
-  // The todolist is a GLOBAL overlay (topbar「待办」 / /todos / sidebar
-  // 「＋」), not a tile: layouts are session-bound, so a pane would vanish
-  // on seat switch — the doc is global ($LYON_HOME/todos.json), the UI
-  // must be too.
-  const [todosOpen, setTodosOpen] = useState(false);
-  const closeTodos = useCallback(() => setTodosOpen(false), []);
   // Leaf id to shake once after a plan-chip click that only focused an
   // already-open pane (see openPlan). Cleared on a timer.
   const [shakeLeaf, setShakeLeaf] = useState("");
@@ -605,12 +592,6 @@ export default function App() {
         ws.openPane("skills");
         flash("skills pane — 命中 / 已安装 / 推荐安装");
         break;
-      case "/todos":
-      case "/todo":
-      case "/gantt":
-        setTodosOpen(true);
-        flash("todolist — 全局待办 · 月历 / 甘特 · 拿会话填充");
-        break;
       case "/mindmap":
       case "/mm":
         ws.openPane("mindmap");
@@ -619,19 +600,6 @@ export default function App() {
       case "/settings":
         ws.openPane("settings");
         flash("settings pane — engine & models");
-        break;
-      // The evolution family opens one panel (BACKLOG §2.6 — read-only
-      // web v1; running an exam/contest still needs the TUI). Each
-      // slash names the section the user came for; the pane shows all.
-      case "/evolve":
-      case "/exam":
-      case "/contest":
-      case "/route":
-      case "/agents":
-      case "/flow":
-      case "/market":
-        ws.openPane("evolve");
-        flash("evolve pane — lineage, seats, exam banks");
         break;
       default:
         flash(`unknown command ${raw.trim()}`);
@@ -816,10 +784,6 @@ export default function App() {
           onRefresh={() => void refresh()}
           onRestore={(p) => void restore(p)}
           onDelete={(id) => void removeSession(id)}
-          onFill={(s) => {
-            setFillQueue((q) => (q.some((x) => x.id === s.id) ? q : [...q, s]));
-            setTodosOpen(true);
-          }}
         />
       ),
     },
@@ -1028,17 +992,6 @@ export default function App() {
       ),
       render: () => <SettingsPane />,
     },
-    {
-      kind: "evolve",
-      title: "evolve — lineage & exams",
-      desc: "candidate lineage, seats, exam banks",
-      icon: (
-        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M7 12.5V8M7 8L3.8 5.4M7 8l3.2-2.6M7 8v-4.5M4.5 1.8a1 1 0 1 0 0-.1M9.5 3.3a1 1 0 1 0 0-.1M3.3 6.6a1 1 0 1 0 0-.1" />
-        </svg>
-      ),
-      render: () => <EvolvePanel />,
-    },
   ];
 
   // The dock menu closes on outside click and Escape (usual menu rules).
@@ -1120,28 +1073,6 @@ export default function App() {
       )}
       <header className="topbar">
         <span className="brand">lyon</span>
-        <button
-          type="button"
-          className={"topbar-todos" + (todosOpen ? " on" : "")}
-          title="全局待办 — 整体目标 / 月历 / 甘特 (/todos)"
-          onClick={() => setTodosOpen((v) => !v)}
-        >
-          <svg
-            viewBox="0 0 14 14"
-            width="13"
-            height="13"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <rect x="1.8" y="2" width="10.4" height="10" rx="1.2" />
-            <path d="M4.2 5l1 1 1.8-1.8M4.2 9l1 1 1.8-1.8M8.6 5.4H10.4M8.6 9.4H10.4" />
-          </svg>
-          待办
-        </button>
         <input
           className="token"
           type="password"
@@ -1158,17 +1089,6 @@ export default function App() {
         panes={panes}
         shakeLeaf={shakeLeaf}
       />
-      {/* the todolist rides above the workspace as a global overlay */}
-      {todosOpen && (
-        <TodosPane
-          sessions={sessions}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          fillQueue={fillQueue}
-          onFillConsumed={clearFillQueue}
-          onClose={closeTodos}
-        />
-      )}
       {/* (the resident mode chip + legend now live inside the chat pane —
           see the chatFooter definition above the pane registry) */}
       {toast && <div className="toast">{toast}</div>}

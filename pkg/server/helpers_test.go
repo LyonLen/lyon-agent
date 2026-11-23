@@ -34,8 +34,8 @@ func TestMain(m *testing.M) {
 // Sessions mirror themselves to disk on every state change, so a write is
 // very often in flight (or delete-pending) when the framework's one-shot
 // RemoveAll walks the tree — on Windows that surfaces as "directory is not
-// empty" even when every assertion passed. Same hardening as pkg/eval
-// (scratchHome), pkg/market (scratchHome) and pkg/memory (scratchTempDir).
+// empty" even when every assertion passed. Same hardening as
+// pkg/memory (scratchTempDir).
 // No parallel tests here — the env is process-wide. Returns the dir.
 func scratchHome(t *testing.T) string {
 	t.Helper()

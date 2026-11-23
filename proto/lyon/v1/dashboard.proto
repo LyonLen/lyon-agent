@@ -9,43 +9,10 @@ import "google/protobuf/timestamp.proto";
 // DashboardService: read-only panels over $LYON_HOME on-disk data plus the
 // process aggregates /metrics already computes. Run dumps / audit are read
 // by the agent itself (pkg/agent/dumpread.go), not over the wire.
+// (GetOverview — the evolution panel's routing/leaderboard half — went
+// out with the evolution system.)
 service DashboardService {
-  rpc GetOverview(GetOverviewRequest) returns (GetOverviewResponse);
   rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse); // saved sessions
-}
-
-message RoutingEntry {                       // pkg/routing Entry (routing.go:23)
-  string class = 1;
-  string agent = 2;
-  string model = 3;
-  double confidence = 4;
-  int32 samples = 5;
-  double mean_score = 6;
-  google.protobuf.Timestamp updated = 7;
-}
-
-message LeaderboardView {                    // pkg/eval View (leaderboard.go:274)
-  string class = 1;
-  string on_duty = 2;                        // "" = open seat
-  int32 rounds = 3;
-  int32 exam_fails = 4;
-  int32 cards = 5;
-  double mean = 6;
-  string last_agent = 7;
-  double last_total = 8;
-  bool last_passed = 9;
-  string last_source = 10;                   // "exam" or "" (production)
-}
-
-message GetOverviewRequest {}
-
-message GetOverviewResponse {
-  int32 sessions = 1;
-  int64 uptime_seconds = 2;
-  string model = 3;
-  double cache_share = 4;
-  repeated RoutingEntry routing = 5;
-  repeated LeaderboardView leaderboard = 6;
 }
 
 message SnapshotRef {

@@ -249,9 +249,8 @@ type Session struct {
 	firstPrompt string
 	lastPrompt  string
 	// runModel is the effective model of the most recent drive — the
-	// routing-swapped model when set, else the engine default. The
-	// post-prompt evolution loop (pkg/evolve Hook) credits production
-	// scorecards with it. Guarded by mu.
+	// routing-swapped model when set, else the engine default. Guarded
+	// by mu.
 	runModel string
 	// titleProv is the placeholder title (#44): the first prompt's opening
 	// line, shown from the moment that prompt is accepted until the intent

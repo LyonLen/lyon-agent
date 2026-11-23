@@ -30,9 +30,7 @@ const MarkdownView = lazy(() => import("./Markdown"));
 
 // The web slice of TUI's slashCommands table (cmd/lyon/tui.go): session/
 // model/panel/misc categories, descriptions mirrored from the terminal
-// build. The evolution family (/evolve /exam /contest /route /agents
-// /flow) opens the read-only evolve panel (BACKLOG §2.6 web v1) — runs
-// stay TUI; unknown tokens fall through to App's runCommand and get a
+// build. Unknown tokens fall through to App's runCommand and get a
 // toast.
 type SlashKind = "session" | "model" | "panel" | "misc" | "skill";
 const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
@@ -48,14 +46,6 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/mindmap", desc: "session mindmap — live understanding map", kind: "panel" },
   { cmd: "/memory", desc: "browse project memory — hot toggle, forget", kind: "panel" },
   { cmd: "/skills", desc: "skills panel — 本会话命中 / 已安装 / 推荐安装", kind: "panel" },
-  { cmd: "/todos", desc: "todolist — 月历 / 甘特图, 整体目标, 从会话填充", kind: "panel" },
-  { cmd: "/evolve", desc: "evolution panel — lineage, seats, exam banks", kind: "panel" },
-  { cmd: "/exam", desc: "exam bank & clock (panel view)", kind: "panel" },
-  { cmd: "/contest", desc: "contest field (panel view) — run in TUI", kind: "panel" },
-  { cmd: "/route", desc: "routing table & leaderboard (panel)", kind: "panel" },
-  { cmd: "/agents", desc: "candidate lineage (panel view)", kind: "panel" },
-  { cmd: "/flow", desc: "frozen procedures (panel view) — run in TUI", kind: "panel" },
-  { cmd: "/market", desc: "task hour market — per-class prices & recent runs", kind: "panel" },
   { cmd: "/remember", desc: "distill this session's learnings into memory now", kind: "misc" },
   { cmd: "/stats", desc: "usage totals — turns, tokens, cache", kind: "misc" },
   { cmd: "/help", desc: "list commands and keys", kind: "misc" },

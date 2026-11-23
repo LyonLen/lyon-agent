@@ -77,8 +77,6 @@
 //
 // Direct overwrites (tear risk, no tmp+rename):
 //
-//   - pkg/eval/exam.go SaveExam — os.WriteFile straight onto the shared
-//     exam file. Fix: os.CreateTemp + rename, like hooks.writeStatsFile.
 //   - pkg/flow/builtin.go Save — same. Fix: same.
 //   - pkg/tools/files.go WriteFile/EditFile — workspace file writes. Each
 //     write is tmp+rename (no tear), and the adapter now serializes them
@@ -90,8 +88,7 @@
 // process is mid-write):
 //
 //   - pkg/agent/snapshot.go SaveSnapshot + writeArchive
-//   - pkg/routing/routing.go saveLocked, pkg/market/market.go,
-//     pkg/eval/leaderboard.go saveLocked, pkg/eval/candidates.go,
+//   - pkg/routing/routing.go saveLocked,
 //     pkg/memory/store.go, pkg/flow/streak.go, pkg/timer/timer.go Save
 //
 // Fix for all of the above: os.CreateTemp(dir, name+"-*.tmp") — unique

@@ -23,7 +23,6 @@ import (
 
 	"lyon-agent/pkg/agent"
 	"lyon-agent/pkg/config"
-	"lyon-agent/pkg/eval"
 	"lyon-agent/pkg/mcp"
 	"lyon-agent/pkg/memory"
 	"lyon-agent/pkg/routing"
@@ -103,7 +102,6 @@ func Run(ctx context.Context, opts Options) []Check {
 		{"sessions", checkSessions},
 		{"lyond", checkLyond},
 		{"logs", checkLogs},
-		{"leaderboard", checkLeaderboard},
 		{"routing", checkRouting},
 	}
 	out := make([]Check, len(all))
@@ -550,28 +548,11 @@ func markExists(p string) string {
 	return p + " (missing)"
 }
 
-// --- evolve --------------------------------------------------------------
+// --- routing --------------------------------------------------------------
 
-// checkLeaderboard summarizes the elimination ledger: how many task
-// classes exist and how many seats are filled. The loader never fails
-// (missing file → empty board), so this cannot Fail either.
-func checkLeaderboard(_ context.Context, _ Options) Check {
-	views := eval.OpenLeaderboard().Views(nil)
-	onDuty := 0
-	for _, v := range views {
-		if v.OnDuty != "" {
-			onDuty++
-		}
-	}
-	if len(views) == 0 {
-		return Check{Name: "leaderboard", Status: StatusOK, Detail: "no classes yet"}
-	}
-	return Check{Name: "leaderboard", Status: StatusOK,
-		Detail: fmt.Sprintf("%d class(es), %d on-duty", len(views), onDuty)}
-}
-
-// checkRouting summarizes the classification routing network. Same
-// never-fail contract as the leaderboard: missing file → empty table.
+// checkRouting summarizes the classification routing network. The
+// loader never fails (missing file → empty table), so this cannot Fail
+// either.
 func checkRouting(_ context.Context, _ Options) Check {
 	n := len(routing.Open().All())
 	if n == 0 {

@@ -9,7 +9,7 @@ import (
 )
 
 // scratchTempDir is t.TempDir plus a retrying cleanup — the same
-// hardening pkg/eval's scratchHome carries: Windows file scanners hold
+// hardening pkg/server's scratchHome carries: Windows file scanners hold
 // just-written files or drop marker dirs into %TEMP% trees mid-test, so
 // the framework's one-shot RemoveAll can fail with "directory not empty".
 func scratchTempDir(t *testing.T) string {

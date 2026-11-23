@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"lyon-agent/pkg/agent"
-	"lyon-agent/pkg/evolve"
 	"lyon-agent/pkg/mindmap"
 	"lyon-agent/pkg/openaix"
 	"lyon-agent/pkg/server"
@@ -121,22 +120,13 @@ func main() {
 
 	eng := agent.NewEngine(cfg, nil)
 	store := server.NewStore(*maxSess, *ttl)
-	// Two observers share the prompt_end seam: the mind-map distiller
-	// always (its own §8 gate LYON_MINDMAP makes it a no-op when off),
-	// and the evolution loop when enabled (BACKLOG §2.5 — rounds booked,
-	// due exams kicked, failures post-mortemed). Both hooks return
-	// immediately — each spawns its own goroutine — so composing them
-	// here never delays the hub tap. Observer must be set before the
-	// first session registers; evolve's legs honor their own gates
-	// (LYON_SCORE / LYON_EXAM / LYON_DIAGNOSE).
-	obs := mindmap.Hook
-	if !strings.EqualFold(os.Getenv("LYON_EVOLVE"), "off") {
-		obs = func(sess *agent.Session, ev agent.Event) {
-			evolve.Hook(sess, ev)
-			mindmap.Hook(sess, ev)
-		}
-	}
-	store.SetPromptEndObserver(obs)
+	// The mind-map distiller owns the prompt_end seam (its own §8 gate
+	// LYON_MINDMAP makes it a no-op when off). The hook returns
+	// immediately — it spawns its own goroutine — so the tap never
+	// delays the hub. Observer must be set before the first session
+	// registers. (The evolution loop that used to share this seam went
+	// out with the evolution system.)
+	store.SetPromptEndObserver(mindmap.Hook)
 	// The dump is the seat. A session mirrors itself to disk on every state
 	// change, and whatever a previous process left behind is indexed here —
 	// not swept into a handful of archive blobs. Each draft keeps its own id,

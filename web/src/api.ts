@@ -11,13 +11,11 @@ import { SessionService } from "./gen/lyon/v1/session_pb";
 import { FileService } from "./gen/lyon/v1/file_pb";
 import { MemoryService } from "./gen/lyon/v1/memory_pb";
 import { DashboardService } from "./gen/lyon/v1/dashboard_pb";
-import { EvolveService } from "./gen/lyon/v1/evolve_pb";
 import { GitService } from "./gen/lyon/v1/git_pb";
 import { ApprovalService } from "./gen/lyon/v1/approval_pb";
 import { SettingsService } from "./gen/lyon/v1/settings_pb";
 import { MindmapService } from "./gen/lyon/v1/mindmap_pb";
 import { SkillService } from "./gen/lyon/v1/skill_pb";
-import { TodoService } from "./gen/lyon/v1/todo_pb";
 
 // v1 auth is the static lyond bearer token, kept in localStorage and
 // injected by a transport interceptor (plan §4.7 — one interceptor covers
@@ -137,9 +135,6 @@ export const sessionClient = createClient(SessionService, transport);
 export const fileClient = createClient(FileService, transport);
 export const memoryClient = createClient(MemoryService, transport);
 export const dashboardClient = createClient(DashboardService, transport);
-// EvolveService is the evolution panel's read-only state (lineage,
-// spaces, flows, exam banks); routing/leaderboard ride dashboardClient.
-export const evolveClient = createClient(EvolveService, transport);
 // GitService powers the files panel's source-control view (changes,
 // commit, sync, outgoing graph) over the workspace repository.
 export const gitClient = createClient(GitService, transport);
@@ -157,10 +152,6 @@ export const mindmapClient = createClient(MindmapService, transport);
 // and the source of slash's dynamic /skillname entries. Skill HITS ride
 // the event stream (skill_used), not this client.
 export const skillClient = createClient(SkillService, transport);
-// TodoService: the global personal todolist ($LYON_HOME/todos.json) —
-// goals + dated checklist rows for the todos pane (month / gantt).
-// Full-document round trip: every save replaces the whole file.
-export const todoClient = createClient(TodoService, transport);
 
 export function errText(err: unknown): string {
   const ce = ConnectError.from(err);

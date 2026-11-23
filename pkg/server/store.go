@@ -65,9 +65,8 @@ type Store struct {
 	closed bool
 	// promptObs, when set, composes into every session's hub prompt_end
 	// tap alongside the interval title pass — lyond wires it to the
-	// evolution loop (pkg/evolve Hook) so daemon sessions book rounds,
-	// grade and evolve like TUI sessions (BACKLOG §2.5). Nil = off, the
-	// default for embedders and tests.
+	// mind-map distiller so daemon sessions distill like TUI sessions.
+	// Nil = off, the default for embedders and tests.
 	promptObs func(sess *agent.Session, ev agent.Event)
 	// writes is the cross-seat write ledger behind the file-card
 	// attribution filter (#41-2): every hub records its seat's

@@ -14,12 +14,11 @@ export type PaneKind =
   | "terminal"
   | "memory"
   | "skills"
-  | "settings"
-  | "evolve";
+  | "settings";
 
-// NOTE: the todolist is deliberately NOT a pane kind — it is a global
-// overlay (topbar / /todos / sidebar fill). Layouts are session-bound, so
-// a tile would vanish on seat switch; sanitizeNode drops the old kind.
+// NOTE: sanitizeNode drops pane kinds this build no longer knows (an
+// "evolve" leaf from a stored layout dies here), so old localStorage
+// layouts hydrate instead of crashing.
 export const PANE_KINDS: readonly PaneKind[] = [
   "sessions",
   "chat",
@@ -32,7 +31,6 @@ export const PANE_KINDS: readonly PaneKind[] = [
   "memory",
   "skills",
   "settings",
-  "evolve",
 ];
 
 export function isPaneKind(v: unknown): v is PaneKind {

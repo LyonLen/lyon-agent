@@ -46,7 +46,7 @@ const (
 var selMarkerRe = regexp.MustCompile(selMarkerPat)
 
 // distillTimeout bounds one distiller call. A var so tests can shrink it;
-// production value matches evolve's post-mortem leg (60s).
+// production value is a minute.
 var distillTimeout = 60 * time.Second
 
 // distillSystemPrompt is the §6 discipline in one place: JSON-only diff
@@ -80,8 +80,8 @@ Discipline:
 - No fabrication: every node must be grounded in the transcript. Do not invent conclusions the conversation did not reach. Labels are short phrases in the conversation's own language.
 - title/subtitle: set only when the framing is stale; subtitle should read as "lyon's current understanding — correct it if wrong", never as a verdict.`
 
-// Hook is the prompt_end seam (§2): same shape as evolve.Hook — gate,
-// claim the seat's single distill slot, then hand the actual work to its
+// Hook is the prompt_end seam (§2): gate, claim the seat's single
+// distill slot, then hand the actual work to its
 // own goroutine so the hub tap returns immediately. LYON_MINDMAP=off
 // makes it a complete no-op: zero goroutines, zero calls, zero events
 // (D2). Image #71 adds a second gate: only a mindmap-mode session

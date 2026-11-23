@@ -1,7 +1,7 @@
 package space
 
-// Agent spaces (2026-10-23 重定义): every evolved agent owns two
-// specialist stores under $LYON_HOME/agents/<id>/ — knowledge/*.md
+// Agent spaces (2026-10-23 重定义): every agent owns two specialist
+// stores under $LYON_HOME/agents/<id>/ — knowledge/*.md
 // (markdown documents) and skills/<name>/SKILL.md (the same SKILL.md
 // layout Claude Code popularized — format only; skill scans themselves
 // stay under .lyon).
@@ -16,8 +16,8 @@ package space
 // copies, never moves: the specialist keeps its own space, commons
 // gains the shared fact.
 //
-// No imports from pkg/agent or pkg/eval: this package is the disk
-// layer; session identity and evolution policy live above it.
+// No imports from pkg/agent: this package is the disk layer; session
+// identity lives above it.
 
 import (
 	"crypto/sha256"

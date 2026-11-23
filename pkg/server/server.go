@@ -76,11 +76,6 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(skillPath, skillHandler)
 	dashPath, dashHandler := lyonv1connect.NewDashboardServiceHandler(&dashboardService{s: s})
 	s.mux.Handle(dashPath, dashHandler)
-	// Evolve: the evolution panel's read-only state (lineage, spaces,
-	// flows, exam banks) — composed client-side with GetOverview's
-	// routing/leaderboard rows.
-	evolvePath, evolveHandler := lyonv1connect.NewEvolveServiceHandler(&evolveService{s: s})
-	s.mux.Handle(evolvePath, evolveHandler)
 	// Git: the files panel's source-control view (changes / commit /
 	// sync / outgoing graph) — fixed-argv `git -C workspace` only.
 	gitPath, gitHandler := lyonv1connect.NewGitServiceHandler(&gitService{s: s})
@@ -92,10 +87,6 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.Handle(apprPath, apprHandler)
 	planPath, planHandler := lyonv1connect.NewPlanServiceHandler(&planService{})
 	s.mux.Handle(planPath, planHandler)
-	// Todo: the global personal todolist ($LYON_HOME/todos.json) backing
-	// the todos pane — goals + dated checklist rows, full-doc replace.
-	todoPath, todoHandler := lyonv1connect.NewTodoServiceHandler(&todoService{})
-	s.mux.Handle(todoPath, todoHandler)
 	// Settings: the effective config + model knowledge base, and the
 	// runtime model switch. Reading and writing both go through the engine
 	// itself, so what the panel shows is what the next turn will use.

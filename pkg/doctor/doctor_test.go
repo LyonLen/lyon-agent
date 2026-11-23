@@ -327,7 +327,7 @@ func TestLyondUnhealthyFails(t *testing.T) {
 	}
 }
 
-// --- logs / evolve -------------------------------------------------------
+// --- logs / routing ------------------------------------------------------
 
 // TestLogsPathsExistOrMissing: both markers print, path rooted at
 // $LYON_HOME; nothing exists yet in a fresh scratch → (missing), still OK.
@@ -358,14 +358,11 @@ func TestLogsPathsExistOrMissing(t *testing.T) {
 	}
 }
 
-// TestEvolveEmptyIsOK: a fresh LYON_HOME has no leaderboard and no
-// routing table — both report empty, neither fails.
-func TestEvolveEmptyIsOK(t *testing.T) {
+// TestRoutingEmptyIsOK: a fresh LYON_HOME has no routing table — the
+// check reports empty, never fails.
+func TestRoutingEmptyIsOK(t *testing.T) {
 	scratch(t)
 
-	if c := checkLeaderboard(context.Background(), Options{}); c.Status != StatusOK {
-		t.Fatalf("leaderboard status = %v, want OK", c.Status)
-	}
 	if c := checkRouting(context.Background(), Options{}); c.Status != StatusOK {
 		t.Fatalf("routing status = %v, want OK", c.Status)
 	}
@@ -374,7 +371,7 @@ func TestEvolveEmptyIsOK(t *testing.T) {
 // --- Run -----------------------------------------------------------------
 
 // TestRunOrderAndConcurrency: Run returns every check in report order.
-// Concurrency itself is asserted by timing: eleven checks where the
+// Concurrency itself is asserted by timing: ten checks where the
 // gateway hangs for ~1.5s must finish near the slowest single check,
 // not the sum (serial would be ≥ that + the rest).
 func TestRunOrderAndConcurrency(t *testing.T) {
@@ -396,7 +393,7 @@ func TestRunOrderAndConcurrency(t *testing.T) {
 
 	want := []string{
 		"gateway", "mcp", "memory", "config", "workspace",
-		"git", "sessions", "lyond", "logs", "leaderboard", "routing",
+		"git", "sessions", "lyond", "logs", "routing",
 	}
 	if len(checks) != len(want) {
 		t.Fatalf("got %d checks, want %d", len(checks), len(want))

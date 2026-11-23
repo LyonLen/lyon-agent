@@ -2,8 +2,7 @@
 // dropped: idle hints live on the chat footer, ctrl+o sits on the thinking
 // block itself). Mirrors TUI's idleLegend (cmd/lyon/tui.go:1023-1034)
 // minus the terminal-only chords: ctrl+t is reserved by browsers (new
-// tab, not interceptable), pgup/pgdn scroll natively, alt+e evolve is a
-// TUI-only panel.
+// tab, not interceptable), pgup/pgdn scroll natively.
 
 export interface KeyRow {
   keys: string;

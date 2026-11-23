@@ -33,9 +33,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// DashboardServiceGetOverviewProcedure is the fully-qualified name of the DashboardService's
-	// GetOverview RPC.
-	DashboardServiceGetOverviewProcedure = "/lyon.v1.DashboardService/GetOverview"
 	// DashboardServiceListSnapshotsProcedure is the fully-qualified name of the DashboardService's
 	// ListSnapshots RPC.
 	DashboardServiceListSnapshotsProcedure = "/lyon.v1.DashboardService/ListSnapshots"
@@ -43,7 +40,6 @@ const (
 
 // DashboardServiceClient is a client for the lyon.v1.DashboardService service.
 type DashboardServiceClient interface {
-	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
 	ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error)
 }
 
@@ -58,12 +54,6 @@ func NewDashboardServiceClient(httpClient connect.HTTPClient, baseURL string, op
 	baseURL = strings.TrimRight(baseURL, "/")
 	dashboardServiceMethods := v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService").Methods()
 	return &dashboardServiceClient{
-		getOverview: connect.NewClient[v1.GetOverviewRequest, v1.GetOverviewResponse](
-			httpClient,
-			baseURL+DashboardServiceGetOverviewProcedure,
-			connect.WithSchema(dashboardServiceMethods.ByName("GetOverview")),
-			connect.WithClientOptions(opts...),
-		),
 		listSnapshots: connect.NewClient[v1.ListSnapshotsRequest, v1.ListSnapshotsResponse](
 			httpClient,
 			baseURL+DashboardServiceListSnapshotsProcedure,
@@ -75,13 +65,7 @@ func NewDashboardServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // dashboardServiceClient implements DashboardServiceClient.
 type dashboardServiceClient struct {
-	getOverview   *connect.Client[v1.GetOverviewRequest, v1.GetOverviewResponse]
 	listSnapshots *connect.Client[v1.ListSnapshotsRequest, v1.ListSnapshotsResponse]
-}
-
-// GetOverview calls lyon.v1.DashboardService.GetOverview.
-func (c *dashboardServiceClient) GetOverview(ctx context.Context, req *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error) {
-	return c.getOverview.CallUnary(ctx, req)
 }
 
 // ListSnapshots calls lyon.v1.DashboardService.ListSnapshots.
@@ -91,7 +75,6 @@ func (c *dashboardServiceClient) ListSnapshots(ctx context.Context, req *connect
 
 // DashboardServiceHandler is an implementation of the lyon.v1.DashboardService service.
 type DashboardServiceHandler interface {
-	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
 	ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error)
 }
 
@@ -102,12 +85,6 @@ type DashboardServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewDashboardServiceHandler(svc DashboardServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	dashboardServiceMethods := v1.File_lyon_v1_dashboard_proto.Services().ByName("DashboardService").Methods()
-	dashboardServiceGetOverviewHandler := connect.NewUnaryHandler(
-		DashboardServiceGetOverviewProcedure,
-		svc.GetOverview,
-		connect.WithSchema(dashboardServiceMethods.ByName("GetOverview")),
-		connect.WithHandlerOptions(opts...),
-	)
 	dashboardServiceListSnapshotsHandler := connect.NewUnaryHandler(
 		DashboardServiceListSnapshotsProcedure,
 		svc.ListSnapshots,
@@ -116,8 +93,6 @@ func NewDashboardServiceHandler(svc DashboardServiceHandler, opts ...connect.Han
 	)
 	return "/lyon.v1.DashboardService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case DashboardServiceGetOverviewProcedure:
-			dashboardServiceGetOverviewHandler.ServeHTTP(w, r)
 		case DashboardServiceListSnapshotsProcedure:
 			dashboardServiceListSnapshotsHandler.ServeHTTP(w, r)
 		default:
@@ -128,10 +103,6 @@ func NewDashboardServiceHandler(svc DashboardServiceHandler, opts ...connect.Han
 
 // UnimplementedDashboardServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedDashboardServiceHandler struct{}
-
-func (UnimplementedDashboardServiceHandler) GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.DashboardService.GetOverview is not implemented"))
-}
 
 func (UnimplementedDashboardServiceHandler) ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("lyon.v1.DashboardService.ListSnapshots is not implemented"))

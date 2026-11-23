@@ -16,7 +16,7 @@ import (
 // just-written files long enough for the framework's immediate RemoveAll to
 // hit a delete-pending entry ("directory not empty"), and have been seen
 // dropping their own marker dirs into %TEMP% trees mid-test — the same
-// flake pkg/eval fixed in 0e3c73c.
+// flake fixed in 0e3c73c.
 func tempDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

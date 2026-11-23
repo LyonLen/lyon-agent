@@ -12,179 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/dashboard.proto.
  */
 export const file_lyon_v1_dashboard: GenFile = /*@__PURE__*/
-  fileDesc("ChdseW9uL3YxL2Rhc2hib2FyZC5wcm90bxIHbHlvbi52MSKhAQoMUm91dGluZ0VudHJ5Eg0KBWNsYXNzGAEgASgJEg0KBWFnZW50GAIgASgJEg0KBW1vZGVsGAMgASgJEhIKCmNvbmZpZGVuY2UYBCABKAESDwoHc2FtcGxlcxgFIAEoBRISCgptZWFuX3Njb3JlGAYgASgBEisKB3VwZGF0ZWQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIsQBCg9MZWFkZXJib2FyZFZpZXcSDQoFY2xhc3MYASABKAkSDwoHb25fZHV0eRgCIAEoCRIOCgZyb3VuZHMYAyABKAUSEgoKZXhhbV9mYWlscxgEIAEoBRINCgVjYXJkcxgFIAEoBRIMCgRtZWFuGAYgASgBEhIKCmxhc3RfYWdlbnQYByABKAkSEgoKbGFzdF90b3RhbBgIIAEoARITCgtsYXN0X3Bhc3NlZBgJIAEoCBITCgtsYXN0X3NvdXJjZRgKIAEoCSIUChJHZXRPdmVydmlld1JlcXVlc3QiugEKE0dldE92ZXJ2aWV3UmVzcG9uc2USEAoIc2Vzc2lvbnMYASABKAUSFgoOdXB0aW1lX3NlY29uZHMYAiABKAMSDQoFbW9kZWwYAyABKAkSEwoLY2FjaGVfc2hhcmUYBCABKAESJgoHcm91dGluZxgFIAMoCzIVLmx5b24udjEuUm91dGluZ0VudHJ5Ei0KC2xlYWRlcmJvYXJkGAYgAygLMhgubHlvbi52MS5MZWFkZXJib2FyZFZpZXciagoLU25hcHNob3RSZWYSDQoFdGl0bGUYASABKAkSEAoIbWVzc2FnZXMYAiABKAUSLAoIc2F2ZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEgwKBHBhdGgYBCABKAkiFgoUTGlzdFNuYXBzaG90c1JlcXVlc3QiQAoVTGlzdFNuYXBzaG90c1Jlc3BvbnNlEicKCXNuYXBzaG90cxgBIAMoCzIULmx5b24udjEuU25hcHNob3RSZWYyrAEKEERhc2hib2FyZFNlcnZpY2USSAoLR2V0T3ZlcnZpZXcSGy5seW9uLnYxLkdldE92ZXJ2aWV3UmVxdWVzdBocLmx5b24udjEuR2V0T3ZlcnZpZXdSZXNwb25zZRJOCg1MaXN0U25hcHNob3RzEh0ubHlvbi52MS5MaXN0U25hcHNob3RzUmVxdWVzdBoeLmx5b24udjEuTGlzdFNuYXBzaG90c1Jlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
-
-/**
- * pkg/routing Entry (routing.go:23)
- *
- * @generated from message lyon.v1.RoutingEntry
- */
-export type RoutingEntry = Message<"lyon.v1.RoutingEntry"> & {
-  /**
-   * @generated from field: string class = 1;
-   */
-  class: string;
-
-  /**
-   * @generated from field: string agent = 2;
-   */
-  agent: string;
-
-  /**
-   * @generated from field: string model = 3;
-   */
-  model: string;
-
-  /**
-   * @generated from field: double confidence = 4;
-   */
-  confidence: number;
-
-  /**
-   * @generated from field: int32 samples = 5;
-   */
-  samples: number;
-
-  /**
-   * @generated from field: double mean_score = 6;
-   */
-  meanScore: number;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp updated = 7;
-   */
-  updated?: Timestamp | undefined;
-};
-
-/**
- * Describes the message lyon.v1.RoutingEntry.
- * Use `create(RoutingEntrySchema)` to create a new message.
- */
-export const RoutingEntrySchema: GenMessage<RoutingEntry> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 0);
-
-/**
- * pkg/eval View (leaderboard.go:274)
- *
- * @generated from message lyon.v1.LeaderboardView
- */
-export type LeaderboardView = Message<"lyon.v1.LeaderboardView"> & {
-  /**
-   * @generated from field: string class = 1;
-   */
-  class: string;
-
-  /**
-   * "" = open seat
-   *
-   * @generated from field: string on_duty = 2;
-   */
-  onDuty: string;
-
-  /**
-   * @generated from field: int32 rounds = 3;
-   */
-  rounds: number;
-
-  /**
-   * @generated from field: int32 exam_fails = 4;
-   */
-  examFails: number;
-
-  /**
-   * @generated from field: int32 cards = 5;
-   */
-  cards: number;
-
-  /**
-   * @generated from field: double mean = 6;
-   */
-  mean: number;
-
-  /**
-   * @generated from field: string last_agent = 7;
-   */
-  lastAgent: string;
-
-  /**
-   * @generated from field: double last_total = 8;
-   */
-  lastTotal: number;
-
-  /**
-   * @generated from field: bool last_passed = 9;
-   */
-  lastPassed: boolean;
-
-  /**
-   * "exam" or "" (production)
-   *
-   * @generated from field: string last_source = 10;
-   */
-  lastSource: string;
-};
-
-/**
- * Describes the message lyon.v1.LeaderboardView.
- * Use `create(LeaderboardViewSchema)` to create a new message.
- */
-export const LeaderboardViewSchema: GenMessage<LeaderboardView> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 1);
-
-/**
- * @generated from message lyon.v1.GetOverviewRequest
- */
-export type GetOverviewRequest = Message<"lyon.v1.GetOverviewRequest"> & {
-};
-
-/**
- * Describes the message lyon.v1.GetOverviewRequest.
- * Use `create(GetOverviewRequestSchema)` to create a new message.
- */
-export const GetOverviewRequestSchema: GenMessage<GetOverviewRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 2);
-
-/**
- * @generated from message lyon.v1.GetOverviewResponse
- */
-export type GetOverviewResponse = Message<"lyon.v1.GetOverviewResponse"> & {
-  /**
-   * @generated from field: int32 sessions = 1;
-   */
-  sessions: number;
-
-  /**
-   * @generated from field: int64 uptime_seconds = 2;
-   */
-  uptimeSeconds: bigint;
-
-  /**
-   * @generated from field: string model = 3;
-   */
-  model: string;
-
-  /**
-   * @generated from field: double cache_share = 4;
-   */
-  cacheShare: number;
-
-  /**
-   * @generated from field: repeated lyon.v1.RoutingEntry routing = 5;
-   */
-  routing: RoutingEntry[];
-
-  /**
-   * @generated from field: repeated lyon.v1.LeaderboardView leaderboard = 6;
-   */
-  leaderboard: LeaderboardView[];
-};
-
-/**
- * Describes the message lyon.v1.GetOverviewResponse.
- * Use `create(GetOverviewResponseSchema)` to create a new message.
- */
-export const GetOverviewResponseSchema: GenMessage<GetOverviewResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 3);
+  fileDesc("ChdseW9uL3YxL2Rhc2hib2FyZC5wcm90bxIHbHlvbi52MSJqCgtTbmFwc2hvdFJlZhINCgV0aXRsZRgBIAEoCRIQCghtZXNzYWdlcxgCIAEoBRIsCghzYXZlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDAoEcGF0aBgEIAEoCSIWChRMaXN0U25hcHNob3RzUmVxdWVzdCJAChVMaXN0U25hcHNob3RzUmVzcG9uc2USJwoJc25hcHNob3RzGAEgAygLMhQubHlvbi52MS5TbmFwc2hvdFJlZjJiChBEYXNoYm9hcmRTZXJ2aWNlEk4KDUxpc3RTbmFwc2hvdHMSHS5seW9uLnYxLkxpc3RTbmFwc2hvdHNSZXF1ZXN0Gh4ubHlvbi52MS5MaXN0U25hcHNob3RzUmVzcG9uc2VCIlogbHlvbi1hZ2VudC9nZW4vZ28vbHlvbi92MTtseW9udjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message lyon.v1.SnapshotRef
@@ -216,7 +44,7 @@ export type SnapshotRef = Message<"lyon.v1.SnapshotRef"> & {
  * Use `create(SnapshotRefSchema)` to create a new message.
  */
 export const SnapshotRefSchema: GenMessage<SnapshotRef> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 4);
+  messageDesc(file_lyon_v1_dashboard, 0);
 
 /**
  * @generated from message lyon.v1.ListSnapshotsRequest
@@ -229,7 +57,7 @@ export type ListSnapshotsRequest = Message<"lyon.v1.ListSnapshotsRequest"> & {
  * Use `create(ListSnapshotsRequestSchema)` to create a new message.
  */
 export const ListSnapshotsRequestSchema: GenMessage<ListSnapshotsRequest> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 5);
+  messageDesc(file_lyon_v1_dashboard, 1);
 
 /**
  * @generated from message lyon.v1.ListSnapshotsResponse
@@ -246,24 +74,18 @@ export type ListSnapshotsResponse = Message<"lyon.v1.ListSnapshotsResponse"> & {
  * Use `create(ListSnapshotsResponseSchema)` to create a new message.
  */
 export const ListSnapshotsResponseSchema: GenMessage<ListSnapshotsResponse> = /*@__PURE__*/
-  messageDesc(file_lyon_v1_dashboard, 6);
+  messageDesc(file_lyon_v1_dashboard, 2);
 
 /**
  * DashboardService: read-only panels over $LYON_HOME on-disk data plus the
  * process aggregates /metrics already computes. Run dumps / audit are read
  * by the agent itself (pkg/agent/dumpread.go), not over the wire.
+ * (GetOverview — the evolution panel's routing/leaderboard half — went
+ * out with the evolution system.)
  *
  * @generated from service lyon.v1.DashboardService
  */
 export const DashboardService: GenService<{
-  /**
-   * @generated from rpc lyon.v1.DashboardService.GetOverview
-   */
-  getOverview: {
-    methodKind: "unary";
-    input: typeof GetOverviewRequestSchema;
-    output: typeof GetOverviewResponseSchema;
-  },
   /**
    * saved sessions
    *
