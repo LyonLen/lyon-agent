@@ -183,7 +183,9 @@ export default function SettingsPane() {
             <span className="set-dim">
               {engine?.gaugeModelSource === "knowledge-base"
                 ? " · 来自知识库"
-                : " · 来自启动配置（知识库不认识该模型）"}
+                : engine?.gaugeModelSource === "gateway"
+                  ? " · 来自网关标签"
+                  : " · 来自启动配置（知识库不认识该模型）"}
             </span>
           </span>
           <span>压缩阈值</span>

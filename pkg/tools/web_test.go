@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -340,6 +341,164 @@ func TestWebSearchEmptyQuery(t *testing.T) {
 	if _, err := s.Execute(context.Background(), in); err == nil {
 		t.Fatal("empty query should error")
 	}
+}
+
+func TestParseBaiduResults(t *testing.T) {
+	page := `<html><body>
+<div class="result c-container"><h3 class="t"><a href="/link?url=abc123" target="_blank">生物信息学<em>分析</em>工具软件采购公告</a></h3>
+<span class="content-right_8Zs40">采购方式:竞争性磋商 预算金额:45万元</span></div>
+<div class="result c-container"><h3><a href="https://example.com/direct">直接链接结果</a></h3>
+<div class="c-abstract">摘要文本在这里。</div></div>
+<div class="result c-container"><h3><a href="#anchor">跳过我</a></h3></div>
+<div class="result c-container"><h3><a href="/link?url=abc123">重复链接</a></h3></div>
+</body></html>`
+	got := parseBaiduResults(page)
+	if len(got) != 2 {
+		t.Fatalf("got %d results: %+v", len(got), got)
+	}
+	if !strings.HasPrefix(got[0].URL, "https://www.baidu.com/link?url=abc123") {
+		t.Fatalf("relative link not absolutized: %+v", got[0])
+	}
+	if got[0].Title != "生物信息学分析工具软件采购公告" {
+		t.Fatalf("title (em stripped) = %q", got[0].Title)
+	}
+	if !strings.Contains(got[0].Snippet, "竞争性磋商") {
+		t.Fatalf("snippet = %q", got[0].Snippet)
+	}
+	if got[1].URL != "https://example.com/direct" || got[1].Snippet != "摘要文本在这里。" {
+		t.Fatalf("second: %+v", got[1])
+	}
+}
+
+func TestParseBaiduBlocked(t *testing.T) {
+	// The seccaptcha stub Baidu serves when requests burst — must read
+	// as blocked (error path), not as an empty-but-ok parse.
+	stub := `<a href="https://bioc-static.cdn.bcebos.com/pages/ds_svcp.html?biocOrigin=https://seccaptcha-gs.baidu.com">Found</a>.`
+	if !baiduBlocked(stub) {
+		t.Fatal("seccaptcha stub not detected")
+	}
+	if baiduBlocked(`<html><title>x_百度搜索</title><h3><a href="/link?url=1">r</a></h3></html>`) {
+		t.Fatal("normal SERP flagged as blocked")
+	}
+}
+
+// The gate is the promise that unrelated results never reach the model:
+// every observed Bing decoy mode must fail it, real results pass.
+func TestResultsRelevant(t *testing.T) {
+	tender := "生物信息学软件 政府采购 招标公告 单一来源 license"
+	cases := []struct {
+		name    string
+		results []SearchResult
+		query   string
+		want    bool
+	}{
+		{
+			"tender query vs decoy news",
+			[]SearchResult{{Title: "盘点2026年9月去世的10位明星", Snippet: "每一位都让人十分惋惜"}},
+			tender, false,
+		},
+		{
+			"tender query vs dictionary fallback",
+			[]SearchResult{
+				{Title: "生物（拥有生命功能的生命体）_百度百科", Snippet: "生物学是研究生命现象的学科"},
+				{Title: "高中生物知识点总结 - 知乎", Snippet: "高中生物知识点"},
+			},
+			tender, false,
+		},
+		{
+			"obituary query vs first-char dictionary",
+			[]SearchResult{
+				{Title: "洪（汉语文字）_百度百科", Snippet: "洪是一个汉字"},
+				{Title: "洪 hóng - 汉典", Snippet: "洪的读音意思"},
+			},
+			"洪健华去世", false,
+		},
+		{
+			"tender query vs real Baidu hits",
+			[]SearchResult{
+				{Title: "生物信息学分析工具软件采购项目竞争性磋商公告", Snippet: "采购方式:竞争性磋商"},
+				{Title: "内蒙古大学招标采购中心", Snippet: "生物信息学服务器采购更正公告"},
+			},
+			tender, true,
+		},
+		{
+			"short query passes on one unit",
+			[]SearchResult{{Title: "北京天气预报,7天天气预报", Snippet: "北京天气查询"}},
+			"北京天气", true,
+		},
+		{
+			"latin query",
+			[]SearchResult{{Title: "Go 1.25 Release Notes", Snippet: "The official release notes for Go 1.25."}},
+			"go 1.25", true,
+		},
+	}
+	for _, c := range cases {
+		if got := resultsRelevant(c.results, c.query); got != c.want {
+			t.Errorf("%s: resultsRelevant = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestSearchOrder(t *testing.T) {
+	cjk := searchOrder("国务院放假通知")
+	if cjk[0].name != "baidu" || cjk[1].name != "bing" {
+		t.Fatalf("CJK order = %s,%s, want baidu,bing", cjk[0].name, cjk[1].name)
+	}
+	lat := searchOrder("golang context cancel pattern")
+	if lat[0].name != "bing" || lat[1].name != "baidu" {
+		t.Fatalf("latin order = %s,%s, want bing,baidu", lat[0].name, lat[1].name)
+	}
+}
+
+// CJK queries take the Baidu leg end to end: a Baidu-shaped SERP from
+// the local server must come back as the numbered model-facing list.
+func TestWebSearchBaiduEndpoint(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.RawQuery, "wd=") {
+			t.Errorf("query not in wd param: %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body><div class="result c-container">
+<h3><a href="/link?url=tender1">国务院办公厅关于2026年放假安排的通知</a></h3>
+<span class="content-right_x">放假安排：春节、国庆各休息。</span>
+</div></body></html>`))
+	}))
+	defer ts.Close()
+
+	s := &WebSearch{Client: &http.Client{Transport: rewriteTo(ts.URL)}}
+	in, _ := json.Marshal(webSearchInput{Query: "国务院放假通知"})
+	out, err := s.Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	text := out[0].OfText.Text
+	for _, want := range []string{"1. 国务院办公厅关于2026年放假安排的通知", "https://www.baidu.com/link?url=tender1", "放假安排"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in %q", want, text)
+		}
+	}
+}
+
+// Opt-in live probe: runs the real engine ladder against the real
+// endpoints. LYON_LIVE_SEARCH=1 go test ./pkg/tools -run TestLiveSearch -v
+// LYON_SEARCH_QUERY overrides the probe query.
+func TestLiveSearch(t *testing.T) {
+	if os.Getenv("LYON_LIVE_SEARCH") == "" {
+		t.Skip("set LYON_LIVE_SEARCH=1 to hit the real search endpoints")
+	}
+	q := os.Getenv("LYON_SEARCH_QUERY")
+	if q == "" {
+		// The report that started the ladder: a tender query that came
+		// back with air-fryer recipes / obituaries from Bing.
+		q = "生物信息学软件 政府采购 招标公告 单一来源 license"
+	}
+	s := &WebSearch{}
+	in, _ := json.Marshal(webSearchInput{Query: q})
+	out, err := s.Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("search %q: %v", q, err)
+	}
+	t.Logf("query=%q\n%s", q, out[0].OfText.Text)
 }
 
 // rewriteTo redirects every request to the test server, preserving the

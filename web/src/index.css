@@ -2788,12 +2788,19 @@ button.ce-save { font-size: 11px; padding: 1px 8px; }
 }
 .td-chips { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .td-chip {
+  position: relative;
   display: flex; align-items: stretch; background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--radius-2);
   overflow: hidden; min-height: 21px; transition: border-color var(--dur-1);
   cursor: grab;
 }
-.td-chip:active { cursor: grabbing; }
+/* The chip is a drag source as a whole — its buttons (label/status/×)
+   keep their click behavior but must show the grab cursor too, or the
+   label reads as click-only and nobody tries dragging it (the
+   点进详情页改时间 report). Higher specificity beats the children's
+   cursor: pointer regardless of order. */
+.td-chip, .td-chip button { cursor: grab; }
+.td-chip:active, .td-chip button:active { cursor: grabbing; }
 /* drop target while dragging a todo chip over the cell */
 .td-cell.dropping { box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--bg-select); }
 .td-chip:hover { border-color: var(--line-soft); }
@@ -2824,6 +2831,19 @@ button.ce-save { font-size: 11px; padding: 1px 8px; }
   cursor: pointer; text-align: left; padding: 1px 4px;
 }
 .td-more:hover { color: var(--accent); }
+
+/* Edge-resize handles on chips: thin strips over the outermost pixels
+   of both ends (above status/× — those corners resize, not click),
+   hover-revealed; col-resize announces the axis before the reveal. */
+.td-rz {
+  position: absolute; top: 0; bottom: 0; width: 6px; z-index: 3;
+  cursor: col-resize; background: transparent; opacity: 0;
+  transition: opacity var(--dur-1);
+}
+.td-rz.l { left: 0; }
+.td-rz.r { right: 0; }
+.td-chip:hover .td-rz { opacity: .55; }
+.td-rz:hover { opacity: 1; background: var(--accent); }
 
 /* day popover: quick-add + full day list (flips up on the last row,
    left on the right column — same rule as the weekcal package) */
@@ -2905,11 +2925,39 @@ button.td-g-lab:hover { background: var(--bg-hover); }
   color: #fff; font-size: 11px; cursor: pointer; padding: 0; overflow: hidden;
   display: flex; align-items: center; z-index: 2;
   transition: filter var(--dur-1);
+  user-select: none;
 }
 .td-bar:hover { filter: brightness(1.12); }
 .td-bar.st-completed { opacity: .45; }
 .td-bar.over { background: var(--danger); border-color: rgba(255, 255, 255, .18); }
+.td-bar.moving { cursor: grabbing; filter: brightness(1.12); transition: none; }
+.td-bar.rz { transition: none; }
 .td-bartxt { padding: 0 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* Bar edge handles — same language as the month chips' .td-rz: thin
+   strips at both ends, hover-revealed, col-resize cursor. */
+.td-h {
+  position: absolute; top: 0; bottom: 0; width: 7px; z-index: 3;
+  cursor: col-resize; background: transparent; opacity: 0;
+  transition: opacity var(--dur-1);
+}
+.td-h.l { left: 0; }
+.td-h.r { right: 0; }
+.td-bar:hover .td-h { opacity: .7; }
+.td-h:hover { opacity: 1; background: rgba(255, 255, 255, .9); }
+
+/* Inline quick-add (double-click a dated gantt row's track) */
+.td-g-add {
+  position: absolute; top: 2px; z-index: 30; min-width: 200px;
+  background: var(--bg-select); border: 1px solid var(--line-soft);
+  border-radius: var(--radius-3); box-shadow: var(--shadow-strong);
+  padding: 4px; cursor: default;
+}
+.td-g-add input {
+  width: 100%; box-sizing: border-box; background: var(--bg-sunken);
+  border: 1px solid var(--line); color: var(--fg); border-radius: var(--radius-2);
+  padding: 4px 7px; font-size: 12px; outline: none;
+}
+.td-g-add input:focus { border-color: var(--accent-line); }
 .td-g-rule {
   position: absolute; top: 14px; height: 6px; border-radius: 3px;
   background: var(--line-soft); overflow: hidden; z-index: 1;

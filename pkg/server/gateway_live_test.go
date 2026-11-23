@@ -14,6 +14,12 @@ func TestLiveGatewayModels(t *testing.T) {
 	if os.Getenv("LYON_LIVE_GATEWAY") == "" {
 		t.Skip("set LYON_LIVE_GATEWAY=1 to hit the configured endpoint")
 	}
+	// Sync first — GetSettings does this on every panel open; the list
+	// below must show the enriched rows (kimi ctx=1000000 from its "1M"
+	// tag), not the bare gateway ids.
+	if err := refreshGatewayKB(context.Background(), ""); err != nil {
+		t.Logf("pricing refresh: %v (list continues without it)", err)
+	}
 	list, source, errText := buildModels(context.Background(), "")
 	t.Logf("endpoint=%s source=%s err=%q rows=%d", modelsEndpoint(""), source, errText, len(list))
 	for _, m := range list {

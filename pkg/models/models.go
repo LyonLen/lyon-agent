@@ -1,14 +1,19 @@
 // Package models is the built-in model knowledge base: context windows,
 // output caps, official parameter recommendations and reference pricing
 // for the model families this CLI is likely to talk to. It powers the
-// /model card in the TUI and feeds the context-usage display — no network,
-// no surprises, and deliberately conservative: entries record only facts
-// with a stable published source, and pricing is marked as reference
-// (vendors reprice; trust the vendor page over this table).
+// /model card in the TUI and feeds the context-usage display — this
+// package performs no network I/O itself, and is deliberately
+// conservative: curated entries record only facts with a stable
+// published source, and pricing is marked as reference (vendors reprice;
+// trust the vendor page over this table).
 //
-// Lookup is exact first, then longest wildcard pattern ("gpt-4o-*"),
-// case-insensitive. Unknown ids return nil — callers fall back to the
-// configured ContextWindow rather than guessing.
+// Lookup resolves an id against the curated registry first (exact match,
+// then longest wildcard pattern like "gpt-4o-*", case-insensitive), then
+// against the gateway overlay (gateway.go): an id the registry has never
+// heard of may still resolve from a New-API /api/pricing sync, which
+// carries the endpoint's own context tags and quota ratios. Unknown ids
+// return nil — callers fall back to the configured ContextWindow rather
+// than guessing.
 package models
 
 import (
@@ -324,10 +329,25 @@ func init() {
 	sort.SliceStable(registry, func(i, j int) bool { return registry[i].ID < registry[j].ID })
 }
 
-// Lookup resolves a model id to its knowledge card. Exact match first
-// (case-insensitive), then the longest wildcard pattern that prefixes it.
-// Unknown ids return nil — never guess a context window.
+// Lookup resolves a model id to its knowledge card: the curated registry
+// first (exact match, then the longest wildcard pattern that prefixes it),
+// then the gateway overlay filled by a /api/pricing sync. Unknown ids
+// return nil — never guess a context window.
 func Lookup(id string) *Info {
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" {
+		return nil
+	}
+	if e := lookupStatic(id); e != nil {
+		return e
+	}
+	return lookupGateway(id)
+}
+
+// lookupStatic is the curated registry only — exact match, then longest
+// wildcard prefix, case-insensitive. Callers pass a lowercase id; the
+// re-normalization here is idempotent (MergeGatewayPricing path).
+func lookupStatic(id string) *Info {
 	id = strings.ToLower(strings.TrimSpace(id))
 	if id == "" {
 		return nil

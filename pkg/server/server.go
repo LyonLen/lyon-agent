@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -104,6 +105,20 @@ func New(eng *agent.Engine, store *Store) *Server {
 	// in pkg/mindmap, distill + human edits inject into the hub from here.
 	mmPath, mmHandler := lyonv1connect.NewMindmapServiceHandler(&mindmapService{s: s})
 	s.mux.Handle(mmPath, mmHandler)
+	// Gateway model enrichment (best-effort, async): a New-API gateway
+	// declares context tags and quota ratios on /api/pricing — pull them
+	// once at startup so the ctx gauge and compaction see the real window
+	// of an unknown id (kimi's 1M) instead of the 200k launch fallback.
+	// GetSettings refreshes the same overlay on every panel open; a
+	// gateway without the API just errors into a no-op. The 5s bound keeps
+	// a black-holed endpoint off the startup path.
+	go func(base string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if refreshGatewayKB(ctx, base) == nil {
+			eng.RefreshModelWindow()
+		}
+	}(eng.Config().OpenAIBase)
 	return s
 }
 

@@ -1,9 +1,17 @@
 // TodoMonth — Monday-first month grid for the todos pane (the weekcal
 // design package's day-cell rules, lyon dark theme): weekend tint,
 // today border + badge, chips spanning [start, end], max 3 chips then
-// “+N” (opens the day list), click-cell popover with quick-add.
+// “+N” (opens the day list), click-cell popover with quick-add,
+// chip-edge resize (grab the left/right edge to move that end of the
+// span — 拖右边界改结束日期).
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as RPointerEvent,
+} from "react";
 import {
   addDays,
   isWeekendYmd,
@@ -38,6 +46,7 @@ type Props = {
   armOrRun: (key: string, run: () => void) => void;
   onDelete: (id: string) => void;
   onDropTodo: (id: string, date: string) => void; // drag → schedule
+  onResize: (id: string, side: "start" | "end", date: string) => void; // edge drag
 };
 
 const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
@@ -55,6 +64,7 @@ export default function TodoMonth({
   armOrRun,
   onDelete,
   onDropTodo,
+  onResize,
 }: Props) {
   const today = todayYmd();
   const [quick, setQuick] = useState("");
@@ -62,6 +72,26 @@ export default function TodoMonth({
   // the document-level dragend (the source may live outside this pane,
   // e.g. a tray chip, so per-element dragleave is not reliable).
   const [dropKey, setDropKey] = useState<string | null>(null);
+  // Where the current press started. A press on a chip that ends as a
+  // click on the cell (a micro-drag under the drag threshold, a border
+  // click, an aborted drag) must NOT open the quick-add popover — that
+  // stray empty input was the "我没有输入但是这里好像是输入样式" report.
+  // Every pointerdown overwrites it, so a stale true can't leak into a
+  // later genuine day click.
+  const pressOnChip = useRef(false);
+  // Edge-resize gesture: a press on .td-rz captures the pointer and
+  // tracks the hovered day; release commits the new start/end through
+  // onResize. preventDefault on pointerdown kills the compat mousedown,
+  // so no HTML5 drag starts from the handle and no click leaks to the
+  // cell popover (pressOnChip guards that path too). dirty stays false
+  // for a press with no day change — a bare click on the edge is silent.
+  const [rz, setRz] = useState<{
+    id: string;
+    side: "start" | "end";
+    orig: string;
+    target: string;
+    dirty: boolean;
+  } | null>(null);
   useEffect(() => {
     const clear = () => setDropKey(null);
     document.addEventListener("dragend", clear);
@@ -116,6 +146,48 @@ export default function TodoMonth({
     setQuick("");
   };
 
+  const rzDown = (e: RPointerEvent<HTMLElement>, t: TodoEntry, side: "start" | "end") => {
+    if (e.button !== 0) return;
+    const span = spanOf(t);
+    if (!span) return;
+    e.preventDefault(); // no mousedown → no chip drag, no cell click
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // capture is best-effort; moves outside the handle just won't track
+    }
+    const edge = side === "end" ? span[1] : span[0];
+    setRz({ id: t.id, side, orig: edge, target: edge, dirty: false });
+  };
+
+  const rzMove = (e: RPointerEvent<HTMLElement>) => {
+    if (!rz) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = el instanceof Element ? el.closest(".td-cell") : null;
+    const key = cell instanceof HTMLElement ? cell.dataset.day ?? null : null;
+    if (!key || key === rz.target) return;
+    setRz({ ...rz, target: key, dirty: true });
+    setDropKey(key); // reuse the drop-target highlight while resizing
+  };
+
+  const rzUp = (e: RPointerEvent<HTMLElement>) => {
+    if (!rz) return;
+    const st = rz;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // already released by the browser at pointerup
+    }
+    setRz(null);
+    setDropKey(null);
+    if (st.dirty) onResize(st.id, st.side, st.target);
+  };
+
+  const rzCancel = () => {
+    setRz(null);
+    setDropKey(null);
+  };
+
   return (
     <div className="td-month">
       <div className="td-wk">
@@ -136,6 +208,7 @@ export default function TodoMonth({
           return (
             <div
               key={c.key}
+              data-day={c.key}
               className={[
                 "td-cell",
                 c.out ? "out" : "",
@@ -146,7 +219,19 @@ export default function TodoMonth({
               ]
                 .filter(Boolean)
                 .join(" ")}
-              onClick={() => (pop ? closePop() : onPop(c.key))}
+              onPointerDown={(e) => {
+                const t = e.target;
+                pressOnChip.current =
+                  t instanceof Element && t.closest(".td-chip") !== null;
+              }}
+              onClick={() => {
+                if (pressOnChip.current) {
+                  pressOnChip.current = false;
+                  return;
+                }
+                if (pop) closePop();
+                else onPop(c.key);
+              }}
               onDragOver={(e) => {
                 if (!e.dataTransfer.types.includes(TODO_DND_TYPE)) return;
                 e.preventDefault();
@@ -169,6 +254,7 @@ export default function TodoMonth({
                 {dayTodos.slice(0, 3).map((t) => {
                   const key = "t:" + t.id;
                   const armed = arm === key;
+                  const sp = spanOf(t);
                   return (
                     <div
                       key={t.id}
@@ -179,6 +265,30 @@ export default function TodoMonth({
                         e.dataTransfer.effectAllowed = "move";
                       }}
                     >
+                      {/* edge handles: thin strips over the chip's outer
+                          pixels (above status/× so those corners resize),
+                          hover-revealed, col-resize cursor announces the
+                          axis. Only a real day change commits. */}
+                      {sp && (
+                        <>
+                          <i
+                            className="td-rz l"
+                            title="拖动改开始日期"
+                            onPointerDown={(e) => rzDown(e, t, "start")}
+                            onPointerMove={rzMove}
+                            onPointerUp={rzUp}
+                            onPointerCancel={rzCancel}
+                          />
+                          <i
+                            className="td-rz r"
+                            title="拖动改结束日期"
+                            onPointerDown={(e) => rzDown(e, t, "end")}
+                            onPointerMove={rzMove}
+                            onPointerUp={rzUp}
+                            onPointerCancel={rzCancel}
+                          />
+                        </>
+                      )}
                       <button
                         type="button"
                         className="td-cg"

@@ -121,6 +121,24 @@ func (e *Engine) SetModels(main, subagent string) error {
 	return nil
 }
 
+// RefreshModelWindow re-seeds the live tier's context window from the
+// knowledge base (curated registry, then gateway overlay). SetModels and
+// NewEngine already seed from Lookup, but a /api/pricing sync can enrich
+// an id AFTER the tier was stored — without this, a 1M kimi model launched
+// (or switched) before the sync would keep compacting against the 200k
+// launch fallback forever. No-op when the window already matches.
+func (e *Engine) RefreshModelWindow() {
+	t := e.tierNow()
+	window := e.cfg.ContextWindow
+	if info := models.Lookup(t.model); info != nil && info.Context > 0 {
+		window = info.Context
+	}
+	if window == t.contextWindow {
+		return
+	}
+	e.tier.Store(&modelTier{model: t.model, subagent: t.subagent, contextWindow: window})
+}
+
 // acquireTurn takes a turn slot, blocking until one frees or ctx ends.
 // Returns false when ctx cancelled while waiting.
 func (e *Engine) acquireTurn(ctx context.Context) bool {

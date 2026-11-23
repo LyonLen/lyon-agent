@@ -3,9 +3,12 @@
 // switch; the doc is global, the UI is too). Entry points: topbar「待办」,
 // /todos, sidebar「＋」. Contents:
 //   · goals rail (整体目标): add / rename / two-click delete, filter
-//   · 月历 view: Monday-first month grid, day cells, chips, quick-add
+//   · 月历 view: Monday-first month grid, day cells, chips, quick-add,
+//     drag-to-schedule, chip-edge resize (拖右边界改结束日期)
 //   · 甘特 view: auto-fit timeline grouped by goal, weekend shading,
-//     today line, undated section
+//     today line, undated section; double-click adds (undated row →
+//     schedule that day, dated row → inline quick-add), bar body drag
+//     moves the span, bar edges resize it
 //   · session links: every entry may reference session ids; the modal
 //     jumps to a linked session or links the current one.
 //   · 会话填充 (拿会话填充待办): a toolbar popover, plus the sidebar
@@ -336,9 +339,11 @@ export default function TodosPane({
     onFillConsumed();
   }, [loaded, fillQueue, mutate, sessionEntry, flashMsg, onFillConsumed]);
 
-  // ESC ladder: modal → popover → overlay. The guards matter: TodoModal
-  // listens on document too (it runs after this effect on the same
-  // keypress), and one press must only collapse the topmost open layer.
+  // ESC ladder: modal → fill popover → quick-add day popover → overlay.
+  // The guards matter: TodoModal listens on document too (it runs after
+  // this effect on the same keypress), and one press must only collapse
+  // the topmost open layer — skipping popDate used to let ESC nuke the
+  // whole pane while an empty quick-add sat open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -347,11 +352,15 @@ export default function TodosPane({
         setFillOpen(false);
         return;
       }
+      if (popDate) {
+        setPopDate(null);
+        return;
+      }
       onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [draft, fillOpen, onClose]);
+  }, [draft, fillOpen, popDate, onClose]);
 
   // ── entry operations ───────────────────────────────────────────
   const openEntry = useCallback((t: TodoEntry) => {
@@ -429,9 +438,15 @@ export default function TodosPane({
   }, [draft, mutate]);
 
   const quickAdd = useCallback(
-    (date: string, content: string) => {
+    (date: string, content: string, goalId?: string) => {
       const c = content.trim();
       if (!c) return;
+      // goalId override: the gantt quick-add anchors to the row you
+      // double-clicked, so the new entry lands in THAT section instead
+      // of wherever the rail filter happens to point.
+      const gid =
+        goalId ??
+        (filterGoal !== "all" && filterGoal !== "ungrouped" ? filterGoal : "");
       mutate((d) => {
         d.todos.push({
           id: uid("t_"),
@@ -439,7 +454,7 @@ export default function TodosPane({
           status: "pending",
           start: date,
           end: date,
-          goalId: filterGoal !== "all" && filterGoal !== "ungrouped" ? filterGoal : "",
+          goalId: gid,
           sessionIds: [],
           note: "",
         });
@@ -460,7 +475,12 @@ export default function TodosPane({
       const cur = docRef.current.todos.find((t) => t.id === id);
       if (!cur) return;
       const span = spanOf(cur);
-      if (span && date >= span[0] && date <= span[1]) return;
+      if (span && date >= span[0] && date <= span[1]) {
+        // A silent no-op reads as "the drag is broken" — say why
+        // nothing moved (dropping back onto the current day/range).
+        flashMsg(span[0] === span[1] ? "同一天，未移动" : `仍在 ${span[0]}–${span[1]} 内`);
+        return;
+      }
       mutate((d) => {
         const t = d.todos.find((x) => x.id === id);
         if (!t) return d;
@@ -477,6 +497,42 @@ export default function TodosPane({
       });
       setErr("");
       flashMsg(span ? `已移动到 ${date}` : `已排期 ${date}`);
+    },
+    [loaded, mutate, flashMsg],
+  );
+
+  // Edge resize: clamp the dragged edge against the other one — a span
+  // never inverts (start ≤ end), overshoot just pins at the boundary.
+  // Shared by the month chips' edge handles and the gantt bar handles.
+  const resizeTodo = useCallback(
+    (id: string, side: "start" | "end", date: string) => {
+      if (!loaded) return;
+      const cur = docRef.current.todos.find((t) => t.id === id);
+      if (!cur) return;
+      const span = spanOf(cur);
+      if (!span) return;
+      let [start, end] = span;
+      if (side === "end") {
+        end = date < start ? start : date;
+      } else {
+        start = date > end ? end : date;
+      }
+      if (start === span[0] && end === span[1]) {
+        // Dropped back on the current edge — say why nothing changed.
+        flashMsg(
+          span[0] === span[1] ? `同一天 ${span[0]}` : `跨度未变 ${span[0]}–${span[1]}`,
+        );
+        return;
+      }
+      mutate((d) => {
+        const t = d.todos.find((x) => x.id === id);
+        if (!t) return d;
+        t.start = start;
+        t.end = end;
+        return d;
+      });
+      setErr("");
+      flashMsg(start === end ? `已改到 ${start}` : `已改到 ${start}–${end}`);
     },
     [loaded, mutate, flashMsg],
   );
@@ -841,10 +897,18 @@ export default function TodosPane({
                   })
                 }
                 onDropTodo={dropTodoOn}
+                onResize={resizeTodo}
               />
             </>
           ) : (
-            <TodoGantt todos={visible} goals={doc.goals} onOpen={openEntry} />
+            <TodoGantt
+              todos={visible}
+              goals={doc.goals}
+              onOpen={openEntry}
+              onDropTodo={dropTodoOn}
+              onResize={resizeTodo}
+              onQuickAdd={quickAdd}
+            />
           )}
           {doc.todos.length === 0 && (
             <div className="td-empty">

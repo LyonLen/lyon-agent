@@ -144,15 +144,20 @@ func modelProto(i *models.Info) *lyonv1.ModelInfo {
 }
 
 // engineProto reports the effective config. gauge_model_source names where
-// the gauge's denominator came from: "knowledge-base" when the knowledge
-// base knows the live model, "config" when the launch-time ContextWindow
-// stands in for an unknown id — the two are different numbers and the panel
-// must not pretend otherwise.
+// the gauge's denominator came from: "knowledge-base" when the curated
+// registry knows the live model, "gateway" when a /api/pricing sync filled
+// the window from the endpoint's own tags, "config" when the launch-time
+// ContextWindow stands in for an unknown id — three different numbers and
+// the panel must not pretend otherwise.
 func (s *settingsService) engineProto() *lyonv1.EngineSettings {
 	cfg := s.s.eng.Config()
 	source := "config"
 	if info := models.Lookup(cfg.Model); info != nil && info.Context > 0 {
-		source = "knowledge-base"
+		if models.Source(cfg.Model) == "gateway" {
+			source = "gateway"
+		} else {
+			source = "knowledge-base"
+		}
 	}
 	return &lyonv1.EngineSettings{
 		Model:              cfg.Model,
@@ -210,6 +215,60 @@ func modelsEndpoint(openaiBase string) string {
 		base = "https://api.anthropic.com"
 	}
 	return strings.TrimRight(base, "/") + "/v1/models"
+}
+
+// pricingEndpoint resolves the same origin's New-API pricing list — the
+// metadata source for ids the curated registry does not know: context
+// tags ("Reasoning,Tools,Vision,1M"), descriptions and quota ratios.
+// Origin rules mirror modelsEndpoint: an OpenAI base already carries its
+// /v1, so pricing hangs off the bare host; an Anthropic base is a bare
+// host (or /v1-less) and gets /api/pricing appended.
+func pricingEndpoint(openaiBase string) string {
+	if b := strings.TrimRight(strings.TrimSpace(openaiBase), "/"); b != "" {
+		return strings.TrimSuffix(b, "/v1") + "/api/pricing"
+	}
+	base := envFirst("LYON_BASE_URL", "ANTHROPIC_BASE_URL")
+	if base == "" {
+		base = "https://api.anthropic.com"
+	}
+	base = strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
+	return base + "/api/pricing"
+}
+
+// refreshGatewayKB pulls the endpoint's /api/pricing and merges the rows
+// the curated registry does not know into the models overlay. Best-effort
+// by design: a gateway without the API (plain Anthropic, the e2e mock)
+// errors out, the overlay stays as it was, and every caller keeps today's
+// behavior. Callers that report a window should follow a successful
+// refresh with eng.RefreshModelWindow() so the compaction denominator
+// picks up the new numbers too.
+func refreshGatewayKB(ctx context.Context, openaiBase string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pricingEndpoint(openaiBase), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	if key := gatewayKey(); key != "" {
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := gatewayClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("HTTP %d %s", resp.StatusCode, firstLine(body))
+	}
+	var doc struct {
+		Data []models.GatewayPricing `json:"data"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return fmt.Errorf("decode: %w", err)
+	}
+	models.MergeGatewayPricing(doc.Data)
+	return nil
 }
 
 // gatewayKey is the credential the engine would send: an API key wins over
@@ -303,6 +362,13 @@ func buildModels(ctx context.Context, openaiBase string) ([]*lyonv1.ModelInfo, s
 }
 
 func (s *settingsService) GetSettings(ctx context.Context, _ *connect.Request[lyonv1.GetSettingsRequest]) (*connect.Response[lyonv1.GetSettingsResponse], error) {
+	// Refresh the gateway overlay first so this panel (and the gauge after
+	// the window reseed) shows what the endpoint declares for ids the
+	// curated registry does not know — kimi's "1M" tag, not the 200k
+	// launch fallback. Best-effort: a gateway without /api/pricing keeps
+	// yesterday's overlay and the list below still loads.
+	_ = refreshGatewayKB(ctx, s.s.eng.Config().OpenAIBase)
+	s.s.eng.RefreshModelWindow()
 	list, source, mErr := buildModels(ctx, s.s.eng.Config().OpenAIBase)
 	env := make([]*lyonv1.EnvVar, 0, len(envCatalog))
 	for _, e := range envCatalog {

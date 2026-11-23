@@ -1,5 +1,5 @@
 import { timestampDate } from "@bufbuild/protobuf/wkt";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Session } from "../gen/lyon/v1/session_pb";
 import type { SnapshotRef } from "../gen/lyon/v1/dashboard_pb";
 
@@ -13,6 +13,30 @@ function shortWhen(d: Date): string {
 // full path rides the tooltip).
 function wsName(ws: string): string {
   return ws.split(/[\\/]/).filter(Boolean).pop() || "workspace";
+}
+
+// Workspace-fold persistence. The sessions pane REMOUNTS on every session
+// switch — the tiling layout hydrates per-session with fresh leaf nodeIds
+// (TilingWorkspace keys panes by nodeId) — so a component-local fold set
+// reset to "all expanded" on every row click ("点击后仍然会导致别的
+// project 展开"). The fold set is a sidebar view preference, not session
+// state: it lives in localStorage (the lyon_layout_v1 pattern) so it
+// survives both the remount and a reload.
+const FOLD_KEY = "lyon_ws_fold_v1";
+
+function loadFolded(): ReadonlySet<string> {
+  try {
+    const raw = localStorage.getItem(FOLD_KEY);
+    if (raw) {
+      const arr: unknown = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        return new Set(arr.filter((x): x is string => typeof x === "string"));
+      }
+    }
+  } catch {
+    // corrupt JSON or storage unavailable — treat as all expanded
+  }
+  return new Set();
 }
 
 export default function SessionList(props: {
@@ -39,8 +63,17 @@ export default function SessionList(props: {
   // Collapsed workspace groups, keyed by the group header's label — a
   // click on the header folds every session under that path (the sidebar
   // can hold dozens of rows per workspace; the fold is pure view state,
-  // sessions and the selection are untouched).
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // sessions and the selection are untouched). Seeded from (and written
+  // back to) localStorage — see FOLD_KEY above for why component state
+  // alone cannot hold it across the session-switch remount.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(loadFolded);
+  useEffect(() => {
+    try {
+      localStorage.setItem(FOLD_KEY, JSON.stringify([...collapsed]));
+    } catch {
+      // storage blocked — folds just don't survive the next remount
+    }
+  }, [collapsed]);
   const toggleGroup = (key: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);

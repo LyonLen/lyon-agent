@@ -22,6 +22,11 @@ import (
 // webBodyLimit caps how much of a fetched page we will read.
 const webBodyLimit = 512 * 1024
 
+// baiduBodyLimit: Baidu's SERP embeds the organic results deep in a
+// ~1MB page (forensics 2026-11-23: first b_algo h3 at byte ~810k) —
+// the webBodyLimit would truncate before the first result.
+const baiduBodyLimit = 2 << 20
+
 // webUserAgent avoids default-curl rejection on search endpoints.
 const webUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 
@@ -45,16 +50,20 @@ const (
 	web429MaxCooldown = 2 * time.Minute
 )
 
-// WebSearch performs a keyless web search against Bing's RSS output.
-// It is the client-side twin of Anthropic's server-side web_search, used when
-// the API endpoint (e.g. a gateway) rewrites server tools into client tool
-// calls. Parallel-safe: read-only outbound requests.
+// WebSearch performs a keyless web search through an engine ladder with
+// a relevance gate. It is the client-side twin of Anthropic's
+// server-side web_search, used when the API endpoint (e.g. a gateway)
+// rewrites server tools into client tool calls. Parallel-safe: read-only
+// outbound requests.
 //
-// format=rss beats the HTML scrape: stable <item> XML (no b_algo layout
-// to drift), direct URLs (no bing.com/ck/a redirect wrappers), and the
-// description rides along as the snippet. The endpoint splits by query
-// language — see searchRSSURL. The HTML parse stays as a fallback for
-// when Bing ignores the format flag.
+// Why a ladder: Bing from CN networks serves decoy results for tail
+// queries — a tender query came back with air-fryer recipes, a person's
+// obituary query with character-dictionary pages (forensics 2026-11-23;
+// same family as the 2026-11-16 ensearch findings on searchRSSURL).
+// CJK queries therefore go Baidu first, Latin queries keep Bing, and the
+// other engine is the second opinion. Every engine's output must pass
+// resultsRelevant before it reaches the model — unrelated results are an
+// error the model can reword against, never a silently wrong answer.
 type WebSearch struct {
 	Client *http.Client
 }
@@ -75,6 +84,27 @@ func (w *WebSearch) InputSchema() anthropic.BetaToolInputSchemaParam {
 	return schemaFor[webSearchInput]()
 }
 
+// searchEngine is one entry of the ladder: a name for the error report
+// and the fetch+parse for that endpoint.
+type searchEngine struct {
+	name  string
+	fetch func(ctx context.Context, client *http.Client, query string) ([]SearchResult, error)
+}
+
+// searchOrder picks the engine ladder for a query. CJK goes Baidu first
+// — from CN networks Bing's index serves decoy/dictionary results for
+// tail queries (forensics 2026-11-23) — while Latin queries keep Bing
+// (its international index reads English better) with Baidu as the
+// second opinion. Every engine's output faces resultsRelevant.
+func searchOrder(query string) []searchEngine {
+	baidu := searchEngine{name: "baidu", fetch: fetchBaidu}
+	bing := searchEngine{name: "bing", fetch: fetchBing}
+	if hasCJK(query) {
+		return []searchEngine{baidu, bing}
+	}
+	return []searchEngine{bing, baidu}
+}
+
 func (w *WebSearch) Execute(ctx context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
 	var in webSearchInput
 	if err := json.Unmarshal(input, &in); err != nil {
@@ -84,16 +114,58 @@ func (w *WebSearch) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 		return nil, fmt.Errorf("empty query")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchRSSURL(in.Query), nil)
+	client := w.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	var why []string
+	for _, eng := range searchOrder(in.Query) {
+		results, err := eng.fetch(ctx, client, in.Query)
+		if err != nil {
+			why = append(why, fmt.Sprintf("%s: %v", eng.name, err))
+			continue
+		}
+		if len(results) == 0 {
+			why = append(why, eng.name+": no results")
+			continue
+		}
+		if !resultsRelevant(results, in.Query) {
+			// The observed Bing failure mode: parseable, coherent, and
+			// about something else entirely. Never hand that to the model.
+			why = append(why, eng.name+": results unrelated to the query")
+			continue
+		}
+		var b strings.Builder
+		for i, r := range results {
+			fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, r.Title, r.URL)
+			if r.Snippet != "" {
+				fmt.Fprintf(&b, "   %s\n", r.Snippet)
+			}
+		}
+		return TextResult(b.String()), nil
+	}
+	return nil, fmt.Errorf(
+		"search found nothing relevant (%s) — reword or shorten the query",
+		strings.Join(why, "; "),
+	)
+}
+
+// fetchBing hits Bing's RSS endpoint (HTML scrape as the fallback for
+// when the format flag is ignored) — the pre-ladder behavior, kept as
+// the Latin primary and the CJK second opinion.
+func fetchBing(ctx context.Context, client *http.Client, query string) ([]SearchResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchRSSURL(query), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", webUserAgent)
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	client := w.Client
-	if client == nil {
-		client = http.DefaultClient
+	// Match the index the URL picked: a CJK query on the CN index with
+	// Accept-Language: en-US is exactly the mismatch that fed decoys.
+	if hasCJK(query) {
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	} else {
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -107,7 +179,6 @@ func (w *WebSearch) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	if err != nil {
 		return nil, fmt.Errorf("read search results: %w", err)
 	}
-
 	// RSS first; when Bing ignores format=rss the body is still HTML and
 	// the layout scrape gets the last word before we declare failure.
 	results := parseBingRSS(string(body))
@@ -117,14 +188,43 @@ func (w *WebSearch) Execute(ctx context.Context, input json.RawMessage) ([]anthr
 	if len(results) == 0 {
 		return nil, fmt.Errorf("no parseable results (endpoint layout may have changed)")
 	}
-	var b strings.Builder
-	for i, r := range results {
-		fmt.Fprintf(&b, "%d. %s\n   %s\n", i+1, r.Title, r.URL)
-		if r.Snippet != "" {
-			fmt.Fprintf(&b, "   %s\n", r.Snippet)
-		}
+	return results, nil
+}
+
+// fetchBaidu hits Baidu's web SERP. The response is a ~1MB HTML page
+// whose organic results sit deep inside (see baiduBodyLimit); a
+// seccaptcha interstitial (the ds_svcp stub) means rate-limited — an
+// error the ladder reports, not results to parse.
+func fetchBaidu(ctx context.Context, client *http.Client, query string) ([]SearchResult, error) {
+	u := "https://www.baidu.com/s?wd=" + url.QueryEscape(query) + "&rn=10&ie=utf-8"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
 	}
-	return TextResult(b.String()), nil
+	req.Header.Set("User-Agent", webUserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	if hasCJK(query) {
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	} else {
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("search request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("search endpoint returned HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, baiduBodyLimit))
+	if err != nil {
+		return nil, fmt.Errorf("read search results: %w", err)
+	}
+	page := string(body)
+	if baiduBlocked(page) {
+		return nil, fmt.Errorf("verification page (rate-limited)")
+	}
+	return parseBaiduResults(page), nil
 }
 
 // SearchResult is one organic result from the scraped page. Snippet is
@@ -264,6 +364,228 @@ func cleanSearchText(s string) string {
 	s = reTag.ReplaceAllString(s, " ")
 	s = html.UnescapeString(s)
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// cleanBaiduText prepares raw Baidu markup for snippet duty: paired
+// script/style and comment blocks go first (their contents are page
+// config, not prose), then unescape→strip→unescape→strip — Baidu mixes
+// raw tags with ESCAPED tags (&lt;table&gt;), and the second unescape
+// would otherwise re-materialize the escaped ones as visible markup
+// after the first strip. Tag-stripping leaves spaces, which would
+// shatter CJK titles around a highlighted <em> — Han gaps are re-closed
+// (two passes: one covers alternating gaps, the second the remainder).
+func cleanBaiduText(s string) string {
+	s = reScriptish.ReplaceAllString(s, " ")
+	s = reComment.ReplaceAllString(s, " ")
+	s = html.UnescapeString(s)
+	s = reTag.ReplaceAllString(s, " ")
+	s = html.UnescapeString(s)
+	s = reTag.ReplaceAllString(s, " ")
+	s = strings.Join(strings.Fields(s), " ")
+	s = reHanGap.ReplaceAllString(s, "$1$2")
+	return reHanGap.ReplaceAllString(s, "$1$2")
+}
+
+// cutDangling trims a window cut mid-construction: an unterminated
+// comment/script/style/tag at the end carries Baidu's embedded config
+// JSON (<!--s-data:{...}-->), which must never surface as snippet text.
+func cutDangling(s string) string {
+	if i := strings.LastIndex(s, "<!--"); i >= 0 && !strings.Contains(s[i:], "-->") {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "<script"); i >= 0 && !strings.Contains(s[i:], "</script>") {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "<style"); i >= 0 && !strings.Contains(s[i:], "</style>") {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "<"); i >= 0 && !strings.Contains(s[i:], ">") {
+		s = s[:i]
+	}
+	return s
+}
+
+// reHanGap closes single spaces between Han characters (see
+// cleanBaiduText).
+var reHanGap = regexp.MustCompile(`(\p{Han}) +(\p{Han})`)
+
+// baiduBlocked spots Baidu's anti-bot interstitial: a tiny stub page
+// linking to seccaptcha/ds_svcp instead of a SERP (observed when
+// requests arrive in a burst).
+func baiduBlocked(page string) bool {
+	return strings.Contains(page, "seccaptcha") ||
+		strings.Contains(page, "ds_svcp") ||
+		strings.Contains(page, "百度安全验证")
+}
+
+// reBaiduResult anchors on the organic result shape: <h3> wrapping a
+// single <a href>, both bare of required attributes (Baidu varies
+// classes per template but keeps this skeleton). Stray tags between
+// h3 and the anchor are tolerated.
+var (
+	reBaiduResult = regexp.MustCompile(`(?s)<h3[^>]*>(?:\s*<[^>]+>)*\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>`)
+	// Snippet containers, tried in order — the hashed class names
+	// (content-right_8Zs40) drift, the stable fragments do not.
+	reBaiduSnip = []*regexp.Regexp{
+		regexp.MustCompile(`(?s)class="[^"]*content-right[^"]*"[^>]*>(.*?)</(?:span|div)>`),
+		regexp.MustCompile(`(?s)class="[^"]*c-abstract[^"]*"[^>]*>(.*?)</div>`),
+		regexp.MustCompile(`(?s)class="[^"]*c-line-clamp\d[^"]*"[^>]*>(.*?)</div>`),
+	}
+)
+
+// parseBaiduResults extracts title/URL/snippet from a Baidu SERP,
+// de-duplicated, capped at 8 — same SearchResult shape as the Bing
+// paths so the renderer and the model see one format. Links are
+// baidu.com/link?url= redirects; web_fetch follows them to the target.
+func parseBaiduResults(page string) []SearchResult {
+	var out []SearchResult
+	seen := make(map[string]bool)
+	for _, m := range reBaiduResult.FindAllStringSubmatch(page, -1) {
+		u := strings.TrimSpace(html.UnescapeString(m[1]))
+		if strings.HasPrefix(u, "/") {
+			u = "https://www.baidu.com" + u
+		}
+		title := cleanBaiduText(m[2])
+		if u == "" || title == "" || seen[u] {
+			continue
+		}
+		if strings.HasPrefix(u, "#") {
+			continue
+		}
+		// Snippet: known containers inside the window after this title,
+		// else the window's own text — better a rough excerpt than none.
+		window := cutDangling(baiduWindow(page, m[0]))
+		snippet := ""
+		for _, re := range reBaiduSnip {
+			if sm := re.FindStringSubmatch(window); sm != nil {
+				snippet = cleanBaiduText(sm[1])
+				break
+			}
+		}
+		if snippet == "" {
+			snippet = cleanBaiduText(window)
+		}
+		if rs := []rune(snippet); len(rs) > 240 {
+			snippet = string(rs[:240]) + "…"
+		}
+		if len([]rune(snippet)) < 8 {
+			snippet = ""
+		}
+		seen[u] = true
+		out = append(out, SearchResult{Title: title, URL: u, Snippet: snippet})
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+// baiduWindow returns up to ~3KB of markup after a result's match —
+// the region that holds its snippet container.
+func baiduWindow(page, match string) string {
+	at := strings.Index(page, match)
+	if at < 0 {
+		return ""
+	}
+	start := at + len(match)
+	if start > len(page) {
+		return ""
+	}
+	end := start + 3000
+	if end > len(page) {
+		end = len(page)
+	}
+	return page[start:end]
+}
+
+// ── relevance gate ──────────────────────────────────────────────────
+
+// queryUnits is the vocabulary a result set must touch: each
+// whitespace token contributes Han bigrams (生物信息学 → 生物/物信/信息/
+// 息学 — a single Han rune stays itself) and lowercased ASCII runs of
+// ≥2 (gpt-5, license). Bigrams keep the gate language-agnostic without
+// a segmenter; requiring only a MINORITY of units (see resultsRelevant)
+// keeps a legitimate one-aspect result from being rejected.
+func queryUnits(q string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	for _, tok := range strings.Fields(q) {
+		var han strings.Builder
+		flushHan := func() {
+			rs := []rune(han.String())
+			switch {
+			case len(rs) == 0:
+			case len(rs) == 1:
+				add(string(rs))
+			default:
+				for i := 0; i+1 < len(rs); i++ {
+					add(string(rs[i : i+2]))
+				}
+			}
+			han.Reset()
+		}
+		var asc strings.Builder
+		flushAsc := func() {
+			if asc.Len() >= 2 {
+				add(strings.ToLower(asc.String()))
+			}
+			asc.Reset()
+		}
+		for _, r := range tok {
+			switch {
+			case unicode.Is(unicode.Han, r):
+				flushAsc()
+				han.WriteRune(r)
+			case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+				(r >= '0' && r <= '9') || r == '_' || r == '-':
+				flushHan()
+				asc.WriteRune(r)
+			default:
+				flushHan()
+				flushAsc()
+			}
+		}
+		flushHan()
+		flushAsc()
+	}
+	return out
+}
+
+// resultsRelevant reports whether the result set visibly concerns the
+// query: at least min(2, units) distinct units must appear across the
+// titles+snippets. The gate exists for Bing's decoy mode — air-fryer
+// recipes for a tender query, dictionary pages for an obituary — which
+// parses cleanly and would otherwise reach the model as fact.
+func resultsRelevant(results []SearchResult, query string) bool {
+	units := queryUnits(query)
+	if len(units) == 0 {
+		return true
+	}
+	need := 2
+	if len(units) < need {
+		need = len(units)
+	}
+	var b strings.Builder
+	for _, r := range results {
+		b.WriteString(r.Title)
+		b.WriteByte('\n')
+		b.WriteString(r.Snippet)
+		b.WriteByte('\n')
+	}
+	text := strings.ToLower(b.String())
+	hits := 0
+	for _, u := range units {
+		if strings.Contains(text, strings.ToLower(u)) {
+			hits++
+		}
+	}
+	return hits >= need
 }
 
 // WebFetch downloads a URL and returns its text content. HTML is stripped
