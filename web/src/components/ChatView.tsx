@@ -12,7 +12,7 @@ import { toolDisplayName } from "../toolNames";
 import { uploadPaste } from "../paste";
 import { parseTodos } from "../todos";
 import type { TodoItem } from "../todos";
-import { parseNodes } from "../mindmap";
+import { parseEdges, parseNodes } from "../mindmap";
 import type { MapNode, MindmapSnap } from "../mindmap";
 import { buildSelAsk, SEL_MARKER_RE, stripWireForDisplay } from "../selask";
 import { classifySteer } from "../steer";
@@ -907,7 +907,7 @@ export default function ChatView(props: {
    *  the optimistic apply lost a §5 conflict). seq bumps per command.
    *  sid tags the session the command belongs to (Image #69: a stale
    *  cmd from the previous seat must never paint this pane). */
-  mmCmd?: { seq: number; sid: string; rev?: number; nodesJson?: string } | null;
+  mmCmd?: { seq: number; sid: string; rev?: number; nodesJson?: string; edgesJson?: string } | null;
   /** Jump request from the mindmap pane: seq changes on every click so
    *  re-jumping the same turn re-fires. */
   jumpTo?: { turn: number; seq: number } | null;
@@ -994,6 +994,7 @@ export default function ChatView(props: {
     title: string | undefined,
     subtitle: string | undefined,
     nodesJson: string | undefined,
+    edgesJson?: string | undefined,
   ) => {
     // Latest accepted revision as a ref: the live stream closure must
     // stamp agent map_ops with the CURRENT base (§5 optimistic lock)
@@ -1007,6 +1008,10 @@ export default function ChatView(props: {
         title: title || cur?.title || "",
         subtitle: subtitle || cur?.subtitle || "",
         nodes: parseNodes(nodesJson),
+        // Edges merge like title: a payload without them (legacy events,
+        // old history) keeps the ones on hand instead of wiping the
+        // canvas — only an explicit edges_json replaces.
+        edges: edgesJson !== undefined ? parseEdges(edgesJson) : (cur?.edges ?? []),
       };
     });
   };
@@ -1063,10 +1068,12 @@ export default function ChatView(props: {
           return `合并「${name(o.id)}」的选定节点`;
         case "add":
           return `新增「${o.label ?? name(o.id)}」`;
+        case "place":
+          return ""; // a drag is movement, not a message — never auto-ask
         default:
           return `${o.op}「${name(o.id)}」`;
       }
-    });
+    }).filter((line) => line !== "");
   };
   const flushMmEdit = () => {
     const edits = mmEditBuf.current;
@@ -1115,6 +1122,7 @@ export default function ChatView(props: {
       upd ? ev.attrs["title"] : undefined,
       upd ? ev.attrs["subtitle"] : undefined,
       ev.attrs["nodes"],
+      ev.attrs["edges"],
     );
     if (!live || upd) return;
     // §2: only HUMAN edits ride the map→chat channel. An agent-origin
@@ -1412,7 +1420,7 @@ export default function ChatView(props: {
       // The map is NOT in the session snapshot — /resume rebuilds it
       // here; the history fold below reconciles either way through the
       // same revision guard.
-      if (mm) applyMindmap(Number(mm.revision), mm.title, mm.subtitle, mm.nodesJson);
+      if (mm) applyMindmap(Number(mm.revision), mm.title, mm.subtitle, mm.nodesJson, mm.edgesJson);
       // anchor = where the live tail starts. -1 (no usable batch: reaped
       // seat, empty ring) keeps the old full-replay path — replaying at
       // subscribe time also covers events stamped between an empty batch
@@ -2266,13 +2274,13 @@ export default function ChatView(props: {
       if (cmd.rev === undefined) {
         try {
           const mm = await mindmapClient.getMindmap({ sessionId: props.sessionId });
-          if (mm) applyMindmap(Number(mm.revision), mm.title, mm.subtitle, mm.nodesJson);
+          if (mm) applyMindmap(Number(mm.revision), mm.title, mm.subtitle, mm.nodesJson, mm.edgesJson);
         } catch {
           // transient — the next mindmap event re-syncs anyway
         }
         return;
       }
-      applyMindmap(cmd.rev, undefined, undefined, cmd.nodesJson);
+      applyMindmap(cmd.rev, undefined, undefined, cmd.nodesJson, cmd.edgesJson);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.mmCmd?.seq]);

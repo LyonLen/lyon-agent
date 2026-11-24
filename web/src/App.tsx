@@ -64,7 +64,7 @@ export default function App() {
   // (no rev) — seq bumps so duplicate commands still re-fire. sid tags
   // the owning session (Image #69: the incoming ChatView must be able
   // to reject a cmd that belongs to the outgoing seat).
-  const [mmCmd, setMmCmd] = useState<{ seq: number; sid: string; rev?: number; nodesJson?: string } | null>(null);
+  const [mmCmd, setMmCmd] = useState<{ seq: number; sid: string; rev?: number; nodesJson?: string; edgesJson?: string } | null>(null);
   const mmSeq = useRef(0);
   const mmAutoOpened = useRef<string | null>(null);
   // §7.3 selection-ask: ids live here (both panes render from one truth),
@@ -855,8 +855,8 @@ export default function App() {
                 snap={mindmap}
                 sessionId={selectedId}
                 onJump={(turn) => setMmJump({ turn, seq: ++mmSeq.current })}
-                onApplied={(rev, nodesJson) =>
-                  setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1, sid: selectedId, rev, nodesJson }))
+                onApplied={(rev, nodesJson, edgesJson) =>
+                  setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1, sid: selectedId, rev, nodesJson, edgesJson }))
                 }
                 onResync={() =>
                   setMmCmd((c) => ({ seq: (c?.seq ?? 0) + 1, sid: selectedId }))

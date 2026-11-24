@@ -506,3 +506,55 @@ agent 收到这条消息时：
 | `docs/design/mindmap-sample.html` | 可交互静态版（纯 HTML，无依赖）：**真圈选**——空白拖框 / `Shift` 加选 / `Ctrl` 点击切换 / `Esc` 清空，选中即浮出提问条（含预设动词）。`?sel=id1,id2` 可预选，供截图与对照 |
 | `docs/design/mindmap-sample.js` | 样图的节点数据（严格照 §3 字段），作结构对照 |
 | —— | 重出样图：`chrome --headless=new --hide-scrollbars --window-size=1620,1460 --screenshot=docs/design/mindmap-sample.png file:///<abs>/docs/design/mindmap-sample.html` |
+---
+
+## 14. 事件图模式（diagram — 复杂事件的 ProcessOn 式画布）
+
+树图回答「这段话在讲什么」；事件图回答「这件事是怎么回事」——多团队交接、系统架构、
+流程拆解这类复杂事件，用盒/圆/菱形/便签 + 带编号注记的实线/虚线箭头铺在网格画布上。
+
+### 14.1 数据（同一份文档，两个视图）
+
+- `Node` 增加 `shape / x / y / w / h`（画布 px，左上锚点；缺省 = 树的自动布局）；
+  文档级 `edges: [{id, from, to, label, style}]`（`solid` 默认 / `dashed` = 未定·假设·风险；
+  label 支持 `\n` 多行编号注记）。
+- 视图判定：**`edges` 非空 或 任一节点带坐标 → 事件图渲染**，否则树 —— 不设显式 kind，
+  数据即视图。无坐标的旧树节点排到画布下方的兜底条，不叠原点。
+- wire：`GetMindmapResponse` / `UpdateMindmapResponse` 增 `edges_json`（JSON sink，与
+  nodes_json 同一前向兼容理由）；`EVENT_MINDMAP_UPDATE` 与 `mindmap_edit` 的 attrs 增
+  `edges`（客户端对缺失 payload 保留既有 edges，同 title 的合并语义）。
+- op 集增两个（§7.3 词表）：`place`（拖动落位，user 触发 → pin/confirm，与 rewrite 同尾）、
+  `edge`（按 id upsert；`to == ""` 按 id 删除，relate 的 clear 模式）。
+
+### 14.2 生成：对话直出（draw_event_map 工具）
+
+- 模型在用户描述复杂事件、或说「画成图 / 流程图 / 架构图」时调用 `draw_event_map`
+  （`pkg/server/mindmap_draw.go` —— 放 server 侧：pkg/mindmap 已 import pkg/agent，
+  agent 侧工具会成环；session 走 `agent.SessionFromContext`，与 spacetool 同一取法）。
+- `Manager.ApplyDraw`：authAgent 权威规则（proposed 落地 §4.3、caps、**允许重复标签** ——
+  图上同名系统出现两次是常态，蒸馏的相似合并会吃掉半张图）、按 id upsert（重画同一事件
+  刷新而非报错）、坐标随 add op 落库；Revision++ 但**不进 HumanRevision**（模型不是人，
+  后续蒸馏批不被误丢）；发布 `mindmap_update`，attrs 携带 edges。
+- 形状词表（工具描述 + 渲染子集）：`rect round circle diamond triangle pentagon hexagon
+  star cloud speech note text parallelogram trapezoid`；布局指引：左→右流向、~1600×1200
+  画布、形状间距 ≥60px、编号注记挂箭头上。
+
+### 14.3 渲染与编辑（复用卡片壳）
+
+- 画布 / ctrl+滚轮缩放 / 滚轮按住平移 / 双击改名 / revision 守卫全部复用；树专属的
+  量测自适应、框选 marquee、选区工具条（merge/归类…）在事件图下关闭。
+- 形状：clip-path 多边形族（菱形三角五边六边星平行四边形梯形）+ 圆角族 + 黄色便签
+  （折角）+ 气泡（尾巴）+ 云（blob）；诚实边界照旧 —— proposed 虚线 / confirmed 实线，
+  clip 族用底色区分。
+- 箭头：中心锚点按 |dx|/|dy| 选边的三次贝塞尔 + SVG marker 箭头；dashed = `6 5`；
+  label 落曲线中点（foreignObject 多行、不吞点击）。
+- 编辑 v1：**拖动**（pointer capture → 松手一个 place op，预览等 revision 落地再清，
+  失败 800ms 回弹）、双击改名（rewrite）、点跳原话、ctrl 点圈选；手动加形状/连线 = 二期。
+- 蒸馏与事件图共存：draw 是 agent 写入，蒸馏批在其后照常可叠（HumanRevision 未动）。
+
+### 14.4 测试
+
+`pkg/mindmap/draw_test.go`：ApplyDraw 落库（坐标/形状/proposed/多行 label/edges JSON）、
+按 id 重画 upsert、五类非法 spec 整体拒绝且不留半图（D1）、place/edge op 语义（user 拖动
+pin、越界拒、edge 增/删）、发布 attrs 带 edges、**draw 之后蒸馏批不被丢**（HumanRevision
+未被 model 写入误标）。

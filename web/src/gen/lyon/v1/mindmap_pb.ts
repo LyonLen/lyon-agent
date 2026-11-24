@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file lyon/v1/mindmap.proto.
  */
 export const file_lyon_v1_mindmap: GenFile = /*@__PURE__*/
-  fileDesc("ChVseW9uL3YxL21pbmRtYXAucHJvdG8SB2x5b24udjEiJwoRR2V0TWluZG1hcFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSJbChJHZXRNaW5kbWFwUmVzcG9uc2USEAoIcmV2aXNpb24YASABKAUSDQoFdGl0bGUYAiABKAkSEAoIc3VidGl0bGUYAyABKAkSEgoKbm9kZXNfanNvbhgEIAEoCSJeChRVcGRhdGVNaW5kbWFwUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhAKCHJldmlzaW9uGAIgASgFEg4KBm9yaWdpbhgDIAEoCRIQCghvcHNfanNvbhgEIAEoCSI9ChVVcGRhdGVNaW5kbWFwUmVzcG9uc2USEAoIcmV2aXNpb24YASABKAUSEgoKbm9kZXNfanNvbhgCIAEoCTKnAQoOTWluZG1hcFNlcnZpY2USRQoKR2V0TWluZG1hcBIaLmx5b24udjEuR2V0TWluZG1hcFJlcXVlc3QaGy5seW9uLnYxLkdldE1pbmRtYXBSZXNwb25zZRJOCg1VcGRhdGVNaW5kbWFwEh0ubHlvbi52MS5VcGRhdGVNaW5kbWFwUmVxdWVzdBoeLmx5b24udjEuVXBkYXRlTWluZG1hcFJlc3BvbnNlQiJaIGx5b24tYWdlbnQvZ2VuL2dvL2x5b24vdjE7bHlvbnYxYgZwcm90bzM");
+  fileDesc("ChVseW9uL3YxL21pbmRtYXAucHJvdG8SB2x5b24udjEiJwoRR2V0TWluZG1hcFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSJvChJHZXRNaW5kbWFwUmVzcG9uc2USEAoIcmV2aXNpb24YASABKAUSDQoFdGl0bGUYAiABKAkSEAoIc3VidGl0bGUYAyABKAkSEgoKbm9kZXNfanNvbhgEIAEoCRISCgplZGdlc19qc29uGAUgASgJIl4KFFVwZGF0ZU1pbmRtYXBSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEAoIcmV2aXNpb24YAiABKAUSDgoGb3JpZ2luGAMgASgJEhAKCG9wc19qc29uGAQgASgJIlEKFVVwZGF0ZU1pbmRtYXBSZXNwb25zZRIQCghyZXZpc2lvbhgBIAEoBRISCgpub2Rlc19qc29uGAIgASgJEhIKCmVkZ2VzX2pzb24YAyABKAkypwEKDk1pbmRtYXBTZXJ2aWNlEkUKCkdldE1pbmRtYXASGi5seW9uLnYxLkdldE1pbmRtYXBSZXF1ZXN0GhsubHlvbi52MS5HZXRNaW5kbWFwUmVzcG9uc2USTgoNVXBkYXRlTWluZG1hcBIdLmx5b24udjEuVXBkYXRlTWluZG1hcFJlcXVlc3QaHi5seW9uLnYxLlVwZGF0ZU1pbmRtYXBSZXNwb25zZUIiWiBseW9uLWFnZW50L2dlbi9nby9seW9uL3YxO2x5b252MWIGcHJvdG8z");
 
 /**
  * @generated from message lyon.v1.GetMindmapRequest
@@ -60,6 +60,14 @@ export type GetMindmapResponse = Message<"lyon.v1.GetMindmapResponse"> & {
    * @generated from field: string nodes_json = 4;
    */
   nodesJson: string;
+
+  /**
+   * edges_json: the event-diagram mode's edge list (§14) — a JSON array
+   * of {id, from, to, label, style}. Empty/absent = pure tree map.
+   *
+   * @generated from field: string edges_json = 5;
+   */
+  edgesJson: string;
 };
 
 /**
@@ -133,6 +141,14 @@ export type UpdateMindmapResponse = Message<"lyon.v1.UpdateMindmapResponse"> & {
    * @generated from field: string nodes_json = 2;
    */
   nodesJson: string;
+
+  /**
+   * edges_json rides every response so a place/edge batch re-renders the
+   * whole canvas (same snapshot contract as nodes_json).
+   *
+   * @generated from field: string edges_json = 3;
+   */
+  edgesJson: string;
 };
 
 /**

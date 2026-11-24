@@ -44,6 +44,7 @@ func (m *mindmapService) GetMindmap(_ context.Context,
 		Title:     title,
 		Subtitle:  subtitle,
 		NodesJson: nodes,
+		EdgesJson: mindmap.Open().EdgesJSON(sid),
 	}), nil
 }
 
@@ -87,6 +88,7 @@ func (m *mindmapService) UpdateMindmap(_ context.Context,
 						"origin":   origin,
 						"revision": strconv.Itoa(rev),
 						"nodes":    nodes,
+						"edges":    mindmap.Open().EdgesJSON(sid),
 						"ops":      msg.OpsJson,
 					},
 				})
@@ -96,6 +98,7 @@ func (m *mindmapService) UpdateMindmap(_ context.Context,
 	return connect.NewResponse(&lyonv1.UpdateMindmapResponse{
 		Revision:  int32(rev),
 		NodesJson: nodes,
+		EdgesJson: mindmap.Open().EdgesJSON(sid),
 	}), nil
 }
 

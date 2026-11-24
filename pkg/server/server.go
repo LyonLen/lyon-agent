@@ -96,6 +96,11 @@ func New(eng *agent.Engine, store *Store) *Server {
 	// in pkg/mindmap, distill + human edits inject into the hub from here.
 	mmPath, mmHandler := lyonv1connect.NewMindmapServiceHandler(&mindmapService{s: s})
 	s.mux.Handle(mmPath, mmHandler)
+	// draw_event_map: the model's event-diagram pen (mindmap §14) —
+	// registered on the engine's shared registry. A duplicate name (a
+	// second Server on one engine, tests) is ignored: the first wins and
+	// does the same job.
+	_ = eng.Registry().Register(newDrawEventMap())
 	// Gateway model enrichment (best-effort, async): a New-API gateway
 	// declares context tags and quota ratios on /api/pricing — pull them
 	// once at startup so the ctx gauge and compaction see the real window

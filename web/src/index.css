@@ -1439,6 +1439,102 @@ button.mm-chip b { color: var(--accent); }
 }
 .mm-foot b { color: var(--dim); font-weight: 600; }
 
+/* ── event-diagram mode (§14): ProcessOn-style canvas ────────────────
+   Shapes at stored x/y on a grid plane, labeled arrows in the links
+   svg, drag-to-move with a place op on release. Honesty rides the
+   borders like the tree: proposed = dashed gray, confirmed = solid. */
+.mm-plane.diag {
+  background-image:
+    linear-gradient(var(--line-faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-faint) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+}
+.mm-dnode {
+  position: absolute; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; padding: 6px 12px;
+  background: var(--panel); border: 1.5px dashed var(--dim);
+  border-radius: 6px; color: var(--fg);
+  font-size: 12.5px; line-height: 1.4; text-align: center;
+  cursor: grab; user-select: none;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1), background var(--dur-1);
+}
+.mm-dnode.confirmed { border-style: solid; border-color: var(--accent-line); background: var(--bg-select); }
+.mm-dnode.sel { box-shadow: 0 0 0 2px var(--accent); }
+.mm-dnode.dragging { cursor: grabbing; z-index: 5; box-shadow: var(--shadow-strong); }
+.mm-dnode.fresh { animation: mm-fresh .4s var(--ease); }
+.mm-dlab { pointer-events: none; overflow: hidden; max-height: 100%; word-break: break-word; }
+.mm-dnode .mm-ein { width: 92%; }
+
+/* round family — border stays (no clip) */
+.mm-dnode.sh-round { border-radius: 14px; }
+.mm-dnode.sh-circle { border-radius: 50%; padding: 4px 10px; }
+
+/* clipped family: clip-path cuts borders too — depth comes from a
+   drop-shadow instead, honesty from the background tint. */
+.mm-dnode.sh-diamond,
+.mm-dnode.sh-triangle,
+.mm-dnode.sh-pentagon,
+.mm-dnode.sh-hexagon,
+.mm-dnode.sh-star,
+.mm-dnode.sh-parallelogram,
+.mm-dnode.sh-trapezoid {
+  border: none; padding: 10px 16px;
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, .38));
+}
+.mm-dnode.sh-diamond { clip-path: polygon(50% 2%, 98% 50%, 50% 98%, 2% 50%); }
+.mm-dnode.sh-triangle { clip-path: polygon(50% 4%, 98% 96%, 2% 96%); }
+.mm-dnode.sh-pentagon { clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%); }
+.mm-dnode.sh-hexagon { clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); }
+.mm-dnode.sh-star { clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+.mm-dnode.sh-parallelogram { clip-path: polygon(22% 0%, 100% 0%, 78% 100%, 0% 100%); }
+.mm-dnode.sh-trapezoid { clip-path: polygon(22% 0%, 78% 0%, 100% 100%, 0% 100%); }
+
+/* cloud: a soft blob (no clean polygon) */
+.mm-dnode.sh-cloud {
+  border: none;
+  border-radius: 58% 42% 55% 45% / 52% 56% 44% 48%;
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, .38));
+}
+
+/* speech bubble: rounded box + tail (tail follows the panel bg) */
+.mm-dnode.sh-speech { border-radius: 8px; }
+.mm-dnode.sh-speech::after {
+  content: ""; position: absolute; left: 18px; bottom: -8px;
+  border: 8px solid transparent; border-top-color: var(--panel);
+}
+.mm-dnode.sh-speech.confirmed::after { border-top-color: var(--bg-select); }
+
+/* sticky note: warm yellow, folded corner */
+.mm-dnode.sh-note {
+  background: #e8d274; border: 1px solid #c9b25a; color: #35301d;
+  border-radius: 2px; padding: 10px 12px; text-align: left;
+  box-shadow: 2px 3px 0 rgba(0, 0, 0, .25);
+}
+.mm-dnode.sh-note::after {
+  content: ""; position: absolute; right: 0; bottom: 0;
+  border: 8px solid transparent; border-right-color: #c9b25a; border-bottom-color: #c9b25a;
+}
+
+/* bare text: no box at all */
+.mm-dnode.sh-text {
+  background: transparent; border: none; padding: 2px;
+  color: var(--fg); font-weight: 600;
+}
+.mm-dnode.sh-text.confirmed { background: transparent; }
+
+/* edge annotation: rides the arrow midpoint, multi-line, never eats clicks */
+.mm-elab {
+  pointer-events: none;
+  margin: 0 auto; max-width: 240px; width: fit-content;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-2); padding: 3px 8px;
+  font-size: 11px; line-height: 1.5; color: var(--fg);
+  white-space: pre-line; text-align: center; word-break: break-word;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+}
+
 /* new-node flash (400ms) and the click-jump flash on the source block.
    The jump selector needs feed-level specificity to outrank rise-in. */
 @keyframes mm-fresh {

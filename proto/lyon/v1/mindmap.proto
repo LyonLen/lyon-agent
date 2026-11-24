@@ -37,6 +37,9 @@ message GetMindmapResponse {
   string title = 2;
   string subtitle = 3;
   string nodes_json = 4;
+  // edges_json: the event-diagram mode's edge list (§14) — a JSON array
+  // of {id, from, to, label, style}. Empty/absent = pure tree map.
+  string edges_json = 5;
 }
 
 message UpdateMindmapRequest {
@@ -64,4 +67,7 @@ message UpdateMindmapRequest {
 message UpdateMindmapResponse {
   int32 revision = 1;
   string nodes_json = 2;
+  // edges_json rides every response so a place/edge batch re-renders the
+  // whole canvas (same snapshot contract as nodes_json).
+  string edges_json = 3;
 }

@@ -73,11 +73,14 @@ func (x *GetMindmapRequest) GetSessionId() string {
 // (proposed|confirmed). revision 0 with "[]" means no map yet — a valid
 // answer, not an error.
 type GetMindmapResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Revision      int32                  `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
-	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Subtitle      string                 `protobuf:"bytes,3,opt,name=subtitle,proto3" json:"subtitle,omitempty"`
-	NodesJson     string                 `protobuf:"bytes,4,opt,name=nodes_json,json=nodesJson,proto3" json:"nodes_json,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Revision  int32                  `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	Title     string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Subtitle  string                 `protobuf:"bytes,3,opt,name=subtitle,proto3" json:"subtitle,omitempty"`
+	NodesJson string                 `protobuf:"bytes,4,opt,name=nodes_json,json=nodesJson,proto3" json:"nodes_json,omitempty"`
+	// edges_json: the event-diagram mode's edge list (§14) — a JSON array
+	// of {id, from, to, label, style}. Empty/absent = pure tree map.
+	EdgesJson     string `protobuf:"bytes,5,opt,name=edges_json,json=edgesJson,proto3" json:"edges_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -136,6 +139,13 @@ func (x *GetMindmapResponse) GetSubtitle() string {
 func (x *GetMindmapResponse) GetNodesJson() string {
 	if x != nil {
 		return x.NodesJson
+	}
+	return ""
+}
+
+func (x *GetMindmapResponse) GetEdgesJson() string {
+	if x != nil {
+		return x.EdgesJson
 	}
 	return ""
 }
@@ -224,9 +234,12 @@ func (x *UpdateMindmapRequest) GetOpsJson() string {
 // non-user origin reaching a pinned/confirmed node. InvalidArgument: an
 // op is malformed or structurally impossible (missing parent, cycle).
 type UpdateMindmapResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Revision      int32                  `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
-	NodesJson     string                 `protobuf:"bytes,2,opt,name=nodes_json,json=nodesJson,proto3" json:"nodes_json,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Revision  int32                  `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	NodesJson string                 `protobuf:"bytes,2,opt,name=nodes_json,json=nodesJson,proto3" json:"nodes_json,omitempty"`
+	// edges_json rides every response so a place/edge batch re-renders the
+	// whole canvas (same snapshot contract as nodes_json).
+	EdgesJson     string `protobuf:"bytes,3,opt,name=edges_json,json=edgesJson,proto3" json:"edges_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -275,6 +288,13 @@ func (x *UpdateMindmapResponse) GetNodesJson() string {
 	return ""
 }
 
+func (x *UpdateMindmapResponse) GetEdgesJson() string {
+	if x != nil {
+		return x.EdgesJson
+	}
+	return ""
+}
+
 var File_lyon_v1_mindmap_proto protoreflect.FileDescriptor
 
 const file_lyon_v1_mindmap_proto_rawDesc = "" +
@@ -282,23 +302,27 @@ const file_lyon_v1_mindmap_proto_rawDesc = "" +
 	"\x15lyon/v1/mindmap.proto\x12\alyon.v1\"2\n" +
 	"\x11GetMindmapRequest\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\"\x81\x01\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xa0\x01\n" +
 	"\x12GetMindmapResponse\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x05R\brevision\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1a\n" +
 	"\bsubtitle\x18\x03 \x01(\tR\bsubtitle\x12\x1d\n" +
 	"\n" +
-	"nodes_json\x18\x04 \x01(\tR\tnodesJson\"\x84\x01\n" +
+	"nodes_json\x18\x04 \x01(\tR\tnodesJson\x12\x1d\n" +
+	"\n" +
+	"edges_json\x18\x05 \x01(\tR\tedgesJson\"\x84\x01\n" +
 	"\x14UpdateMindmapRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x05R\brevision\x12\x16\n" +
 	"\x06origin\x18\x03 \x01(\tR\x06origin\x12\x19\n" +
-	"\bops_json\x18\x04 \x01(\tR\aopsJson\"R\n" +
+	"\bops_json\x18\x04 \x01(\tR\aopsJson\"q\n" +
 	"\x15UpdateMindmapResponse\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x05R\brevision\x12\x1d\n" +
 	"\n" +
-	"nodes_json\x18\x02 \x01(\tR\tnodesJson2\xa7\x01\n" +
+	"nodes_json\x18\x02 \x01(\tR\tnodesJson\x12\x1d\n" +
+	"\n" +
+	"edges_json\x18\x03 \x01(\tR\tedgesJson2\xa7\x01\n" +
 	"\x0eMindmapService\x12E\n" +
 	"\n" +
 	"GetMindmap\x12\x1a.lyon.v1.GetMindmapRequest\x1a\x1b.lyon.v1.GetMindmapResponse\x12N\n" +

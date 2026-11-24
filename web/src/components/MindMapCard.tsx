@@ -50,6 +50,9 @@ type UserOp = {
   status?: string;
   state?: string;
   source_ids?: string[];
+  // place (§14 event-diagram drag): canvas top-left px.
+  x?: number;
+  y?: number;
 };
 
 // §10 M2.5 — POST /v1/mindmap/{id}/extract answers this on both modes;
@@ -119,9 +122,9 @@ export default function MindMapCard({
   snap: MindmapSnap;
   sessionId: string;
   onJump: (turn: number) => void;
-  /** The UpdateMindmap response — fresh revision + nodes for ChatView's
-   *  guard (the live mindmap_edit event dedups by revision). */
-  onApplied?: (rev: number, nodesJson: string) => void;
+  /** The UpdateMindmap response — fresh revision + nodes/edges for
+   *  ChatView's guard (the live mindmap_edit event dedups by revision). */
+  onApplied?: (rev: number, nodesJson: string, edgesJson?: string) => void;
   /** §5 conflict / transport failure — ChatView refetches the map. */
   onResync?: () => void;
   /** §7.3 selection ids — owned by App (composer hint + this pane share
@@ -143,6 +146,23 @@ export default function MindMapCard({
   const [fresh, setFresh] = useState<ReadonlySet<string>>(() => new Set());
   // Inline rename (double-click): the id being edited and its draft.
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  // Event-diagram node drag (§14): live preview positions keyed by node
+  // id; committed through one place op on release. Kept until the new
+  // revision lands (no snap-back flicker), with a safety clear for the
+  // failure path (onResync refetches the same revision — no bump).
+  const [dragPos, setDragPos] = useState<Record<string, { x: number; y: number }> | null>(null);
+  const nodeDragRef = useRef<{
+    id: string;
+    ox: number;
+    oy: number;
+    sx: number;
+    sy: number;
+    moved: boolean;
+  } | null>(null);
+  // A drag ends with a click on the shape (down/up both land there) —
+  // swallow the next click so moving never jumps back to the source turn.
+  const placeLock = useRef(0);
+  useEffect(() => setDragPos(null), [snap.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const prevIdsRef = useRef<Set<string> | null>(null);
   // Measured text widths — curves start at the text's inner edge, and
   // that edge depends on content width. One pass after each layout.
@@ -274,6 +294,7 @@ export default function MindMapCard({
       return;
     }
     if (e.button !== 0) return;
+    if (diagram) return; // event-diagram canvas: no marquee/selection drag
     const t = e.target as HTMLElement;
     if (t.closest("[data-mm-id]")) return; // node owns its own click
     e.preventDefault(); // no text selection while dragging
@@ -526,6 +547,212 @@ export default function MindMapCard({
   if (has3) e += CURVE_N + CW3;
   const W = CX + e + 12;
 
+  // ── event-diagram geometry (§14) ──────────────────────────────────
+  // A map with edges (or positioned nodes) renders as a ProcessOn-style
+  // canvas: shapes at their stored x/y, labeled arrows, grid underfoot.
+  // Nodes without coords (a tree drawn over) pack into a fallback strip
+  // below the placed shapes so nothing piles at the origin.
+  const diagram =
+    (snap.edges?.length ?? 0) > 0 ||
+    alive.some((n) => n.x !== undefined && n.y !== undefined);
+  const shapeSize = (shape?: string): [number, number] => {
+    switch (shape) {
+      case "circle":
+        return [96, 96];
+      case "note":
+        return [196, 104];
+      case "text":
+        return [150, 34];
+      case "speech":
+        return [176, 88];
+      case "diamond":
+        return [150, 96];
+      default:
+        return [168, 58]; // rect / round / triangle / hexagon / …
+    }
+  };
+  const dNodes = alive.filter((n) => n.status !== "parked");
+  const dBox = new Map<string, { x: number; y: number; w: number; h: number }>();
+  {
+    let maxY = 0;
+    for (const n of dNodes) {
+      if (n.x === undefined || n.y === undefined) continue;
+      const [, dh] = shapeSize(n.shape);
+      maxY = Math.max(maxY, n.y + (n.h || dh));
+    }
+    let fx = 40;
+    let fy = maxY + 96;
+    for (const n of dNodes) {
+      const [dw, dh] = shapeSize(n.shape);
+      const w = n.w || dw;
+      const h = n.h || dh;
+      if (n.x !== undefined && n.y !== undefined) {
+        dBox.set(n.id, { x: n.x, y: n.y, w, h });
+      } else {
+        dBox.set(n.id, { x: fx, y: fy, w, h });
+        fx += w + 48;
+        if (fx > 1440) {
+          fx = 40;
+          fy += h + 40;
+        }
+      }
+    }
+  }
+  // Live drag override — the committed position lands through the place
+  // op on release; edges re-anchor every frame from dPosOf. The override
+  // carries only x/y, so it rides on top of the box (w/h stay put).
+  const dPosOf = (id: string) => {
+    const base = dBox.get(id);
+    const over = dragPos?.[id];
+    if (!over) return base;
+    if (!base) return undefined;
+    return { ...base, x: over.x, y: over.y };
+  };
+  let dW = 960;
+  let dH = 640;
+  for (const n of dNodes) {
+    const b = dPosOf(n.id);
+    if (!b) continue;
+    dW = Math.max(dW, b.x + b.w + 260); // + room for edge labels
+    dH = Math.max(dH, b.y + b.h + 160);
+  }
+  const VW = diagram ? dW : W;
+  const VH = diagram ? dH : H;
+
+  // Diagram arrows: center-to-center cubic, anchored on the facing
+  // sides (horizontal run when |dx| dominates, vertical otherwise);
+  // the label sits on the curve midpoint.
+  type DEl = { id: string; d: string; lx: number; ly: number; label: string; dashed: boolean };
+  const dEdges: DEl[] = [];
+  if (diagram) {
+    for (const ed of snap.edges) {
+      const a = dPosOf(ed.from);
+      const b = dPosOf(ed.to);
+      if (!a || !b) continue; // dangling endpoint draws nothing
+      const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 };
+      const bc = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+      const dx = bc.x - ac.x;
+      const dy = bc.y - ac.y;
+      let p1: { x: number; y: number };
+      let c1: { x: number; y: number };
+      let p2: { x: number; y: number };
+      let c2: { x: number; y: number };
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        p1 = { x: dx >= 0 ? a.x + a.w : a.x, y: ac.y };
+        p2 = { x: dx >= 0 ? b.x : b.x + b.w, y: bc.y };
+        c1 = { x: p1.x + (dx >= 0 ? 46 : -46), y: p1.y };
+        c2 = { x: p2.x + (dx >= 0 ? -46 : 46), y: p2.y };
+      } else {
+        p1 = { x: ac.x, y: dy >= 0 ? a.y + a.h : a.y };
+        p2 = { x: bc.x, y: dy >= 0 ? b.y : b.y + b.h };
+        c1 = { x: p1.x, y: p1.y + (dy >= 0 ? 46 : -46) };
+        c2 = { x: p2.x, y: p2.y + (dy >= 0 ? -46 : 46) };
+      }
+      const mid = {
+        x: (p1.x + 3 * c1.x + 3 * c2.x + p2.x) / 8,
+        y: (p1.y + 3 * c1.y + 3 * c2.y + p2.y) / 8,
+      };
+      dEdges.push({
+        id: ed.id,
+        d: `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`,
+        lx: mid.x,
+        ly: mid.y,
+        label: ed.label ?? "",
+        dashed: ed.style === "dashed",
+      });
+    }
+  }
+
+  // Diagram node drag: pointer capture on the shape, live preview via
+  // dragPos, one place op on release. The preview clears when the new
+  // revision lands (effect above) or after a safety delay (failure path).
+  const nodeDown = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if (e.button !== 0 || editing?.id === id) return;
+    const b = dPosOf(id);
+    if (!b) return;
+    const p = toPlane(e.clientX, e.clientY);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // best-effort — without capture a drag that leaves the shape stops
+    }
+    nodeDragRef.current = { id, ox: b.x, oy: b.y, sx: p.x, sy: p.y, moved: false };
+  };
+  const nodeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = nodeDragRef.current;
+    if (!d) return;
+    const p = toPlane(e.clientX, e.clientY);
+    const dx = p.x - d.sx;
+    const dy = p.y - d.sy;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+    d.moved = true;
+    setDragPos({ [d.id]: { x: Math.max(0, d.ox + dx), y: Math.max(0, d.oy + dy) } });
+  };
+  const nodeUp = () => {
+    const d = nodeDragRef.current;
+    nodeDragRef.current = null;
+    if (!d) return;
+    const at = dragPos?.[d.id];
+    if (!d.moved || !at) return;
+    placeLock.current = Date.now() + 350;
+    void applyOps([{ op: "place", id: d.id, x: Math.round(at.x), y: Math.round(at.y) }]);
+    // Safety clear: the revision bump clears early (effect above); a
+    // rejected/failed op never bumps, so the preview snaps back here.
+    setTimeout(() => setDragPos(null), 800);
+  };
+  const renderDNode = (n: MapNode): ReactNode => {
+    const b = dPosOf(n.id);
+    if (!b) return null;
+    const conf = n.state === "confirmed";
+    const cls = [
+      "mm-dnode",
+      `sh-${n.shape || "rect"}`,
+      conf ? "confirmed" : "",
+      fresh.has(n.id) ? "fresh" : "",
+      selSet.has(n.id) ? "sel" : "",
+      dragPos?.[n.id] ? "dragging" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return (
+      <div
+        key={n.id}
+        className={cls}
+        data-mm-id={n.id}
+        style={{ left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px` }}
+        onPointerDown={(e) => nodeDown(e, n.id)}
+        onPointerMove={nodeMove}
+        onPointerUp={nodeUp}
+        onPointerCancel={nodeUp}
+        onClick={(e) => {
+          if (Date.now() < placeLock.current) {
+            e.stopPropagation(); // the click that ends a drag is not a jump
+            return;
+          }
+          if (e.ctrlKey || e.metaKey) {
+            e.stopPropagation();
+            onSelect?.(
+              selSet.has(n.id) ? sel.filter((i) => i !== n.id) : [...sel, n.id],
+            );
+            return;
+          }
+          if (n.source_turn > 0) onJump(n.source_turn);
+        }}
+        onDoubleClick={startEdit(n)}
+        title={`${n.label}${n.source_turn ? ` · 出自第 ${n.source_turn} 轮` : ""} — 拖动移动 · 双击改名`}
+      >
+        {editingHere(n.id) ?? (
+          <span className="mm-dlab">
+            {n.label}
+            {(n.pinned || n.edited_by_user) && (
+              <span className="mm-pen" title="人工改过">✎</span>
+            )}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   // Box x for a placed node (left edge, canvas coords).
   const xOf = (p: Pos): number => {
     const s = p.side;
@@ -548,6 +775,7 @@ export default function MindMapCard({
   // lands centered with the FINAL clearance (not the floor pass).
   useLayoutEffect(() => {
     if (!open) return;
+    if (diagram) return; // diagram mode owns its own geometry (no auto-fit)
     const canvas = canvasRef.current;
     if (!canvas) return;
     const next: Record<string, number> = {};
@@ -670,7 +898,7 @@ export default function MindMapCard({
         origin: "user",
         opsJson: JSON.stringify(ops),
       });
-      onApplied?.(Number(res.revision), res.nodesJson);
+      onApplied?.(Number(res.revision), res.nodesJson, res.edgesJson);
     } catch {
       onResync?.();
     }
@@ -1058,7 +1286,7 @@ export default function MindMapCard({
           )}
           {memNote && <div className="mm-banner done">{memNote}</div>}
 
-          {sel.length > 0 && (
+          {!diagram && sel.length > 0 && (
             <div className={"mm-toolbar" + (armed ? " armed" : "")}>
               {(agentBatches ?? 0) >= 3 &&
                 (() => {
@@ -1236,14 +1464,14 @@ export default function MindMapCard({
           >
             <div
               className="mm-sizer"
-              style={{ width: `${W * scale}px`, height: `${H * scale}px` }}
+              style={{ width: `${VW * scale}px`, height: `${VH * scale}px` }}
             >
             <div
-              className="mm-plane"
+              className={"mm-plane" + (diagram ? " diag" : "")}
               ref={planeRef}
               style={{
-                width: `${W}px`,
-                height: `${H}px`,
+                width: `${VW}px`,
+                height: `${VH}px`,
                 // Always transform — the old `scale < 1` guard left the
                 // plane unscaled when zoomed IN (Image #60): toPlane and
                 // the hit math still divided by scale, so the marquee
@@ -1254,94 +1482,140 @@ export default function MindMapCard({
             >
               <svg
                 className="mm-links"
-                width={W}
-                height={H}
-                viewBox={`0 0 ${W} ${H}`}
+                width={VW}
+                height={VH}
+                viewBox={`0 0 ${VW} ${VH}`}
                 aria-hidden="true"
               >
-                {paths.map((p, i) => (
-                  <g key={i}>
-                    <path
-                      d={p.d}
-                      fill="none"
-                      stroke={p.hue}
-                      strokeWidth={p.w}
-                      strokeLinecap="round"
-                      opacity={0.9}
-                    />
-                    {p.joint && (
-                      <circle
-                        cx={p.joint.x}
-                        cy={p.joint.y}
-                        r={3}
-                        fill="var(--bg-plan)"
-                        stroke={p.joint.hue}
-                        strokeWidth={1.5}
+                <defs>
+                  <marker
+                    id="mm-arrow"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--dim)" />
+                  </marker>
+                </defs>
+                {diagram ? (
+                  dEdges.map((ed) => (
+                    <g key={ed.id}>
+                      <path
+                        d={ed.d}
+                        fill="none"
+                        stroke="var(--dim)"
+                        strokeWidth={1.6}
+                        strokeDasharray={ed.dashed ? "6 5" : undefined}
+                        markerEnd="url(#mm-arrow)"
+                        opacity={0.9}
                       />
-                    )}
-                  </g>
-                ))}
-                {rels.map((r, i) => (
-                  <path
-                    key={`rel-${i}`}
-                    d={r.d}
-                    fill="none"
-                    stroke="var(--dim)"
-                    strokeWidth={1.3}
-                    strokeDasharray="5 4"
-                    opacity={0.75}
-                  />
-                ))}
-              </svg>
-
-              <div
-                // Same state-class contract as renderRow: the root is a
-                // node too (distill roots start proposed) — .confirmed
-                // feeds the counts, the honesty border, and the rings.
-                className={[
-                  "mm-croot",
-                  root.state === "confirmed" ? "confirmed" : "",
-                  selSet.has(root.id) ? "sel" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                data-mm-id={root.id}
-                style={{ left: `${CX}px`, top: `${CY}px` }}
-                onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    e.stopPropagation();
-                    onSelect?.(
-                      selSet.has(root.id)
-                        ? sel.filter((i) => i !== root.id)
-                        : [...sel, root.id],
-                    );
-                    return;
-                  }
-                  onJump(root.source_turn);
-                }}
-                onDoubleClick={startEdit(root)}
-                title={`${root.label}（t${root.source_turn}）— 点击跳回原话 · 双击改名 · ctrl+点击圈选`}
-              >
-                {editingHere(root.id) ?? (
-                  <>
-                    <span className="mm-rl">
-                      {root.label}
-                      {(root.pinned || root.edited_by_user) && (
-                        <span className="mm-pen" title="人工改过">✎</span>
+                      {ed.label && (
+                        <foreignObject x={ed.lx - 120} y={ed.ly - 34} width={240} height={160}>
+                          <div className="mm-elab">{ed.label}</div>
+                        </foreignObject>
                       )}
-                    </span>
-                    <span className="mm-rt">t{root.source_turn} · {alive.length} 节点</span>
-                    {acts(root)}
+                    </g>
+                  ))
+                ) : (
+                  <>
+                    {paths.map((p, i) => (
+                      <g key={i}>
+                        <path
+                          d={p.d}
+                          fill="none"
+                          stroke={p.hue}
+                          strokeWidth={p.w}
+                          strokeLinecap="round"
+                          opacity={0.9}
+                        />
+                        {p.joint && (
+                          <circle
+                            cx={p.joint.x}
+                            cy={p.joint.y}
+                            r={3}
+                            fill="var(--bg-plan)"
+                            stroke={p.joint.hue}
+                            strokeWidth={1.5}
+                          />
+                        )}
+                      </g>
+                    ))}
+                    {rels.map((r, i) => (
+                      <path
+                        key={`rel-${i}`}
+                        d={r.d}
+                        fill="none"
+                        stroke="var(--dim)"
+                        strokeWidth={1.3}
+                        strokeDasharray="5 4"
+                        opacity={0.75}
+                      />
+                    ))}
                   </>
                 )}
-              </div>
+              </svg>
 
-              {branches.length === 0 && (
-                <div className="mm-empty mm-cempty">还没有分支 — 蒸馏还在攒</div>
+              {diagram ? (
+                dNodes.length === 0 ? (
+                  <div className="mm-empty mm-cempty">还没有图形 — 让模型画一张事件图</div>
+                ) : (
+                  dNodes.map(renderDNode)
+                )
+              ) : (
+                <>
+                  <div
+                    // Same state-class contract as renderRow: the root is a
+                    // node too (distill roots start proposed) — .confirmed
+                    // feeds the counts, the honesty border, and the rings.
+                    className={[
+                      "mm-croot",
+                      root.state === "confirmed" ? "confirmed" : "",
+                      selSet.has(root.id) ? "sel" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    data-mm-id={root.id}
+                    style={{ left: `${CX}px`, top: `${CY}px` }}
+                    onClick={(e) => {
+                      if (e.ctrlKey || e.metaKey) {
+                        e.stopPropagation();
+                        onSelect?.(
+                          selSet.has(root.id)
+                            ? sel.filter((i) => i !== root.id)
+                            : [...sel, root.id],
+                        );
+                        return;
+                      }
+                      onJump(root.source_turn);
+                    }}
+                    onDoubleClick={startEdit(root)}
+                    title={`${root.label}（t${root.source_turn}）— 点击跳回原话 · 双击改名 · ctrl+点击圈选`}
+                  >
+                    {editingHere(root.id) ?? (
+                      <>
+                        <span className="mm-rl">
+                          {root.label}
+                          {(root.pinned || root.edited_by_user) && (
+                            <span className="mm-pen" title="人工改过">✎</span>
+                          )}
+                        </span>
+                        <span className="mm-rt">t{root.source_turn} · {alive.length} 节点</span>
+                        {acts(root)}
+                      </>
+                    )}
+                  </div>
+
+                  {branches.length === 0 && (
+                    <div className="mm-empty mm-cempty">还没有分支 — 蒸馏还在攒</div>
+                  )}
+                  {pos.map(renderRow)}
+                </>
               )}
-              {pos.map(renderRow)}
 
-              {marquee && (marquee.w > 0 || marquee.h > 0) && (
+              {!diagram && marquee && (marquee.w > 0 || marquee.h > 0) && (
                 <div
                   className="mm-marquee"
                   style={{
@@ -1365,9 +1639,18 @@ export default function MindMapCard({
               <b>生成</b>：旁路蒸馏 · 关掉无痕
             </span>
             <span>
-              <b>点</b> 跳回原话 · <b>双击</b> 改名 · 悬停 <b>✓ ⏸ ✕</b> 确认 /
-              停靠 / 删除 · <b>框选 / ctrl+点</b> 圈选 · <b>Esc</b> 清除 ·{" "}
-              <b>滚轮按住</b> 拖动平移 · <b>ctrl+滚轮</b> 缩放（双击空白复位）
+              {diagram ? (
+                <>
+                  <b>拖动</b> 图形移位 · <b>双击</b> 改字 · <b>点</b> 跳回原话 ·{" "}
+                  <b>滚轮按住</b> 平移 · <b>ctrl+滚轮</b> 缩放（双击空白复位）
+                </>
+              ) : (
+                <>
+                  <b>点</b> 跳回原话 · <b>双击</b> 改名 · 悬停 <b>✓ ⏸ ✕</b> 确认 /
+                  停靠 / 删除 · <b>框选 / ctrl+点</b> 圈选 · <b>Esc</b> 清除 ·{" "}
+                  <b>滚轮按住</b> 拖动平移 · <b>ctrl+滚轮</b> 缩放（双击空白复位）
+                </>
+              )}
             </span>
           </div>
         </>

@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -129,6 +130,27 @@ type Node struct {
 	// non-tree pointer on a node. Rides nodes_json like everything else
 	// (proto stays untouched; nodes_json/ops_json are JSON sinks).
 	Relation *Relation `json:"relation,omitempty"`
+	// Placement is the event-diagram mode (§14): absolute canvas px
+	// (top-left) plus shape/size. Absent on pure-tree nodes — the
+	// renderer falls back to the auto layout. omitempty on a zero float
+	// is safe: reading an absent key back yields the same 0.
+	Shape string  `json:"shape,omitempty"`
+	X     float64 `json:"x,omitempty"`
+	Y     float64 `json:"y,omitempty"`
+	W     float64 `json:"w,omitempty"`
+	H     float64 `json:"h,omitempty"`
+}
+
+// Edge is one event-diagram arrow (§14): From/To are alive node ids,
+// Label is the multi-line edge annotation (the numbered points a
+// handover diagram hangs on its arrows), Style "solid" (default) or
+// "dashed" (unresolved / 假设 / 风险).
+type Edge struct {
+	ID    string `json:"id"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Label string `json:"label,omitempty"`
+	Style string `json:"style,omitempty"`
 }
 
 // Relation is one cross-branch link (§9 M3). Type is an open string —
@@ -144,7 +166,7 @@ type Relation struct {
 // set_parent / rewrite / add / park / delete / confirm / relate) plus the
 // distiller's use of the same shapes. Field sets differ per op:
 //
-//	add         id(new|empty→slug), parent_id, label, kind, source_turn
+//	add         id(new|empty→slug), parent_id, label, kind, source_turn (+ x/y/shape/w/h placement)
 //	rewrite     id, label
 //	park        id, status(active|parked, default parked — 恢复 uses active)
 //	set_parent  id, parent_id ("" = top level)
@@ -152,6 +174,8 @@ type Relation struct {
 //	confirm     id, state(confirmed|proposed; default confirmed — proposed = 取消确认)
 //	merge       id(survivor), source_ids (absorbed → children move up, source tombstoned)
 //	relate      id, relation{type,target} (M3: nil/absent or target "" clears the edge)
+//	place       id, x, y (+ optional shape/w/h) — event-diagram move/resize (§14)
+//	edge        id, from, to, label, style — diagram arrow upsert; to == "" deletes by id (§14)
 type Op struct {
 	Op         string    `json:"op"`
 	ID         string    `json:"id"`
@@ -163,6 +187,15 @@ type Op struct {
 	SourceTurn int       `json:"source_turn,omitempty"`
 	SourceIDs  []string  `json:"source_ids,omitempty"`
 	Relation   *Relation `json:"relation,omitempty"`
+	// Event-diagram fields (§14) — absent on every other op.
+	X     float64 `json:"x,omitempty"`
+	Y     float64 `json:"y,omitempty"`
+	W     float64 `json:"w,omitempty"`
+	H     float64 `json:"h,omitempty"`
+	Shape string  `json:"shape,omitempty"`
+	From  string  `json:"from,omitempty"`
+	To    string  `json:"to,omitempty"`
+	Style string  `json:"style,omitempty"`
 }
 
 // Diff is one distiller reply (§6: a diff, never the full tree).
@@ -185,11 +218,14 @@ type state struct {
 	Title         string `json:"title,omitempty"`
 	Subtitle      string `json:"subtitle,omitempty"`
 	Nodes         []Node `json:"nodes"`
+	// Edges are the event-diagram arrows (§14); empty on a pure tree.
+	Edges []Edge `json:"edges,omitempty"`
 }
 
 func (g *state) clone() *state {
 	c := *g
 	c.Nodes = append([]Node(nil), g.Nodes...)
+	c.Edges = append([]Edge(nil), g.Edges...)
 	return &c
 }
 
@@ -365,6 +401,30 @@ func nodesJSON(g *state) string {
 	return string(b)
 }
 
+func edgesJSON(g *state) string {
+	if len(g.Edges) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(g.Edges)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+// EdgesJSON answers the wire's edges_json for a seat — a second read of
+// the same cached state Snapshot just touched, so the pair costs one
+// map lookup, not a second disk hit. Empty map → "[]".
+func (m *Manager) EdgesJSON(sid string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	g, err := m.loadLocked(sid)
+	if err != nil {
+		return "[]"
+	}
+	return edgesJSON(g)
+}
+
 // Snapshot is GetMindmap's read side: revision, title, subtitle and the
 // whole node array as JSON. A seat with no map yet answers revision 0
 // with "[]" — not an error.
@@ -502,6 +562,7 @@ type ApplyResult struct {
 	Title     string
 	Subtitle  string
 	NodesJSON string
+	EdgesJSON string
 	Audits    []Audit
 }
 
@@ -529,6 +590,7 @@ func (m *Manager) ApplyDistill(sid string, base int, diff Diff) ApplyResult {
 				"title":    res.Title,
 				"subtitle": res.Subtitle,
 				"nodes":    res.NodesJSON,
+				"edges":    res.EdgesJSON,
 			},
 		})
 	}
@@ -552,6 +614,7 @@ func (m *Manager) applyDistillLocked(sid string, base int, diff Diff) ApplyResul
 		Title:     g.Title,
 		Subtitle:  subtitleOf(g),
 		NodesJSON: nodesJSON(g),
+		EdgesJSON: edgesJSON(g),
 	}
 	if err := checkBase(base, g.Revision, g.HumanRevision); err != nil {
 		res.Audits = append(res.Audits, Audit{
@@ -602,6 +665,7 @@ func (m *Manager) applyDistillLocked(sid string, base int, diff Diff) ApplyResul
 	res.Title = work.Title
 	res.Subtitle = subtitleOf(work)
 	res.NodesJSON = nodesJSON(work)
+	res.EdgesJSON = edgesJSON(work)
 	audits = append(audits, Audit{
 		Event: EventDistill, SessionID: sid,
 		Detail: fmt.Sprintf("applied %d op(s), dropped %d (%d pinned violations), revision %d→%d",
@@ -609,6 +673,154 @@ func (m *Manager) applyDistillLocked(sid string, base int, diff Diff) ApplyResul
 	})
 	res.Audits = audits
 	return res
+}
+
+// ── event-diagram draw (§14) ───────────────────────────────────────
+
+// DrawSpec is the draw_event_map tool's payload: a complete event
+// diagram — positioned nodes plus labeled arrows — in one commit.
+type DrawSpec struct {
+	Title string     `json:"title,omitempty"`
+	Nodes []DrawNode `json:"nodes"`
+	Edges []DrawEdge `json:"edges"`
+}
+
+// DrawNode is one diagram shape. X/Y are the canvas top-left in px;
+// Shape picks the vocabulary (rect/round/circle/diamond/…); W/H optional
+// (the renderer applies per-shape defaults). Parent anchors the node in
+// the underlying tree ("" = top level) so the map stays navigable.
+type DrawNode struct {
+	ID     string  `json:"id,omitempty"`
+	Label  string  `json:"label"`
+	Shape  string  `json:"shape,omitempty"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	W      float64 `json:"w,omitempty"`
+	H      float64 `json:"h,omitempty"`
+	Parent string  `json:"parent,omitempty"`
+}
+
+// DrawEdge is one diagram arrow. Empty ID derives from the endpoints
+// (from-to), so re-drawing the same connection upserts instead of
+// duplicating.
+type DrawEdge struct {
+	ID    string `json:"id,omitempty"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Label string `json:"label,omitempty"`
+	Style string `json:"style,omitempty"`
+}
+
+// ApplyDraw commits one model-drawn event diagram (§14). Agent
+// authority: adds land proposed (§4.3 honesty — the diagram is the
+// model's proposal until confirmed), caps apply, and duplicate labels
+// are allowed (a diagram names "云平台系统" twice on purpose — the
+// distiller's similarity merge would eat half the picture). An id that
+// already exists updates in place, so re-drawing an event refreshes it
+// instead of failing the batch. Bumps Revision WITHOUT HumanRevision —
+// the model is not the human — then publishes EVENT_MINDMAP_UPDATE with
+// the edges riding attrs.
+func (m *Manager) ApplyDraw(sid, specJSON string) (ApplyResult, error) {
+	var spec DrawSpec
+	if err := json.Unmarshal([]byte(specJSON), &spec); err != nil {
+		return ApplyResult{}, fmt.Errorf("%w: draw spec: %v", ErrInvalid, err)
+	}
+	if len(spec.Nodes) == 0 {
+		return ApplyResult{}, fmt.Errorf("%w: draw spec has no nodes", ErrInvalid)
+	}
+	res, err := m.applyDrawLocked(sid, spec)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	if res.Changed {
+		if pub := m.publisher(); pub != nil {
+			pub(sid, agent.Event{
+				Type: TypeUpdate,
+				Attrs: map[string]string{
+					"revision": fmt.Sprintf("%d", res.Revision),
+					"title":    res.Title,
+					"subtitle": res.Subtitle,
+					"nodes":    res.NodesJSON,
+					"edges":    res.EdgesJSON,
+				},
+			})
+		}
+	}
+	return res, nil
+}
+
+// applyDrawLocked is ApplyDraw's state half — the lock lives here so the
+// publish above runs outside it.
+func (m *Manager) applyDrawLocked(sid string, spec DrawSpec) (ApplyResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	g, err := m.loadLocked(sid)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	work := g.clone()
+	if t := strings.TrimSpace(spec.Title); t != "" && work.Title == "" {
+		work.Title = clipRunes(t, 120)
+	}
+	for i, n := range spec.Nodes {
+		label := strings.TrimSpace(n.Label)
+		if label == "" {
+			return ApplyResult{}, fmt.Errorf("%w: node[%d] without label", ErrInvalid, i)
+		}
+		id := strings.TrimSpace(n.ID)
+		if id != "" && !validID(id) {
+			return ApplyResult{}, fmt.Errorf("%w: node[%d] bad id %q", ErrInvalid, i, id)
+		}
+		if id != "" {
+			if existing := nodeBy(work, id); existing != nil && !existing.Tombstone {
+				// Re-draw: refresh label + placement in place.
+				existing.Label = clipRunes(label, maxLabelRunes)
+				existing.Shape = n.Shape
+				existing.X, existing.Y = n.X, n.Y
+				if n.W > 0 {
+					existing.W = n.W
+				}
+				if n.H > 0 {
+					existing.H = n.H
+				}
+				continue
+			}
+		}
+		op := Op{
+			Op: "add", ID: id, Label: label, ParentID: strings.TrimSpace(n.Parent),
+			Shape: n.Shape, X: n.X, Y: n.Y, W: n.W, H: n.H,
+		}
+		if err := applyOp(work, op, authAgent); err != nil {
+			return ApplyResult{}, fmt.Errorf("%w: node[%d] %q: %v", ErrInvalid, i, label, err)
+		}
+	}
+	for i, e := range spec.Edges {
+		id := strings.TrimSpace(e.ID)
+		if id == "" {
+			id = strings.TrimSpace(e.From) + "-" + strings.TrimSpace(e.To)
+		}
+		op := Op{Op: "edge", ID: id, From: e.From, To: e.To, Label: e.Label, Style: e.Style}
+		if err := applyOp(work, op, authAgent); err != nil {
+			return ApplyResult{}, fmt.Errorf("%w: edge[%d]: %v", ErrInvalid, i, err)
+		}
+	}
+	if reflect.DeepEqual(work, g) {
+		return ApplyResult{
+			Revision: g.Revision, Title: g.Title, Subtitle: subtitleOf(g),
+			NodesJSON: nodesJSON(g), EdgesJSON: edgesJSON(g),
+		}, nil
+	}
+	work.Revision++
+	m.graphs[sid] = work
+	_ = m.persistLocked(sid, work)
+	return ApplyResult{
+		Changed:   true,
+		Revision:  work.Revision,
+		Title:     work.Title,
+		Subtitle:  subtitleOf(work),
+		NodesJSON: nodesJSON(work),
+		EdgesJSON: edgesJSON(work),
+	}, nil
 }
 
 // beginDistill claims the seat's single distill slot — one LLM call per
@@ -673,6 +885,10 @@ func applyOp(g *state, o Op, auth authority) error {
 		return applyMerge(g, o, auth)
 	case "relate":
 		return applyRelate(g, o, auth)
+	case "place":
+		return applyPlace(g, o, auth)
+	case "edge":
+		return applyEdge(g, o, auth)
 	default:
 		return fmt.Errorf("%w: unknown op %q", ErrInvalid, o.Op)
 	}
@@ -1001,6 +1217,14 @@ func applyAdd(g *state, o Op, auth authority) error {
 		SourceTurn: o.SourceTurn,
 		Kind:       kind,
 		Status:     StatusActive,
+		// Event-diagram placement rides the add itself (§14): the draw
+		// tool creates positioned nodes in one op. Tree adds never set
+		// these — zero/empty reads as "auto layout".
+		Shape: o.Shape,
+		X:     o.X,
+		Y:     o.Y,
+		W:     o.W,
+		H:     o.H,
 	}
 	if auth == authUser {
 		pin(&n)
@@ -1264,6 +1488,85 @@ func applyRelate(g *state, o Op, auth authority) error {
 	if auth == authUser {
 		pin(n)
 	}
+	return nil
+}
+
+// applyPlace moves/resizes one event-diagram node (§14): x/y are
+// mandatory (a place without coordinates is malformed), shape/w/h ride
+// along only when non-zero. A human drag pins — the same tail as
+// rewrite: the touch is the human's, and §4.1 keeps it theirs.
+func applyPlace(g *state, o Op, auth authority) error {
+	n, err := requireModifiable(g, o.ID, auth)
+	if err != nil {
+		return err
+	}
+	if math.IsNaN(o.X) || math.IsNaN(o.Y) || math.IsInf(o.X, 0) || math.IsInf(o.Y, 0) ||
+		o.X < -100000 || o.X > 100000 || o.Y < -100000 || o.Y > 100000 {
+		return fmt.Errorf("%w: place coordinates out of range", ErrInvalid)
+	}
+	n.X, n.Y = o.X, o.Y
+	if o.Shape != "" {
+		n.Shape = o.Shape
+	}
+	if o.W > 0 {
+		n.W = o.W
+	}
+	if o.H > 0 {
+		n.H = o.H
+	}
+	if auth == authUser {
+		pin(n)
+	}
+	return nil
+}
+
+// applyEdge upserts one event-diagram arrow (§14); an empty To deletes
+// by id (the relate-op clear pattern). Endpoints must be alive nodes —
+// a dangling edge is never created, only left behind by a later delete.
+func applyEdge(g *state, o Op, _ authority) error {
+	id := strings.TrimSpace(o.ID)
+	if !validID(id) {
+		return fmt.Errorf("%w: bad edge id %q", ErrInvalid, id)
+	}
+	to := strings.TrimSpace(o.To)
+	if to == "" {
+		for i := range g.Edges {
+			if g.Edges[i].ID == id {
+				g.Edges = append(g.Edges[:i], g.Edges[i+1:]...)
+				return nil
+			}
+		}
+		return nil // already gone — a delete of a missing edge is a no-op
+	}
+	from := strings.TrimSpace(o.From)
+	if from == "" {
+		return fmt.Errorf("%w: edge without from", ErrInvalid)
+	}
+	if from == to {
+		return fmt.Errorf("%w: edge cannot connect a node to itself", ErrInvalid)
+	}
+	if _, err := requireTarget(g, from); err != nil {
+		return fmt.Errorf("%w: edge from: %v", ErrInvalid, err)
+	}
+	if _, err := requireTarget(g, to); err != nil {
+		return fmt.Errorf("%w: edge to: %v", ErrInvalid, err)
+	}
+	style := strings.TrimSpace(o.Style)
+	if style == "" {
+		style = "solid"
+	}
+	if style != "solid" && style != "dashed" {
+		return fmt.Errorf("%w: bad edge style %q", ErrInvalid, style)
+	}
+	label := clipRunes(strings.TrimSpace(o.Label), maxLabelRunes)
+	for i := range g.Edges {
+		if g.Edges[i].ID == id {
+			g.Edges[i].From, g.Edges[i].To = from, to
+			g.Edges[i].Label, g.Edges[i].Style = label, style
+			return nil
+		}
+	}
+	g.Edges = append(g.Edges, Edge{ID: id, From: from, To: to, Label: label, Style: style})
 	return nil
 }
 
