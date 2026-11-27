@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lyon-agent — 会自我演化的本地 AI 编程智能体（Web 工作台）</title>
-<meta name="description" content="lyon-agent：Go 守护进程 + React Web 工作台，本地优先的 AI 编程智能体。会话工作区、审批卡片、实时心智图，加上生产评分、闭卷考核、任务路由、知识覆盖率门禁与机械式 workflow。">
+<title>lyon-agent — 本地优先的 AI 编程智能体（Web 工作台）</title>
+<meta name="description" content="lyon-agent：Go 守护进程 + React Web 工作台，本地优先的 AI 编程智能体。会话工作区、审批卡片、实时心智图、三层持久记忆与后台进程面板。">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
 </head>
@@ -27,12 +27,12 @@
   <!-- ── hero ─────────────────────────────────────── -->
   <div class="hero">
     <span class="kicker">Go · 本地优先 · Web 工作台 · 无云依赖</span>
-    <h1>让 AI 智能体<br><span class="accent">自己学会变强</span></h1>
+    <h1>本地优先的<br><span class="accent">AI 编程工作台</span></h1>
     <p class="sub">
       lyon-agent 是本地运行的 AI 编程智能体：Go 守护进程 <strong>lyond</strong> 负责模型接入、
       工具执行与会话事件流，浏览器里的 <strong>React 工作台</strong>是主界面。
-      除了对话与工具调用，它内置一套<strong>演化机制</strong>：生产评分、闭卷考核、任务路由、
-      知识覆盖率门禁、机械式 workflow——让「用得越多、越好用」成为可度量的事实，而不是口号。
+      除了对话与工具调用，还带三层持久记忆、hooks 审计与安全门、实时心智图
+      第二条输入通道——状态全部本地落盘，重启原样恢复。
     </p>
     <div class="cta">
       <a class="btn primary" href="#install">快速开始</a>
@@ -61,7 +61,7 @@
     <figcaption>
       左侧会话侧栏按<strong>工作区分组</strong>（点击折叠、git 徽章、两次确认删除、saved 快照恢复）；
       中间是流式转录（markdown 渲染 + 代码块复制按钮 + 审批卡片）；
-      右侧与周边是可平铺的面板（steps / files / preview / terminal / plan / mindmap / memory / settings / evolve）；
+      右侧与周边是可平铺的面板（steps / files / preview / terminal / plan / mindmap / memory / settings / skills / procs）；
       底栏常驻模式切换、模型按钮与上下文·花费仪表。
     </figcaption>
   </figure>
@@ -69,7 +69,7 @@
   <!-- ── features ─────────────────────────────────── -->
   <section id="features">
     <h2><span class="hash">#</span>核心能力</h2>
-    <p class="lede">一半是好用的工作台，一半是会自我演化的执行体系。</p>
+    <p class="lede">一半是好用的工作台，一半是可审计、可记忆的执行体系。</p>
 
     <div class="grid">
       <div class="card">
@@ -97,10 +97,10 @@
         <span class="tag">pkg/mindmap</span>
       </div>
       <div class="card">
-        <div class="icon">📊</div>
-        <h3>演化机制</h3>
-        <p>生产评分、闭卷考核、任务路由、知识覆盖率门禁、机械式 workflow：跑任务留证据，证据变分数，分数决定上岗；可靠流程固化成数据，LLM 只做节点内填空。</p>
-        <span class="tag">pkg/evolve · pkg/eval · pkg/flow</span>
+        <div class="icon">📚</div>
+        <h3>三层持久记忆</h3>
+        <p>team / personal / project 单事实 Markdown，本地 BM25 检索，热层随首条 prompt 注入；/remember 一键蒸馏入库，记忆面板带检索验证与标签过滤。</p>
+        <span class="tag">pkg/memory</span>
       </div>
       <div class="card">
         <div class="icon">⚡</div>
@@ -136,7 +136,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
 <span class="p">$</span> 打开 http://localhost:5183                        <span class="c"># 浏览器就是工作台</span></pre>
 
     <div class="note">
-      <strong>数据都在本地：</strong>会话、榜单、考核记录、记忆全部存在 <code class="inline">$LYON_HOME</code>（默认 <code class="inline">~/.lyon</code>）。
+      <strong>数据都在本地：</strong>会话草稿、workflow、记忆全部存在 <code class="inline">$LYON_HOME</code>（默认 <code class="inline">~/.lyon</code>）。
       无遥测；记忆云同步默认关闭，显式配置 <code class="inline">LYON_SYNC_URL/TOKEN</code> 后才启用，且仅团队/个人层参与，项目层永不离开本机。
     </div>
   </section>
@@ -160,10 +160,6 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <span>键位、命令面板、审批卡片、面板手势——全部以 web 实际行为为准。</span>
       </li>
       <li>
-        <strong><a href="manual.html#evolution">演化机制详解</a></strong>
-        <span>评分 → 考核 → 路由 → 覆盖门禁 → workflow 冻结，五级火箭怎么串起来。</span>
-      </li>
-      <li>
         <strong><a href="manual.html#reference">配置参考</a></strong>
         <span>lyond 启动标志、环境变量一张表查清。</span>
       </li>
@@ -179,7 +175,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <a href="../README.md">README</a>
     <a href="index.en.html">EN</a>
   </div>
-  <div>lyon-agent · 本地优先、可演化的 AI 编程智能体（Web 工作台） · 文档随仓库分发，无网络资源</div>
+  <div>lyon-agent · 本地优先的 AI 编程智能体（Web 工作台） · 文档随仓库分发，无网络资源</div>
 </footer>
 
 </body>

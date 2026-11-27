@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lyon-agent 手册 — 从上手到演化机制</title>
-<meta name="description" content="lyon-agent 使用手册：快速上手（lyond + web）、界面导览、交互指南（键位/命令面板/审批/手势）、演化机制（评分/考核/路由/覆盖门禁/workflow）、配置参考与常见问题。">
+<title>lyon-agent 手册 — 从上手到开发者地图</title>
+<meta name="description" content="lyon-agent 使用手册：快速上手（lyond + web）、界面导览、交互指南（键位/命令面板/审批/手势）、配置参考、常见问题与开发者地图。">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
 </head>
@@ -29,7 +29,7 @@
     <h1 style="font-size:clamp(32px,4.5vw,44px);">lyon-agent <span class="accent">使用手册</span></h1>
     <p class="sub" style="margin-left:0;">
       这一页面向两种读者：想把工具用起来的<strong>日常用户</strong>，
-      和想搞懂演化机制为什么这么设计的<strong>学习者</strong>。
+      和想读懂代码结构的<strong>学习者</strong>。
       所有行为与仓库代码、README 一一对应，放心当准。
     </p>
   </div>
@@ -40,9 +40,8 @@
       <li><a href="#quickstart">快速上手 — 构建 lyond 与 web、凭证、启动</a></li>
       <li><a href="#tour">界面导览 — 侧栏 · 聊天 · 平铺面板 · 底栏</a></li>
       <li><a href="#keys">交互指南 — 键位 · 命令面板 · 审批卡片 · 手势</a></li>
-      <li><a href="#evolution">演化机制 — 评分 · 考核 · 路由 · 覆盖门禁 · workflow</a></li>
       <li><a href="#reference">配置参考 — lyond 启动标志与环境变量全表</a></li>
-      <li><a href="#faq">常见问题 — 迭代预算、会话恢复、门禁…</a></li>
+      <li><a href="#faq">常见问题 — 迭代预算、会话恢复、数据存储…</a></li>
       <li><a href="#arch">开发者地图 — 包结构导读</a></li>
     </ol>
   </div>
@@ -73,7 +72,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
 <span class="c"># bearer token 随请求头自动带上，不需要手工配。</span></pre>
 
     <div class="note">
-      <strong>存储根：</strong>一切状态（会话草稿、榜单、考核、workflow、记忆）都在
+      <strong>存储根：</strong>一切状态（会话草稿、workflow、记忆）都在
       <code class="inline">$LYON_HOME</code>，默认 <code class="inline">~/.lyon</code>。
       想隔离就在启动前改这个变量——测试、容器、 CI 都靠它不碰真实 home。
     </div>
@@ -125,7 +124,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>mindmap</code></td><td>实时心智图（见下）</td></tr>
         <tr><td><code>memory</code></td><td>项目记忆浏览：热层开关、忘记条目</td></tr>
         <tr><td><code>settings</code></td><td>引擎与模型：当前模型卡、网关 /models 表、环境变量清单</td></tr>
-        <tr><td><code>evolve</code></td><td>演化面板（只读）：席位、考试时钟、榜单、路由表、题库、冻结流程</td></tr>
+        <tr><td><code>skills</code></td><td>技能面板：本会话命中 / 已安装 / 推荐安装</td></tr>
+        <tr><td><code>procs</code></td><td>后台进程：run_shell 后台任务的状态、输出尾、结束</td></tr>
       </tbody>
     </table>
     <p>
@@ -177,7 +177,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
       </tbody>
     </table>
 
-    <h3>命令面板（输入 <code>/</code> 即见，23 条）</h3>
+    <h3>命令面板（输入 <code>/</code> 即见，18 条）</h3>
     <table>
       <thead><tr><th>命令</th><th>作用</th></tr></thead>
       <tbody>
@@ -193,7 +193,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>/mindmap</code>（<code>/mm</code>）</td><td>打开心智图面板</td></tr>
         <tr><td><code>/memory</code></td><td>浏览项目记忆——热层开关、忘记</td></tr>
         <tr><td><code>/settings</code></td><td>打开引擎与模型设置面板</td></tr>
-        <tr><td><code>/evolve</code> <code>/exam</code> <code>/contest</code> <code>/route</code> <code>/agents</code> <code>/flow</code> <code>/market</code></td><td>演化家族——打开只读 evolve 面板的对应分区（席位 / 题库与考试时钟 / 竞争上岗 / 路由表 / 候选谱系 / 冻结流程 / 工时市场）</td></tr>
+        <tr><td><code>/skills</code></td><td>打开技能面板</td></tr>
+        <tr><td><code>/procs</code></td><td>打开后台进程面板</td></tr>
         <tr><td><code>/remember</code></td><td>立刻把本会话的学习点蒸馏进记忆</td></tr>
         <tr><td><code>/stats</code></td><td>用量合计——轮次、token、缓存命中</td></tr>
         <tr><td><code>/help</code></td><td>命令与键位速查</td></tr>
@@ -215,113 +216,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     </table>
   </section>
 
-  <!-- ════════ 4 evolution ════════ -->
-  <section id="evolution">
-    <h2><span class="hash">4 ·</span>演化机制</h2>
-    <p class="lede">
-      这是 lyon 区别于「一次性聊天工具」的核心：跑任务留证据、证据变分数、
-      分数决定上岗、考核守住能力、路由记录谁最会、门禁与冻结把可靠的部分固化成机械流程。
-      演化循环下沉在 <code class="inline">pkg/evolve</code>，由 lyond 在每次
-      <code class="inline">prompt_end</code> 挂钩驱动——web 会话与任何入口跑的是同一套循环。
-      设计文档见 <code class="inline">docs/design/agent-evolution.md</code>。
-    </p>
-
-    <ol class="flow">
-      <li><strong>生产评分 → 在岗榜单</strong><span>每一次真实运行都会变成一张记分卡。</span></li>
-      <li><strong>闭卷考核 → 淘汰机制</strong><span>每 10 轮考一次，连挂 2 次撤职。</span></li>
-      <li><strong>任务分类 → 推荐路由</strong><span>把任务归类，证据进推荐表。</span></li>
-      <li><strong>知识覆盖率门禁</strong><span>开卷之前先证明「学过了」。</span></li>
-      <li><strong>workflow 冻结 → 机械执行</strong><span>可靠的部分固化成数据，LLM 只做节点内填空。</span></li>
-    </ol>
-
-    <h3>4.1 · 生产评分与在岗榜单</h3>
-    <p>
-      <code class="inline">eval.ScoreWith</code> 按四个维度打分：
-      Correctness / Efficiency / Cost / Compliance 加权出 Total，
-      <code class="inline">DefaultThresholds</code> 要求四维<strong>全过</strong>才 Passed——
-      在岗的必须都是达标的。榜单写在 <code class="inline">$LYON_HOME/leaderboard.json</code>，
-      按任务类（coding / fix / review / research / writing / design / data / general）分别记账，
-      每个 Agent 保留最近 50 张记分卡；每来一张新卡就重新推选 on-duty（证据最新且达标的当选）。
-      <strong>普通 prompt 跑完自动入榜：</strong>无标准答案时由<strong>盲评裁判</strong>打分
-      （一次低价调用给出 0–1 的 correctness，引擎在 prompt 结束后异步入账，
-      <code class="inline">LYON_SCORE=off</code> 可关），判分失败不入账——宁缺毋滥。
-    </p>
-
-    <h3>4.2 · 闭卷考核（每 10 轮）</h3>
-    <p>
-      手写题库 8 个任务类各 4 题，<strong>随二进制冻结分发</strong>——绝不由被考核的生产任务生成，
-      首次使用落盘 <code class="inline">$LYON_HOME/exams/&lt;class&gt;.json</code>，可检查、可改。
-      闭卷 = 无工具、不读文件，只考权重里的知识；单题答案期望串命中或关键词过半即得分，
-      <code class="inline">DefaultExamPass = 0.75</code>（4 题过 3）。
-      时钟：每 10 次成功 prompt 记一轮，到点且席位有人时自动开考；
-      <strong>连挂 2 次 → 撤职</strong>，席位空缺，下一张生产记分卡重新选举。
-      考核异步执行、不打断进行中的 prompt；考试时钟与题库在 evolve 面板可查，
-      <code class="inline">LYON_EXAM=off</code> 可关（轮次照记）。
-    </p>
-
-    <h3>4.3 · 任务分类与推荐路由</h3>
-    <p>
-      <code class="inline">routing.Classify</code> 用中英双语关键词计分给任务归类
-      （同分保留靠前者：fix → review → research → design → coding → writing → data → general），
-      <code class="inline">Openness(text)</code> 给任务打 0–5 开放度。
-      推荐表 <code class="inline">$LYON_HOME/routing.json</code> 对每个 (class, agent) 记运行均值分，
-      置信度按 <code class="inline">mean × samples / (samples + 3)</code> 计算——
-      样本越多置信越高，新玩家要靠真实分数挣位置。
-      <code class="inline">pkg/models</code> 注册表 32 个模型全部标注
-      Reasoning / LongHaul / Openness / Speed / Thrift 五维 0–5 画像。
-      分类、榜单与推荐表在 evolve 面板的 <code class="inline">/route</code> 分区直接可读。
-    </p>
-
-    <h3>4.4 · 知识覆盖率门禁</h3>
-    <p>
-      开卷干活之前先<strong>两段闭卷测验</strong>：<code class="inline">GenSystem</code>
-      从任务生成可核对的 Q/A 清单 → <code class="inline">BookSystem</code> 盲答 → 对照评分；
-      低于 <code class="inline">CoverageThreshold = 0.6</code> 算缺口，
-      缺口行（<code class="inline">问题 → 期望答案</code>）拼进任务正文定向注入。
-      实现在 <code class="inline">pkg/eval/coverage.go</code>，
-      与执行器的接线在 <code class="inline">pkg/flow/glue.go</code>（NewGate / NewDiagnose）。
-      设计原则是<strong>永不阻断</strong>：门禁自身出错只记
-      <code class="inline">gate skipped</code>，绝不拦下任务。
-    </p>
-
-    <h3>4.5 · workflow 冻结与机械执行</h3>
-    <p>
-      <strong>控制流是数据，不是提示词。</strong>
-      <code class="inline">Workflow{slug, title, trigger, nodes}</code> 的节点有明确的退出判据
-      （<code class="inline">always</code> / <code class="inline">command</code> / 退出码 /
-      <code class="inline">contains</code> 标记 / judge 窄问）和失败策略
-      （<code class="inline">retry</code> 默认，诊断回灌后有界重试 ≤3 / <code class="inline">abort</code> /
-      <code class="inline">continue</code> / <code class="inline">goto</code>，tick 预算杀死死循环）。
-      状态机选节点、判出口、限重试——<strong>LLM 只做节点内填空（<code class="inline">{{input}}</code>），不决定控制流</strong>，
-      「走一步决定一步」的抖动不复存在。
-      内置 4 条随二进制分发：<code class="inline">feature-dev</code> <code class="inline">bugfix</code>
-      <code class="inline">code-review</code> <code class="inline">release</code>；
-      用户文件 <code class="inline">$LYON_HOME/workflows/*.json</code> 按 slug 覆盖内置。
-    </p>
-    <p>
-      会话里的执行入口是 agent 的 <strong><code class="inline">flow</code> 工具</strong>
-      （三个动作：<code class="inline">list</code> 列冻结清单 ·
-      <code class="inline">run</code> 按名参执行一串已固化的步骤 ·
-      <code class="inline">freeze</code> 把刚验证成功的步骤序列存成 slug）——
-      模型自己就能以一次调用代替重新推导整套命令序列。
-      冻结的流程、固化时钟与执行痕迹都持久化在 <code class="inline">$LYON_HOME</code>，
-      evolve 面板的 <code class="inline">/flow</code> 分区可查。
-    </p>
-
-    <div class="note">
-      <strong>历史实跑验证（2026-10-12 19:12 → 10-13 06:34，11 小时 21 分）：</strong>
-      整夜驱动 <strong>224 轮全部成功退出（0 失败）</strong>，平均约 3 分钟/轮；
-      20 场闭卷考核 <strong>18 PASS / 2 FAIL</strong>——在岗模型连挂两场即被降级，
-      席位由生产证据重新选举（被驱逐者不自动回位）；
-      206 次盲评入榜、得分 0.80–1.00 确有区分度；
-      bugfix 流程 18 连绿自动固化，终局路由表 fix 类 100 样本 / 置信 0.96。
-      这套机制的原始驱动脚本随旧版演示一并下线，产物仍可在 <code class="inline">$LYON_HOME</code> 里复盘。
-    </div>
-  </section>
-
-  <!-- ════════ 5 reference ════════ -->
+  <!-- ════════ 4 reference ════════ -->
   <section id="reference">
-    <h2><span class="hash">5 ·</span>配置参考</h2>
+    <h2><span class="hash">4 ·</span>配置参考</h2>
 
     <h3>lyond 启动标志</h3>
     <table>
@@ -357,12 +254,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
         <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI 协议转换层地址（设置后走 chat/completions）</td></tr>
         <tr><td><code>ANTHROPIC_MODEL</code></td><td>模型 id（<code>LYON_MODEL</code> 的兜底）</td></tr>
         <tr><td><code>LYON_MAX_ITER</code></td><td>单个 prompt 的 API 调用上限（<code>0</code> = 不限）</td></tr>
-        <tr><td><code>LYON_HOME</code></td><td>数据根目录（会话草稿、榜单、考核、workflow、记忆）</td></tr>
+        <tr><td><code>LYON_HOME</code></td><td>数据根目录（会话草稿、workflow、记忆）</td></tr>
         <tr><td><code>LYON_TOKEN</code> / <code>LYON_AUTH_TOKEN</code></td><td>lyond 访问令牌 / 服务鉴权令牌</td></tr>
         <tr><td><code>ANTHROPIC_AUTH_TOKEN</code> / <code>ANTHROPIC_API_KEY</code> / <code>LYON_API_KEY</code></td><td>模型 API 密钥（面板只显示是否已设，绝不回显值）</td></tr>
-        <tr><td><code>LYON_EXAM</code></td><td><code>off</code> 关闭自动考核触发（轮次照记）</td></tr>
-        <tr><td><code>LYON_SCORE</code></td><td><code>off</code> 关闭普通 prompt 的盲评入榜（考核轮次照记）</td></tr>
-        <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> 关闭失败自诊断（SummarizeFailure）</td></tr>
         <tr><td><code>LYON_MINDMAP</code></td><td><code>off</code> 关思维导图总开关（无蒸馏、无事件、零调用）</td></tr>
         <tr><td><code>LYON_MINDMAP_ASK</code></td><td><code>off</code> 图上编辑只入 chat 不发轮</td></tr>
         <tr><td><code>LYON_TITLE</code></td><td><code>off</code> 关闭会话自动标题（意图识别）</td></tr>
@@ -379,9 +273,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     </table>
   </section>
 
-  <!-- ════════ 6 faq ════════ -->
+  <!-- ════════ 5 faq ════════ -->
   <section id="faq">
-    <h2><span class="hash">6 ·</span>常见问题</h2>
+    <h2><span class="hash">5 ·</span>常见问题</h2>
 
     <details class="faq" open>
       <summary>设了迭代预算后，为什么跑到几十次 API 调用就停了？</summary>
@@ -417,24 +311,11 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     </details>
 
     <details class="faq">
-      <summary>考核、门禁会不会在我不注意的时候卡死流程？</summary>
-      <div class="body">
-        <p>
-          不会，设计原则是<strong>永不阻断</strong>：覆盖率门禁自身出错只记
-          <code class="inline">gate skipped</code>；闭卷考核异步执行，不打断正在进行的 prompt；
-          考挂只警告、照常入账。完全不想被自动考核打扰就设
-          <code class="inline">LYON_EXAM=off</code>（想连盲评也关就再设
-          <code class="inline">LYON_SCORE=off</code>）。
-        </p>
-      </div>
-    </details>
-
-    <details class="faq">
       <summary>数据存在哪里？会不会上传到云？</summary>
       <div class="body">
         <p>
           全部在本地 <code class="inline">$LYON_HOME</code>（默认 <code class="inline">~/.lyon</code>）：
-          会话草稿与快照、leaderboard、考核题库、routing 推荐表、workflow、记忆。
+          会话草稿与快照、workflow、记忆。
           无遥测。只有显式配置了 <code class="inline">LYON_SYNC_URL/TOKEN</code> 才会同步记忆。
         </p>
       </div>
@@ -478,29 +359,27 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     </details>
   </section>
 
-  <!-- ════════ 7 arch ════════ -->
+  <!-- ════════ 6 arch ════════ -->
   <section id="arch">
-    <h2><span class="hash">7 ·</span>开发者地图</h2>
+    <h2><span class="hash">6 ·</span>开发者地图</h2>
     <p class="lede">读代码从这里进，完整版见仓库 README「架构」一节。</p>
 
     <table>
       <thead><tr><th>路径</th><th>职责</th></tr></thead>
       <tbody>
-        <tr><td><code>cmd/lyond</code></td><td>Go 守护进程：HTTP/SSE + Connect RPC（Session/Settings/Approval/File/Plan…）、准入控制、OpenAI 兼容网关；prompt_end 挂 <code>evolve.Hook</code></td></tr>
-        <tr><td><code>web/</code></td><td>React + Vite + connect-es 前端：SessionList 侧栏 / ChatView 转录与审批 / tiling 平铺面板 / MindMapCard / SettingsPane / EvolvePanel…</td></tr>
+        <tr><td><code>cmd/lyond</code></td><td>Go 守护进程：HTTP/SSE + Connect RPC（Session/Settings/Approval/File/Plan…）、准入控制、OpenAI 兼容网关；prompt_end 挂 <code>mindmap.Hook</code></td></tr>
+        <tr><td><code>web/</code></td><td>React + Vite + connect-es 前端：SessionList 侧栏 / ChatView 转录与审批 / tiling 平铺面板 / MindMapCard / SettingsPane / SkillPanel / ProcessPanel…</td></tr>
         <tr><td><code>pkg/server</code></td><td>Event Hub（seq 环、订阅重放）、connectRPC 服务实现、x-lyon-workspace 工作区头、审批与文件端点</td></tr>
         <tr><td><code>pkg/agent</code></td><td>引擎核心：Engine（连接池/并发信号量/预热）、Session（单驱动 goroutine + 事件流）、compact.go 客户端压缩、snapshot.go 会话存档、flow 工具</td></tr>
         <tr><td><code>pkg/tools</code></td><td>工具系统：run_shell / 文件读写（工作区禁闭）/ view_image / web_* / 记忆 / todo_write / prompt-cache 字节稳定化</td></tr>
-        <tr><td><code>pkg/evolve</code></td><td>演化循环：评分入榜、闭卷考核、失败诊断——lyond 在 prompt_end 调它，所有入口共用</td></tr>
-        <tr><td><code>pkg/eval</code></td><td>四维评分、leaderboard、闭卷考核题库、知识覆盖率、错因归纳</td></tr>
         <tr><td><code>pkg/routing</code></td><td>任务分类、开放度、推荐表（置信度 = mean×samples/(samples+3)）</td></tr>
         <tr><td><code>pkg/models</code></td><td>32 个模型的五维能力画像注册表</td></tr>
-        <tr><td><code>pkg/flow</code></td><td>机械执行器：节点状态机、退出判据、有界重试、内置 4 条 workflow、门禁/诊断 glue</td></tr>
+        <tr><td><code>pkg/flow</code></td><td>机械执行器：节点状态机、退出判据、有界重试、内置 4 条 workflow</td></tr>
         <tr><td><code>pkg/mindmap</code></td><td>实时思维导图：蒸馏、事件、图编辑回流</td></tr>
-        <tr><td><code>pkg/mcp</code> / <code>pkg/memory</code> / <code>pkg/market</code></td><td>MCP 客户端 / 分层记忆 / 任务工时市场</td></tr>
+        <tr><td><code>pkg/mcp</code> / <code>pkg/memory</code> / <code>pkg/space</code></td><td>MCP 客户端 / 分层记忆 / 技能与知识空间</td></tr>
         <tr><td><code>internal/mockapi</code></td><td>验收用假 API：真实 SSE 帧序 + prompt-cache 模拟器，测试全绿靠它</td></tr>
         <tr><td><code>bench/</code></td><td>性能验收套件（阈值强制）</td></tr>
-        <tr><td><code>docs/design/</code></td><td>设计文档：<code>agent-evolution.md</code> 是演化机制的原始蓝图</td></tr>
+        <tr><td><code>docs/design/</code></td><td>设计文档：<code>mindmap.md</code>（心智图）、<code>files-changed-card-acceptance.md</code>（产出文件卡片）</td></tr>
       </tbody>
     </table>
 
@@ -521,7 +400,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># �
     <a href="../README.md">README</a>
     <a href="manual.en.html">EN</a>
   </div>
-  <div>lyon-agent · 本地优先、可演化的 AI 编程智能体（Web 工作台） · 文档随仓库分发，无网络资源</div>
+  <div>lyon-agent · 本地优先的 AI 编程智能体（Web 工作台） · 文档随仓库分发，无网络资源</div>
 </footer>
 
 </body>

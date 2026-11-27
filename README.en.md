@@ -1,8 +1,8 @@
 # lyon-agent
 
-**the self-evolving AI coding agent that grades itself, sits exams, replaces
-underperformers — and gets better the more you use it** — local-first, one Go
-daemon `lyond` plus a Web workbench in your browser.
+**a local-first AI coding agent** — one Go daemon `lyond` plus a Web workbench
+in your browser: streaming chat, tool calls, context compaction, concurrent
+subagent fan-out.
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
 [![CI](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml)
@@ -11,15 +11,13 @@ daemon `lyond` plus a Web workbench in your browser.
 One process runs the complete agent loop (streaming output, tool calls, context
 compaction, concurrent subagent fan-out), exposed to a React Web workbench over
 connectRPC/SSE; a stress-acceptance suite ships with it — thresholds that miss
-FAIL the build. Around it sits an **evolution mechanism** — blind-graded
-production runs onto a leaderboard, a closed-book exam every 10 rounds
-(two failures and the seat is vacated), task classification with evidence-based
-routing, failure post-mortems fed back into memory — every ledger persisted to
-disk and restored verbatim after a restart, directly readable in the Web panels.
+FAIL the build. Around it sit three-tier persistent memory, hooks audit &
+security gates, and the mindmap second input channel — everything persisted
+locally and restored verbatim after a restart.
 
 > 📘 **Docs site**: open [`docs/index.html`](docs/index.html) (product tour) and
 > [`docs/manual.html`](docs/manual.html) (user manual: start → interface →
-> evolution → configuration → FAQ) in a browser — pure local static pages, no
+> interaction → configuration → FAQ) in a browser — pure local static pages, no
 > network resources, double-click to read.
 > **English**: [`README.en.md`](README.en.md) ·
 > [`docs/index.en.html`](docs/index.en.html) · [`docs/manual.en.html`](docs/manual.en.html).
@@ -30,8 +28,8 @@ disk and restored verbatim after a restart, directly readable in the Web panels.
 ## Features
 
 - **Web workbench**: tiling layout — chat, plan, step audit, files, preview,
-  terminal, mindmap, memory, settings, and evolution panels are all splittable
-  panes; the layout is saved per session.
+  terminal, mindmap, memory, settings, skills, and background-process panes are
+  all splittable; the layout is saved per session.
 - **Session sidebar**: groups per workspace, click a header to **fold/unfold**
   that group, green **git** badge on repository workspaces, two-click confirmed
   delete, `running`/`queued` badges; new sessions pick a workspace (local
@@ -55,10 +53,10 @@ disk and restored verbatim after a restart, directly readable in the Web panels.
 - **Four execution modes**: `default` human approval · `plan` read-only
   exploration · `bypass` auto-approve · `mindmap` map interaction — pick from
   the bottom-left mode dock or cycle with `shift+tab`.
-- **21 slash commands**: type `/` for a categorized candidate panel —
+- **17 slash commands**: type `/` for a categorized candidate panel —
   `/rollback` checkpoints, `/undo` revert this run's file changes, `/model`
-  model card, `/stats` usage, `/memory` memory, `/evolve` `/exam` `/route`
-  `/flow` evolution panels … (full table in "Tour of the interface").
+  model card, `/stats` usage, `/memory` memory, `/skills` `/procs` skills &
+  background processes … (full table in "Tour of the interface").
 - **Three-tier persistent memory**: team / personal / project one-fact-per-file
   Markdown, local BM25 (CJK bigram) retrieval, hot tier injected with the first
   prompt, `/remember` distills this session in one keystroke; the web memory
@@ -66,11 +64,6 @@ disk and restored verbatim after a restart, directly readable in the Web panels.
 - **Hooks: audit & security gates**: full-lifecycle jsonl audit + aggregate
   stats + `policy.json` regex blocks + external blocking hooks
   (`LYON_AUDIT`/`LYON_HOOKS` to disable).
-- **Evolution mechanism**: blind grading onto the leaderboard → closed-book
-  exam every 10 rounds (two fails and the seat opens) → task-class routing —
-  all run by `lyond` in the background on prompt_end (`LYON_EVOLVE` master
-  gate), read-only in the Web evolution panel, every ledger
-  persisted and restored on restart.
 - **OpenAI-compatible gateway**: HTTP-layer protocol translation
   (`-openai-base`, any endpoint) — tool system, compaction, and subagents
   reused with zero changes.
@@ -186,7 +179,8 @@ Panes splittable around the chat (opened via `/` commands or UI affordances):
 | mindmap | `/mindmap` or mindmap mode | live understanding map; node edits flow back and advance the chat |
 | memory | `/memory` | three-tier memory browsing, BM25 retrieval verification (score / matched terms / passage), tag filters |
 | settings | `/settings` | engine model & subagent model (switchable), model knowledge table (gateway `/models` × built-in knowledge base), environment variable inventory |
-| evolve | `/evolve` `/exam` `/route` `/flow` `/agents` `/market` | read-only panels: candidate lineage · seated models · exam clock & banks · routing table & leaderboard · frozen procedures · task-hour market |
+| skills | `/skills` | session hits / installed / recommended installs |
+| procs | `/procs` | background shell tasks: command · pid · owning session · output tail · kill |
 
 Layouts are saved per session: switching sessions restores that session's own
 pane tree and open tabs.
@@ -209,14 +203,15 @@ Type `/` for the categorized candidate panel, ↑/↓ to pick, enter to run:
 | | `/mindmap` (`/mm`) | mindmap pane |
 | | `/memory` | memory pane |
 | | `/settings` | settings pane |
-| | `/evolve` `/exam` `/contest` `/route` `/agents` `/flow` `/market` | evolution family → the matching evolve-panel section |
+| | `/skills` | skills pane |
+| | `/procs` | background-process pane |
 | misc | `/remember` | distill this session's durable facts into memory now |
 | | `/stats` | usage totals: turns, tokens, cache hits |
 | | `/help` | commands and keys at a glance |
 
 ## Architecture
 
-Layered sketch (calls flow top-down; evolution/memory/governance touch only the
+Layered sketch (calls flow top-down; memory/governance touch only the
 ledgers and the event stream, never the engine loop):
 
 ```text
@@ -227,9 +222,9 @@ ledgers and the event stream, never the engine loop):
 │             subagents & concurrent fan-out
 ├─ tools   pkg/tools   shell / files / search / image / web / memory / todos
 │             pkg/mcp    MCP stdio & streamable HTTP
-├─ evolve  pkg/eval · pkg/evolve · pkg/routing · pkg/models · pkg/flow · pkg/market
-│             scoring & leaderboard · closed-book exams · task routing · model profiles ·
-│             workflow state machine · task-hour ledger
+├─ capab   pkg/routing · pkg/models · pkg/flow · pkg/space
+│             task classification · model profiles · workflow frozen scripts ·
+│             skills & knowledge spaces
 ├─ memory  pkg/memory  three-tier persistent memory · BM25 retrieval · distill · cloud sync
 └─ govern  pkg/hooks   audit jsonl · aggregate stats · policy/external-hook security gates
 (transport) pkg/openaix (OpenAI-compatible gateway protocol translation)
@@ -240,14 +235,14 @@ Directory map:
 ```text
 cmd/lyond           daemon: connectRPC + legacy SSE, /metrics, /healthz,
                       approval bridge, prompt_end observer wiring (mindmap
-                      distill + evolution loop)
+                      distill)
 web/                React + TypeScript frontend (Vite · @connectrpc/connect-es)
   src/App.tsx        session lifecycle, slash-command routing, tiling panes,
                       mode dock, context gauge
   src/components/    ChatView / SessionList / StepsPane / MindMapCard /
                       FilePanel / ScmView / TerminalPane / PreviewPane /
                       PlanPane / MemoryPanel / SettingsPane /
-                      EvolvePanel / NewSessionDlg / CodeEditor …
+                      SkillPanel / ProcessPanel / NewSessionDlg / CodeEditor …
 pkg/agent           engine core
   engine.go           Engine: tuned HTTP connection pool, global concurrent
                       turn semaphore, Warmup
@@ -262,18 +257,15 @@ pkg/agent           engine core
 pkg/tools           tool system (registry / shell / files / search / image /
                       paste / web / memory / todos / stable / metrics)
 pkg/server          HTTP services & RPC: hub ring replay, session store,
-                      approvals, file/memory/evolution services,
+                      approvals, file/memory/settings/skills/process services,
                       x-lyon-workspace
 pkg/hooks           audit (~/.lyon/audit/*.jsonl), aggregate stats, policy/hooks gates
 pkg/memory          three-tier memory: BM25 retrieval, hot-tier injection, distill, sync
-pkg/eval            evolution machinery: four-dimension scoring, leaderboard,
-                      closed-book exams, coverage gate, failure post-mortems
-pkg/evolve          evolution loop (wired to lyond's prompt_end): book rounds ·
-                      blind grade · sit exams · post-mortem
 pkg/routing         task classification (zh/en) and recommended-routing table
 pkg/models          model parameter knowledge base + capability profiles (32 models)
 pkg/flow            workflow state machine: mechanical execution, auto-freeze on streaks
-pkg/market          task-hour ledger
+pkg/mindmap         mindmap: distill into map, edits flow back, draw_event_map diagrams
+pkg/space           skills & knowledge spaces: commons endorsement, identity & space tools
 pkg/openaix         OpenAI-compatible gateway: HTTP-layer protocol translation
 internal/mockapi    fake API for acceptance: real SSE frame order + prefix-hash
                       prompt-cache simulator
@@ -513,7 +505,7 @@ consumers — `prompt_start/end`, `turn_end`, `tool_use/exec_start/end`,
 External hooks suit custom telemetry, audit export, DLP/sandbox gateways;
 subagent tools pass the same `PreTool` gate.
 
-## Memory module (tiered hot/cold + self-evolving + cloud sync)
+## Memory module (tiered hot/cold + distill + cloud sync)
 
 Three tiers of persistent memory, one-fact-per-file Markdown you can hand-edit:
 
@@ -535,7 +527,7 @@ Three tiers of persistent memory, one-fact-per-file Markdown you can hand-edit:
 - **Model tools**: `save_memory` (upsert by title, `scope`/`hot` args),
   `read_memory` (`query`=BM25 search / `title`=read verbatim / empty=tight
   list), `forget_memory` (delete by name).
-- **Self-evolution (distill)**: `/remember` triggers it now — the model is
+- **Distill**: `/remember` triggers it now — the model is
   steered to run the distillation pass immediately, saving durable facts from
   this conversation (decisions and reasons, preferences, conventions,
   environment gotchas; at most 6, idempotent — unchanged content is not
@@ -727,108 +719,13 @@ body...
   engine-level real tool-runner two-turn e2e
   (`pkg/agent/openai_gateway_test.go`).
 
-## Agent evolution mechanism (scoring · exams · routing · workflow freezing)
-
-Design doc `docs/design/agent-evolution.md`. Four code layers: `pkg/eval`
-(scoring/leaderboard/exams/coverage/post-mortems), `pkg/evolve` (the evolution
-loop — `lyond` wires it onto its prompt_end observer), `pkg/routing` (task
-classification & recommendation network), `pkg/models` (capability profiles),
-`pkg/flow` (mechanical executor). Ledgers live under `$LYON_HOME/`, **read-only
-in the Web evolution panel**; master gate `LYON_EVOLVE=off`,
-leg gates `LYON_SCORE` / `LYON_EXAM` / `LYON_DIAGNOSE`.
-
-### Production scoring & on-duty leaderboard
-
-- **Four-dimension scoring** `eval.ScoreWith`: Correctness / Efficiency / Cost /
-  Compliance weighted into Total; `DefaultThresholds` require all four to pass.
-- **Leaderboard** `$LYON_HOME/leaderboard.json` keeps a per-task-class account
-  (coding/fix/review/research/writing/design/data/general): each agent retains
-  its latest 50 scorecards, and every production record re-elects the on-duty
-  seat (freshest passing evidence wins).
-- **Blind grading**: prompts without a gold answer go to `eval.JudgeRun` (one
-  cheap call, 0..1 correctness), graded in the background after prompt_end;
-  failed grades are **not booked** (better no entry than a fake one).
-
-### Closed-book exam (every 10 rounds)
-
-- **Hand-written banks**: 4 questions per task class × 8 classes, frozen into
-  the binary (never generated from the production tasks being examined),
-  materialized on first use at `$LYON_HOME/exams/<class>.json` — inspectable
-  and editable.
-- **Closed-book** `ClosedBookSystem`: no tools, no files, only the weighted
-  knowledge; `DefaultExamPass = 0.75` (3 of 4).
-- **Clock**: every 10 successful prompts books a round; when due and a seat is
-  filled the exam auto-runs; two consecutive failures → demotion, seat opens,
-  the next production scorecard re-elects.
-- Questions, clock, and seats are verifiable in the Web evolve panel (bank
-  sizes, candidate field, exam clock).
-
-### Task classification & recommended routing
-
-- `routing.Classify`: zh/en keyword scoring (ties keep the earlier class);
-  `Openness(text)` scores a task 0–5.
-- **Recommendation table** `$LYON_HOME/routing.json`: each (class, agent) pair
-  stores the running mean score and confidence
-  `mean × samples / (samples + 3)` — more samples, more confidence; newcomers
-  earn their seat with real scores.
-- **Capability profiles** `pkg/models`: all 32 registered models carry
-  Reasoning/LongHaul/Openness/Speed/Thrift five-dimension 0–5 profiles.
-- The routing table and leaderboard read directly in the evolve panel;
-  exams and scores rewrite who sits, so evolution output becomes behavior.
-
-### Knowledge coverage gate (design §2)
-
-- **Two-stage closed-book test**: `GenSystem` generates a checkable Q/A list
-  from the task → `BookSystem` answers blind → graded against it;
-  below `CoverageThreshold = 0.6` counts as a gap.
-- **Targeted injection**: gap lines (`question → expected answer`) are spliced
-  into the task body; in a flow they enter **every node's** prompt through
-  `{{input}}`. A gate error only logs `gate skipped` — it **never blocks**.
-
-### Workflow freezing & mechanical execution (design §3)
-
-- **Control flow is data**: `Workflow{slug, title, trigger, nodes}` with node
-  exit criteria `always | command | exit code | contains marker | narrow judge`;
-  failure policies `retry (default, bounded ≤3 with diagnosis fed back) |
-  abort | continue | goto:<name>` — **the LLM only fills in node content
-  (`{{input}}`), it never decides control flow**; a tick budget kills goto
-  loops.
-- **Four built-ins** (`go:embed`): `feature-dev` · `bugfix` · `code-review` ·
-  `release`. User files `$LYON_HOME/workflows/*.json` override by slug;
-  broken files are skipped, never fatal.
-- **Auto-freeze (§3.1)**: the same slug green **3 runs in a row** freezes to
-  `<slug>-proven.json` (title carries provenance: streak · last score · model
-  at freeze); a red resets the streak — procedures that survive production
-  become artifacts by themselves.
-- **Failure post-mortem**: failed prompts asynchronously run
-  `SummarizeFailure`, producing a checkable condition + patch — audited
-  (`LYON_DIAGNOSE=off` disables); the diagnosis also **writes into the project
-  memory hot tier** (deduplicated, 3-entry hot window), so the next session's
-  injection starts with the lesson; flow retries append the same constraint
-  block into the next node prompt.
-
-### Historical overnight run (2026-10-12 → 10-13, 11h21m / 224 rounds, all green)
-
-- 20 exams: **18 PASS / 2 FAIL** — the research seat's model failed twice in a
-  row and was demoted; the seat was re-elected by production evidence (the
-  expelled model does not return automatically).
-- 206 blind-graded bookings, scores **0.80–1.00** (including four genuinely low
-  ones — the grader discriminates rather than rubber-stamping).
-- 8 routing handovers; final fix class: 100 samples / confidence 0.96 →
-  recommends mimo-v2.6-flash.
-- bugfix workflow **18 consecutive greens** auto-frozen, final title
-  `缺陷修复标准流程 (frozen after 18 green runs · score 1.00 · mimo-v2.6-flash)`.
-- Every ledger (leaderboard/routing/exams/workflows/audit) persisted and
-  restored verbatim across restarts.
-
 ## Roadmap
 
-- ✅ Web workbench v1–v2 (tiling panes, approvals, memory/evolution
-  panels, per-session workspaces)
+- ✅ Web workbench v1–v2 (tiling panes, approvals, memory/skills/process
+  panes, per-session workspaces)
 - 🚧 Release prebuilt distribution & one-click install · in-process and OS-level
   timers
-- 🗺 multi-user mindmap collaboration; Web-driven evolution-panel actions
-  (start exams / contests / freeze procedures)
+- 🗺 multi-user mindmap collaboration
 
 Priority discussion welcome in issues.
 
@@ -848,10 +745,9 @@ repair), modes & approvals (plan gate matrix, bypass short-circuit, mode
 audit), model knowledge base, OpenAI translation layer (protocol
 conversion, SSE synthesis, error mapping, SDK through-layer, engine-level
 e2e), MCP, services (connectRPC, SSE, hub replay, session store,
-file/memory/approval), evolution (four-dimension scoring,
-leaderboard persistence & demotions, exam authoring & grading, classification
-& routing confidence, coverage injection, every flow-executor branch),
-mockapi, bench (performance acceptance). All offline — no network, no real keys.
+file/memory/approval/process), routing classification & confidence,
+flow executor & freezing, mockapi, bench (performance acceptance). All offline
+— no network, no real keys.
 
 Continuous integration (`.github/workflows/ci.yml`) runs
 `go build ./... && go vet ./... && go test ./... -count=1` on ubuntu / windows /

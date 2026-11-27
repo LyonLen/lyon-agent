@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lyon-agent manual — from first steps to evolution mechanics</title>
-<meta name="description" content="lyon-agent user manual: quick start (lyond + web), UI tour, interaction guide (keys/command panel/approvals/gestures), evolution mechanics (scoring/exams/routing/coverage gate/workflow), configuration reference and FAQ.">
+<title>lyon-agent manual — from first steps to the developer map</title>
+<meta name="description" content="lyon-agent user manual: quick start (lyond + web), UI tour, interaction guide (keys/command panel/approvals/gestures), configuration reference, FAQ and developer map.">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
 </head>
@@ -29,8 +29,8 @@
     <h1 style="font-size:clamp(32px,4.5vw,44px);">lyon-agent <span class="accent">user manual</span></h1>
     <p class="sub" style="margin-left:0;">
       This page serves two audiences: <strong>daily users</strong> who just want the tool
-      working, and <strong>learners</strong> who want to understand why the evolution
-      mechanics are designed the way they are. Every behavior maps one-to-one to the
+      working, and <strong>learners</strong> who want to read the codebase itself.
+      Every behavior maps one-to-one to the
       repository code and the README — safe to treat as ground truth.
     </p>
   </div>
@@ -41,9 +41,8 @@
       <li><a href="#quickstart">Quick start — build lyond and the web frontend, credentials, launch</a></li>
       <li><a href="#tour">UI tour — sidebar · chat · tiled panes · footer</a></li>
       <li><a href="#keys">Interaction guide — keys · command panel · approval cards · gestures</a></li>
-      <li><a href="#evolution">Evolution — scoring · exams · routing · coverage gate · workflow</a></li>
       <li><a href="#reference">Reference — lyond launch flags and environment variables</a></li>
-      <li><a href="#faq">FAQ — iteration budget, session restore, gates…</a></li>
+      <li><a href="#faq">FAQ — iteration budget, session restore, data storage…</a></li>
       <li><a href="#arch">Developer map — package structure</a></li>
     </ol>
   </div>
@@ -74,7 +73,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
 <span class="c"># proxies same-origin to 8080, so the bearer token rides along.</span></pre>
 
     <div class="note">
-      <strong>Storage root:</strong> all state (session drafts, leaderboard, exams, workflows, memory)
+      <strong>Storage root:</strong> all state (session drafts, workflows, memory)
       lives in <code class="inline">$LYON_HOME</code>, default <code class="inline">~/.lyon</code>.
       Change it before launch to isolate — tests, containers and CI rely on it to stay off
       the real home.
@@ -132,7 +131,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
         <tr><td><code>mindmap</code></td><td>Live mind map (see below)</td></tr>
         <tr><td><code>memory</code></td><td>Project memory browser: hot-layer toggle, forget entries</td></tr>
         <tr><td><code>settings</code></td><td>Engine & models: current model card, gateway /models table, environment inventory</td></tr>
-        <tr><td><code>evolve</code></td><td>Evolution pane (read-only): seats, exam clock, leaderboard, routing table, question banks, frozen flows</td></tr>
+        <tr><td><code>skills</code></td><td>Skills pane: session hits / installed / recommended installs</td></tr>
+        <tr><td><code>procs</code></td><td>Background processes: run_shell background tasks — status, output tail, kill</td></tr>
       </tbody>
     </table>
     <p>
@@ -188,7 +188,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
       </tbody>
     </table>
 
-    <h3>Command panel (visible the moment you type <code>/</code> — 23 commands)</h3>
+    <h3>Command panel (visible the moment you type <code>/</code> — 18 commands)</h3>
     <table>
       <thead><tr><th>Command</th><th>What it does</th></tr></thead>
       <tbody>
@@ -204,7 +204,8 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
         <tr><td><code>/mindmap</code> (<code>/mm</code>)</td><td>open the mind-map pane</td></tr>
         <tr><td><code>/memory</code></td><td>browse project memory — hot toggle, forget</td></tr>
         <tr><td><code>/settings</code></td><td>open the engine & models settings pane</td></tr>
-        <tr><td><code>/evolve</code> <code>/exam</code> <code>/contest</code> <code>/route</code> <code>/agents</code> <code>/flow</code> <code>/market</code></td><td>the evolution family — opens the read-only evolve pane at the matching section (seats / exam bank & clock / contest field / routing table / candidate lineage / frozen flows / task-hour market)</td></tr>
+        <tr><td><code>/skills</code></td><td>open the skills pane</td></tr>
+        <tr><td><code>/procs</code></td><td>open the background-process pane</td></tr>
         <tr><td><code>/remember</code></td><td>distill this session's learnings into memory now</td></tr>
         <tr><td><code>/stats</code></td><td>usage totals — turns, tokens, cache</td></tr>
         <tr><td><code>/help</code></td><td>command and key cheat sheet</td></tr>
@@ -226,135 +227,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
     </table>
   </section>
 
-  <!-- ════════ 4 evolution ════════ -->
-  <section id="evolution">
-    <h2><span class="hash">4 ·</span>Evolution mechanics</h2>
-    <p class="lede">
-      This is what sets lyon apart from a "one-off chat tool": runs leave evidence, evidence
-      becomes scores, scores decide who works, exams hold the line on capability, routing
-      records who is best, and gates & freezes turn the reliable parts into mechanical
-      procedures. The evolution loop lives in <code class="inline">pkg/evolve</code> and is
-      driven by lyond's <code class="inline">prompt_end</code> hook — web sessions and every
-      other entry point run the same loop.
-      Design document: <code class="inline">docs/design/agent-evolution.md</code>.
-    </p>
-
-    <ol class="flow">
-      <li><strong>Production scoring → on-duty leaderboard</strong><span>Every real run becomes a scorecard.</span></li>
-      <li><strong>Closed-book exams → elimination</strong><span>Test every 10 rounds; two consecutive fails and you're out.</span></li>
-      <li><strong>Task classification → recommended routing</strong><span>Class tasks; evidence flows into the recommendation table.</span></li>
-      <li><strong>Knowledge coverage gate</strong><span>Before going open-book, prove you've learned it.</span></li>
-      <li><strong>Workflow freezing → mechanical execution</strong><span>Reliable parts freeze into data; the LLM only fills in the blanks.</span></li>
-    </ol>
-
-    <h3>4.1 · Production scoring & the on-duty leaderboard</h3>
-    <p>
-      <code class="inline">eval.ScoreWith</code> scores on four dimensions:
-      Correctness / Efficiency / Cost / Compliance weighted into Total, and
-      <code class="inline">DefaultThresholds</code> requires all four to
-      <strong>pass</strong> — everyone on duty is qualified.
-      The leaderboard lives at <code class="inline">$LYON_HOME/leaderboard.json</code>,
-      kept per task class (coding / fix / review / research / writing / design / data /
-      general); each agent keeps its latest 50 scorecards, and every new card re-elects
-      on-duty (freshest evidence that passes wins).
-      <strong>Ordinary prompts auto-enter the leaderboard when finished:</strong> with no
-      ground truth a <strong>blind judge</strong> scores them (one cheap call returns a 0–1
-      correctness, booked asynchronously after the prompt ends,
-      <code class="inline">LYON_SCORE=off</code> disables), and a failed judgment is not
-      recorded — better no card than a wrong one.
-    </p>
-
-    <h3>4.2 · Closed-book exams (every 10 rounds)</h3>
-    <p>
-      Handwritten bank of 4 questions for each of 8 task classes, <strong>frozen into the
-      binary</strong> — never generated from the production tasks being examined, written to
-      <code class="inline">$LYON_HOME/exams/&lt;class&gt;.json</code> on first use, inspectable
-      and editable. Closed book = no tools, no file reads, only the knowledge in the weights;
-      a question scores when the expected string matches or over half the keywords hit,
-      <code class="inline">DefaultExamPass = 0.75</code> (3 of 4).
-      Clock: every 10 successful prompts books a round; when due and the seat is occupied an
-      exam auto-runs; <strong>two consecutive fails → dismissed</strong>, seat vacant, the next
-      production scorecard re-elects.
-      Exams run async and never interrupt the current prompt; the clock and the bank are
-      readable in the evolve pane, and <code class="inline">LYON_EXAM=off</code> opts out
-      (rounds still count).
-    </p>
-
-    <h3>4.3 · Task classification & recommended routing</h3>
-    <p>
-      <code class="inline">routing.Classify</code> scores bilingual keywords to class a task
-      (ties keep the earlier class: fix → review → research → design → coding → writing →
-      data → general); <code class="inline">Openness(text)</code> rates the task 0–5.
-      The recommendation table <code class="inline">$LYON_HOME/routing.json</code> records the
-      mean run score per (class, agent) with confidence
-      <code class="inline">mean × samples / (samples + 3)</code> — more samples, more
-      confidence; newcomers earn their seat with real scores.
-      The <code class="inline">pkg/models</code> registry annotates all 32 models with
-      five 0–5 profiles: Reasoning / LongHaul / Openness / Speed / Thrift.
-      Classes, leaderboard and the recommendation table are directly readable in the evolve
-      pane's <code class="inline">/route</code> section.
-    </p>
-
-    <h3>4.4 · Knowledge coverage gate</h3>
-    <p>
-      Before working open-book, run a <strong>two-stage closed-book quiz</strong>:
-      <code class="inline">GenSystem</code> generates a checkable Q/A list from the task →
-      <code class="inline">BookSystem</code> blind-answers → scored against it; below
-      <code class="inline">CoverageThreshold = 0.6</code> counts as a gap, and the gap rows
-      (<code class="inline">question → expected answer</code>) are spliced into the task body
-      for targeted injection.
-      The implementation lives in <code class="inline">pkg/eval/coverage.go</code>, with the
-      runner adapters in <code class="inline">pkg/flow/glue.go</code> (NewGate / NewDiagnose).
-      The design principle is <strong>never block</strong>: a gate error only logs
-      <code class="inline">gate skipped</code> and never holds a task up.
-    </p>
-
-    <h3>4.5 · Workflow freezing & mechanical execution</h3>
-    <p>
-      <strong>Control flow is data, not prompt text.</strong>
-      <code class="inline">Workflow{slug, title, trigger, nodes}</code> nodes carry explicit
-      exit criteria (<code class="inline">always</code> / <code class="inline">command</code> /
-      exit code / <code class="inline">contains</code> marker / narrow judge) and failure
-      policies (<code class="inline">retry</code> default — bounded retries ≤3 after
-      diagnostic feedback / <code class="inline">abort</code> /
-      <code class="inline">continue</code> / <code class="inline">goto</code>, with a tick
-      budget killing infinite loops).
-      The state machine picks nodes, judges exits, bounds retries —
-      <strong>the LLM only fills in the node's <code class="inline">{{input}}</code>; it does
-      not decide control flow</strong>, so "decide-one-step-at-a-time" jitter disappears.
-      Four built-ins ship frozen with the binary:
-      <code class="inline">feature-dev</code> <code class="inline">bugfix</code>
-      <code class="inline">code-review</code> <code class="inline">release</code>;
-      user files <code class="inline">$LYON_HOME/workflows/*.json</code> override built-ins
-      by slug.
-    </p>
-    <p>
-      The in-session entry point is the agent's <strong><code class="inline">flow</code>
-      tool</strong> (three actions: <code class="inline">list</code> shows the frozen slugs ·
-      <code class="inline">run</code> executes a fixed step sequence with named args ·
-      <code class="inline">freeze</code> saves a just-proven sequence under a slug) — the model
-      can replace re-deriving an entire command sequence with a single call.
-      Frozen flows, the freeze clock and execution traces persist under
-      <code class="inline">$LYON_HOME</code> and are readable in the evolve pane's
-      <code class="inline">/flow</code> section.
-    </p>
-
-    <div class="note">
-      <strong>Historical live-run validation (2026-10-12 19:12 → 10-13 06:34, 11 h 21 m):</strong>
-      an overnight driver finished <strong>224 rounds, all exited 0 (zero failures)</strong>,
-      ~3 min/round; 20 closed-book exams <strong>18 PASS / 2 FAIL</strong> — a sitting model
-      that lost two in a row was demoted and the seat re-elected on production evidence
-      (the expelled agent never gets the seat back for free); 206 blind-judge scores filed
-      in the 0.80–1.00 range, so grades genuinely discriminate; the bugfix flow froze after
-      18 consecutive greens, and the final routing table showed fix at 100 samples /
-      confidence 0.96. The original driver scripts shipped with the legacy demo and are gone;
-      the artifacts remain inspectable under <code class="inline">$LYON_HOME</code>.
-    </div>
-  </section>
-
-  <!-- ════════ 5 reference ════════ -->
+  <!-- ════════ 4 reference ════════ -->
   <section id="reference">
-    <h2><span class="hash">5 ·</span>Configuration reference</h2>
+    <h2><span class="hash">4 ·</span>Configuration reference</h2>
 
     <h3>lyond launch flags</h3>
     <table>
@@ -390,12 +265,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
         <tr><td><code>LYON_OPENAI_BASE</code></td><td>OpenAI protocol-translation address (switches to chat/completions)</td></tr>
         <tr><td><code>ANTHROPIC_MODEL</code></td><td>model id (fallback for <code>LYON_MODEL</code>)</td></tr>
         <tr><td><code>LYON_MAX_ITER</code></td><td>API-call cap per prompt (<code>0</code> = unlimited)</td></tr>
-        <tr><td><code>LYON_HOME</code></td><td>data root (session drafts, leaderboard, exams, workflows, memory)</td></tr>
+        <tr><td><code>LYON_HOME</code></td><td>data root (session drafts, workflows, memory)</td></tr>
         <tr><td><code>LYON_TOKEN</code> / <code>LYON_AUTH_TOKEN</code></td><td>lyond access token / service auth token</td></tr>
         <tr><td><code>ANTHROPIC_AUTH_TOKEN</code> / <code>ANTHROPIC_API_KEY</code> / <code>LYON_API_KEY</code></td><td>model API keys (the pane only reports set/unset, never echoes values)</td></tr>
-        <tr><td><code>LYON_EXAM</code></td><td><code>off</code> disables automatic exam triggering (rounds still counted)</td></tr>
-        <tr><td><code>LYON_SCORE</code></td><td><code>off</code> disables blind-judge entry for ordinary prompts (exam rounds still counted)</td></tr>
-        <tr><td><code>LYON_DIAGNOSE</code></td><td><code>off</code> disables failure-cause summarization (SummarizeFailure)</td></tr>
         <tr><td><code>LYON_MINDMAP</code></td><td><code>off</code> master switch for the mind map (no distill, no events, zero calls)</td></tr>
         <tr><td><code>LYON_MINDMAP_ASK</code></td><td><code>off</code> map edits only enter chat without firing a turn</td></tr>
         <tr><td><code>LYON_TITLE</code></td><td><code>off</code> disables automatic session titles (intent detection)</td></tr>
@@ -412,9 +284,9 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
     </table>
   </section>
 
-  <!-- ════════ 6 faq ════════ -->
+  <!-- ════════ 5 faq ════════ -->
   <section id="faq">
-    <h2><span class="hash">6 ·</span>FAQ</h2>
+    <h2><span class="hash">5 ·</span>FAQ</h2>
 
     <details class="faq" open>
       <summary>With an iteration budget set, why does it stop after a few dozen API calls?</summary>
@@ -456,25 +328,12 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
     </details>
 
     <details class="faq">
-      <summary>Can exams or gates wedge my flow without me noticing?</summary>
-      <div class="body">
-        <p>
-          No — the design principle is <strong>never block</strong>: a coverage-gate error
-          only logs <code class="inline">gate skipped</code>; closed-book exams run async and
-          never interrupt the current prompt; a failed exam only warns and still records.
-          Set <code class="inline">LYON_EXAM=off</code> if you don't want automatic exams
-          (add <code class="inline">LYON_SCORE=off</code> to also skip blind scoring).
-        </p>
-      </div>
-    </details>
-
-    <details class="faq">
       <summary>Where is the data stored? Does anything go to the cloud?</summary>
       <div class="body">
         <p>
           All local in <code class="inline">$LYON_HOME</code> (default
-          <code class="inline">~/.lyon</code>): session drafts and snapshots, leaderboard,
-          exam banks, routing recommendation table, workflows, memory. No telemetry. Memory
+          <code class="inline">~/.lyon</code>): session drafts and snapshots, workflows,
+          memory. No telemetry. Memory
           only syncs when you explicitly configure <code class="inline">LYON_SYNC_URL/TOKEN</code>.
         </p>
       </div>
@@ -522,29 +381,27 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
     </details>
   </section>
 
-  <!-- ════════ 7 arch ════════ -->
+  <!-- ════════ 6 arch ════════ -->
   <section id="arch">
-    <h2><span class="hash">7 ·</span>Developer map</h2>
+    <h2><span class="hash">6 ·</span>Developer map</h2>
     <p class="lede">Start reading code here; the full version is the README's "Architecture" section.</p>
 
     <table>
       <thead><tr><th>Path</th><th>Responsibility</th></tr></thead>
       <tbody>
-        <tr><td><code>cmd/lyond</code></td><td>Go daemon: HTTP/SSE + Connect RPC (Session/Settings/Approval/File/Plan…), admission control, OpenAI-compatible gateway; taps <code>evolve.Hook</code> on prompt_end</td></tr>
-        <tr><td><code>web/</code></td><td>React + Vite + connect-es frontend: SessionList sidebar / ChatView transcript &amp; approvals / tiling panes / MindMapCard / SettingsPane / EvolvePanel…</td></tr>
+        <tr><td><code>cmd/lyond</code></td><td>Go daemon: HTTP/SSE + Connect RPC (Session/Settings/Approval/File/Plan…), admission control, OpenAI-compatible gateway; taps <code>mindmap.Hook</code> on prompt_end</td></tr>
+        <tr><td><code>web/</code></td><td>React + Vite + connect-es frontend: SessionList sidebar / ChatView transcript &amp; approvals / tiling panes / MindMapCard / SettingsPane / SkillPanel / ProcessPanel…</td></tr>
         <tr><td><code>pkg/server</code></td><td>Event Hub (seq ring, subscribe replay), Connect RPC service implementations, x-lyon-workspace header, approvals and file endpoints</td></tr>
         <tr><td><code>pkg/agent</code></td><td>engine core: Engine (connection pool / concurrency semaphore / warmup), Session (single driving goroutine + event stream), compact.go client-side compaction, snapshot.go session archives, the flow tool</td></tr>
         <tr><td><code>pkg/tools</code></td><td>tool system: run_shell / file read-write (workspace confinement) / view_image / web_* / memory / todo_write / prompt-cache byte stabilization</td></tr>
-        <tr><td><code>pkg/evolve</code></td><td>evolution loop: score filing, closed-book exams, failure diagnosis — lyond calls it on prompt_end, shared by every entry point</td></tr>
-        <tr><td><code>pkg/eval</code></td><td>four-dimension scoring, leaderboard, closed-book exam banks, knowledge coverage, failure-cause summarization</td></tr>
         <tr><td><code>pkg/routing</code></td><td>task classification, openness, recommendation table (confidence = mean×samples/(samples+3))</td></tr>
         <tr><td><code>pkg/models</code></td><td>five-dimension capability profiles for 32 models</td></tr>
-        <tr><td><code>pkg/flow</code></td><td>mechanical executor: node state machine, exit criteria, bounded retries, four built-in workflows, gate/diagnose glue</td></tr>
+        <tr><td><code>pkg/flow</code></td><td>mechanical executor: node state machine, exit criteria, bounded retries, four built-in workflows</td></tr>
         <tr><td><code>pkg/mindmap</code></td><td>live mind map: distillation, events, map-edit feedback</td></tr>
-        <tr><td><code>pkg/mcp</code> / <code>pkg/memory</code> / <code>pkg/market</code></td><td>MCP client / layered memory / task-hour market</td></tr>
+        <tr><td><code>pkg/mcp</code> / <code>pkg/memory</code> / <code>pkg/space</code></td><td>MCP client / layered memory / skills & knowledge spaces</td></tr>
         <tr><td><code>internal/mockapi</code></td><td>fake API for acceptance: real SSE frame order + prompt-cache simulator, what keeps the test suite green</td></tr>
         <tr><td><code>bench/</code></td><td>performance acceptance suite (thresholds enforced)</td></tr>
-        <tr><td><code>docs/design/</code></td><td>design documents: <code>agent-evolution.md</code> is the original blueprint for the evolution mechanics</td></tr>
+        <tr><td><code>docs/design/</code></td><td>design documents: <code>mindmap.md</code> (mind map), <code>files-changed-card-acceptance.md</code> (produced-files card)</td></tr>
       </tbody>
     </table>
 
@@ -565,7 +422,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
     <a href="../README.en.md">README</a>
     <a href="manual.html">中文</a>
   </div>
-  <div>lyon-agent · a local-first, evolving AI coding agent (web workbench) · docs ship with the repository, no network resources</div>
+  <div>lyon-agent · a local-first AI coding agent (web workbench) · docs ship with the repository, no network resources</div>
 </footer>
 
 </body>

@@ -15,7 +15,7 @@ import (
 	"lyon-agent/pkg/memory"
 )
 
-// Session self-evolution: distill durable facts from the conversation
+// Distill durable facts from the conversation
 // into the layered memory store using the cheap subagent tier. Triggers:
 // /remember (explicit, result shown), exit, and the server's session
 // teardown (unload/Delete → DistillAt with a trigger label) — all gated

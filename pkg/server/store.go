@@ -103,7 +103,7 @@ type parkedSeat struct {
 // hub prompt_end tap (alongside the interval title pass). Call it before
 // sessions are created; nil turns it off. The handler must return
 // immediately — it runs on the hub's consumer goroutine — and spawn its
-// own goroutines for anything slow (evolution legs are model calls).
+// own goroutines for anything slow (the mindmap hook makes model calls).
 func (s *Store) SetPromptEndObserver(f func(sess *agent.Session, ev agent.Event)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -239,7 +239,7 @@ func (s *Store) register(sess *agent.Session, id string) (string, error) {
 	// is not driven from here: the session touches its own draft on every
 	// state change (notifyDirty), which also covers turns, mode switches
 	// and title writes that never cross a prompt_end. The optional
-	// observer (lyond's evolution loop) composes in the same tap.
+	// observer (lyond's mindmap hook) composes in the same tap.
 	obs := s.promptObs
 	h := e.hub
 	e.hub.onPromptEnd = func(ev agent.Event) {

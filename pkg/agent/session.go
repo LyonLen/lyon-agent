@@ -462,9 +462,9 @@ func (s *Session) PromptCount() int64 {
 	return s.prompts
 }
 
-// LastPrompt reports the most recently submitted prompt — the input the
-// post-prompt evolution loop classifies and grades (the daemon has no
-// TUI history to read it from).
+// LastPrompt reports the most recently submitted prompt — the summary
+// source the file-cards/commit pass reads (the daemon has no TUI
+// history to read it from).
 func (s *Session) LastPrompt() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

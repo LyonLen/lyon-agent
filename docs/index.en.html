@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lyon-agent — a local-first AI coding agent that evolves (Web workbench)</title>
-<meta name="description" content="lyon-agent: a Go daemon plus a React web workbench — a local-first AI coding agent. Session workspaces, approval cards, a live mind map, and an evolution system: production scoring, closed-book exams, task routing, knowledge coverage gates and mechanical workflows.">
+<title>lyon-agent — a local-first AI coding agent (Web workbench)</title>
+<meta name="description" content="lyon-agent: a Go daemon plus a React web workbench — a local-first AI coding agent. Session workspaces, approval cards, a live mind map, three-tier persistent memory and a background-process pane.">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
 </head>
@@ -27,15 +27,14 @@
   <!-- ── hero ─────────────────────────────────────── -->
   <div class="hero">
     <span class="kicker">Go · local-first · web workbench · no cloud dependency</span>
-    <h1>An agent that<br><span class="accent">learns to get better</span></h1>
+    <h1>A local-first<br><span class="accent">AI coding workbench</span></h1>
     <p class="sub">
       lyon-agent is an AI coding agent that runs on your machine: the Go daemon
       <strong>lyond</strong> handles model access, tool execution and the session event
       stream, while a <strong>React workbench</strong> in the browser is the main interface.
-      Beyond chat and tool calls it ships an <strong>evolution mechanism</strong>:
-      production scoring, closed-book exams, task routing, knowledge coverage gates and
-      mechanical workflows — making "the more you use it, the better it gets" a measurable
-      fact, not a slogan.
+      Beyond chat and tool calls it ships three-tier persistent memory, hooks audit
+      & security gates, and a live mind map as a second input channel — everything
+      persisted locally and restored verbatim after a restart.
     </p>
     <div class="cta">
       <a class="btn primary" href="#install">Quick start</a>
@@ -66,7 +65,7 @@
       two-click delete, saved snapshots restore); the middle is the streaming transcript
       (markdown rendering + code-block copy button + approval cards); around it sit
       tileable panes (steps / files / preview / terminal / plan / mindmap / memory /
-      settings / evolve); the footer keeps the mode switch, model button and the
+      settings / skills / procs); the footer keeps the mode switch, model button and the
       context / cost gauge resident.
     </figcaption>
   </figure>
@@ -74,7 +73,7 @@
   <!-- ── features ─────────────────────────────────── -->
   <section id="features">
     <h2><span class="hash">#</span>Core capabilities</h2>
-    <p class="lede">Half a pleasant workbench, half an execution system that evolves on its own.</p>
+    <p class="lede">Half a pleasant workbench, half an auditable, memory-backed execution system.</p>
 
     <div class="grid">
       <div class="card">
@@ -102,10 +101,10 @@
         <span class="tag">pkg/mindmap</span>
       </div>
       <div class="card">
-        <div class="icon">📊</div>
-        <h3>Evolution mechanics</h3>
-        <p>Production scoring, closed-book exams, task routing, knowledge coverage gates, mechanical workflows: runs leave evidence, evidence becomes scores, scores decide who works; reliable procedures freeze into data and the LLM only fills in each node.</p>
-        <span class="tag">pkg/evolve · pkg/eval · pkg/flow</span>
+        <div class="icon">📚</div>
+        <h3>Three-tier memory</h3>
+        <p>Team / personal / project one-fact-per-file Markdown with local BM25 retrieval; the hot tier rides the first prompt, /remember distills this session in one keystroke, and the memory panel verifies retrieval with scores and matched terms.</p>
+        <span class="tag">pkg/memory</span>
       </div>
       <div class="card">
         <div class="icon">⚡</div>
@@ -141,7 +140,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
 <span class="p">$</span> open http://localhost:5183                        <span class="c"># the browser is the workbench</span></pre>
 
     <div class="note">
-      <strong>Everything stays local:</strong> sessions, leaderboards, exam records and memory all live in
+      <strong>Everything stays local:</strong> session drafts, workflows and memory all live in
       <code class="inline">$LYON_HOME</code> (default <code class="inline">~/.lyon</code>).
       No telemetry; memory cloud sync stays off until you explicitly configure <code class="inline">LYON_SYNC_URL/TOKEN</code>, and only the team and personal layers sync — the project layer never leaves this machine.
     </div>
@@ -166,10 +165,6 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
         <span>Keys, command panel, approval cards, pane gestures — all mirroring actual web behavior.</span>
       </li>
       <li>
-        <strong><a href="manual.en.html#evolution">Evolution mechanics</a></strong>
-        <span>Scoring → exams → routing → coverage gate → workflow freezing: how the five-stage rocket connects.</span>
-      </li>
-      <li>
         <strong><a href="manual.en.html#reference">Reference</a></strong>
         <span>lyond launch flags and environment variables in one table.</span>
       </li>
@@ -185,7 +180,7 @@ go build <span class="k">-o</span> bin/lyond  ./cmd/lyond    <span class="c"># d
     <a href="../README.en.md">README</a>
     <a href="index.html">中文</a>
   </div>
-  <div>lyon-agent · a local-first, evolving AI coding agent (web workbench) · docs ship with the repository, no network resources</div>
+  <div>lyon-agent · a local-first AI coding agent (web workbench) · docs ship with the repository, no network resources</div>
 </footer>
 
 </body>

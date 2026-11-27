@@ -99,8 +99,9 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   Go 式最大化并发是产品硬要求，串行是缺陷）—— 2026-11-04 落地：
   - F1 习惯回路进 prompt：todo 计划后提示「独立项用 run_subagents 一次派发」；
   - F2 计划感知并发：≥3 独立项首条 todo 即派发，steps 面板显示「N 项并行中」。
-- [ ] **1.6 F3 度量闭环**：stats 记 fan-out 计数，evolve 面板加「并发度」列。
-  验收：stats 有 fan-out 计数；evolve 面板可见并发度。
+- [ ] **1.6 F3 度量闭环**：stats 记 fan-out 计数（原「evolve 面板加并发度列」
+  随 2026-11-23 演化系统整体下线作废，展示入口待另行规划）。
+  验收：stats 有 fan-out 计数。
 
 - [x] **记忆自动蒸馏（治本）** —— 2026-11-04 落地 `pkg/agent/distill.go`：
   `DistillAt(trigger)` + 触发点接线（teardown 的 park/reap/delete/shutdown、
@@ -111,16 +112,16 @@ proto 草案 + Event Hub 架构 + 19 数据源清单）。三选型已随规划�
   （thinking 计入 max_tokens，曾吃满预算 → 空回复 / 10s teardown 超时）。
   - 参照：web `/remember` 手动兜底归 §2.5 漂移收敛。
 
-- [ ] **演化动作入口随 TUI 移除悬空（2026-11-10 新欠账）**：`RoutingSwap`/
-  `AdoptAgent` 已无调用方；跑考核（/exam 手动）、开擂台（/contest）、
-  `/flow save` 与 `flow.BumpStreak` 连绿投票、知识覆盖率门禁投票的驱动方
-  （原 `cmd/lyon`）已删；`pkg/timer` 无人再实例化 `NewScheduler`，prompt
-  任务依赖的 `lyon run` 执行体也不存在（包休眠，见 `pkg/timer/DESIGN.md` 顶注）；
-  `pkg/doctor` 同样无调用方（原 `lyon doctor` CLI，包与测试仍在）。
-  不受影响：prompt_end 的 `evolve.Hook`（记账/评分/考试钟/错因归纳）仍由
-  lyond 驱动。
-  - 验收：上述动作在 web 有真实入口，或在面板/文档明确标记「暂不提供」；
-    timer 要么接线 lyond/web，要么归档 pkg。
+- [ ] **驱动方悬空（2026-11-10 记，2026-11-23 收缩）**：演化动作部分
+  （`RoutingSwap`/`AdoptAgent`、/exam、/contest、`flow.BumpStreak` 连绿投票、
+  知识覆盖率门禁投票、prompt_end 的 `evolve.Hook`）已随 2026-11-23 演化系统
+  整体下线（0b1f17d）作废，不再需要入口；`flow.BumpStreak` 现无任何调用方
+  （streak.go 待删或待接线）。仍开放：`/flow save` 的 web 入口（原 `cmd/lyon`
+  驱动方已删，flow 工具本体仍在）；`pkg/timer` 无人再实例化 `NewScheduler`，
+  prompt 任务依赖的 `lyon run` 执行体也不存在（包休眠，见 `pkg/timer/DESIGN.md`
+  顶注）；`pkg/doctor` 同样无调用方（原 `lyon doctor` CLI，包与测试仍在）。
+  - 验收：flow 固化入口在 web 有真实入口或文档标记「暂不提供」；timer 要么
+    接线 lyond/web，要么归档 pkg。
 
 ### 2.3 ROADMAP 阶段 1 功能欠账
 

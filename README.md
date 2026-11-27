@@ -1,7 +1,7 @@
 # lyon-agent
 
-**自己打分、考试、淘汰、越用越强的自进化 AI 编程智能体** —— 本地优先，
-一个 Go 守护进程 `lyond` + 浏览器里的 Web 工作台。
+**本地优先的 AI 编程智能体** —— 一个 Go 守护进程 `lyond` + 浏览器里的
+Web 工作台：流式对话、工具调用、上下文压缩、子代理并发扇出。
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
 [![CI](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/LyonLen/lyon-agent/actions/workflows/ci.yml)
@@ -9,11 +9,11 @@
 
 一个进程内跑完整的 agent 循环（流式输出、工具调用、上下文压缩、子代理并发扇出），
 经 connectRPC/SSE 暴露给 React Web 工作台；自带压力验收套件，性能阈值不达标
-直接 FAIL。外圈是一整套**演化机制**——生产盲评入榜、每 10 轮闭卷考核（连挂撤职）、
-任务分类与证据路由、错因归纳回灌——账本全部落盘、重启原样恢复，Web 面板直接可看。
+直接 FAIL。外圈是三层持久记忆、hooks 审计与安全门、思维导图第二输入通道——
+状态全部本地落盘、重启原样恢复。
 
 > 📘 **文档站**：浏览器打开 [`docs/index.html`](docs/index.html)（产品介绍）与
-> [`docs/manual.html`](docs/manual.html)（使用手册：上手 → 界面 → 演化机制 →
+> [`docs/manual.html`](docs/manual.html)（使用手册：上手 → 界面 → 交互 →
 > 配置参考 → FAQ），纯本地静态页、无网络资源，双击即可读。
 > **English**: [`README.en.md`](README.en.md) ·
 > [`docs/index.en.html`](docs/index.en.html) · [`docs/manual.en.html`](docs/manual.en.html)。
@@ -23,7 +23,7 @@
 ## 特性
 
 - **Web 工作台**：平铺窗口（tiling）布局——聊天、计划、步骤审计、文件、预览、
-  终端、思维导图、记忆、设置、演化面板都是可拆分的 pane，布局随会话保存。
+  终端、思维导图、记忆、设置、技能、后台进程都是可拆分的 pane，布局随会话保存。
 - **会话侧栏**：按工作区分组、分组点击折叠、git 仓库徽章（一眼区分代码库）、
   两次点击确认删除、running/queued 状态徽章；新会话可选工作区（本地目录 /
   直接 git clone）。
@@ -40,17 +40,14 @@
   会话独立持久化，重启续聊。
 - **四种执行模式**：`default` 人工审批 · `plan` 只读探索 · `bypass` 自动放行 ·
   `mindmap` 图交互——左下模式坞点选或 `shift+tab` 循环。
-- **21 条斜杠命令**：输入 `/` 唤出分类候选面板——`/rollback` 检查点、`/undo`
+- **17 条斜杠命令**：输入 `/` 唤出分类候选面板——`/rollback` 检查点、`/undo`
   撤销本轮文件变更、`/model` 模型卡、`/stats` 用量、`/memory` 记忆、
-  `/evolve` `/exam` `/route` `/flow` 演化面板……（全表见「界面导览」）。
+  `/skills` `/procs` 技能与后台进程……（全表见「界面导览」）。
 - **三层持久记忆**：team / personal / project 单事实 Markdown，本地 BM25
   （CJK 二元组）检索，热层随首条 prompt 注入，`/remember` 一键蒸馏入库；
   web 记忆面板带检索验证与标签过滤。
 - **hooks 审计与安全门**：全生命周期 jsonl 审计 + 聚合统计 + `policy.json`
   正则拦截 + 外部阻塞钩子（`LYON_AUDIT`/`LYON_HOOKS` 可关）。
-- **演化机制**：盲评入榜 → 每 10 轮闭卷考核（连挂 2 次撤职）→ 任务分类推荐
-  路由——全部由 `lyond` 在 prompt_end 后台自动执行（`LYON_EVOLVE` 总闸），
-  Web 演化面板只读展示，账本落盘、重启恢复。
 - **OpenAI 兼容网关**：HTTP 层协议翻译（`-openai-base` 任意端点），工具系统、
   压缩、子代理零改动复用。
 - **并发子代理**：`run_subagent(s)` 只读子代理，一次扇出 2–6 个独立子任务
@@ -149,7 +146,8 @@ cd web && npm run dev
 | 思维导图 mindmap | `/mindmap` 或 mindmap 模式 | 实时理解图，节点编辑回流推进对话 |
 | 记忆 memory | `/memory` | 三层记忆浏览、BM25 检索验证（分数/命中词/段落）、标签过滤 |
 | 设置 settings | `/settings` | 引擎模型与子代理模型（可切换）、模型知识表（网关 `/models` × 内置知识库）、环境变量清单 |
-| 演化 evolve | `/evolve` `/exam` `/route` `/flow` `/agents` `/market` | 只读面板：候选谱系 · 在岗席位 · 考试时钟与题库 · 路由表与榜单 · 冻结流程 · 工时市场 |
+| 技能 skills | `/skills` | 本会话命中 / 已安装 / 推荐安装 |
+| 后台进程 procs | `/procs` | 后台 shell 任务：命令 · pid · 归属会话 · 输出尾 · 结束 |
 
 布局随会话保存：切会话即恢复该会话自己的窗格树与打开的标签。
 
@@ -171,14 +169,15 @@ cd web && npm run dev
 | | `/mindmap`（`/mm`） | 思维导图 pane |
 | | `/memory` | 记忆 pane |
 | | `/settings` | 设置 pane |
-| | `/evolve` `/exam` `/contest` `/route` `/agents` `/flow` `/market` | 演化家族 → evolve 面板对应分区 |
+| | `/skills` | 技能 pane |
+| | `/procs` | 后台进程 pane |
 | misc | `/remember` | 立即把本会话耐久事实蒸馏入库 |
 | | `/stats` | 用量合计：轮次、token、缓存命中 |
 | | `/help` | 命令与按键一览 |
 
 ## 架构
 
-分层简图（调用方向自上而下；演化/记忆/治理层只经账本与事件流，不侵入引擎循环）：
+分层简图（调用方向自上而下；记忆/治理层只经账本与事件流，不侵入引擎循环）：
 
 ```text
 ┌─ 入口   web/（React + Vite，connect-es）── HTTP(S) ──► lyond（connectRPC + SSE）
@@ -187,8 +186,8 @@ cd web && npm run dev
 ├─ 引擎   pkg/agent   驱动循环 · 事件流 · 压缩 · 快照/回滚 · 子代理与并发扇出
 ├─ 工具   pkg/tools   shell / files / search / image / web / memory / todos
 │           pkg/mcp    MCP stdio 与 streamable HTTP
-├─ 演化   pkg/eval · pkg/evolve · pkg/routing · pkg/models · pkg/flow · pkg/market
-│           评分榜单 · 闭卷考核 · 任务路由 · 模型画像 · workflow 状态机 · 工时台账
+├─ 能力   pkg/routing · pkg/models · pkg/flow · pkg/space
+│           任务分类 · 模型画像 · workflow 冻结脚本 · 技能与知识空间
 ├─ 记忆   pkg/memory  三层持久记忆 · BM25 检索 · 蒸馏 · 云同步
 └─ 治理   pkg/hooks   审计 jsonl · 聚合统计 · policy/外部钩子安全门
 （传输侧）pkg/openaix（OpenAI 网关协议翻译）
@@ -198,13 +197,13 @@ cd web && npm run dev
 
 ```text
 cmd/lyond           守护进程：connectRPC + legacy SSE、/metrics、/healthz、
-                      审批桥、prompt_end 观察者接线（mindmap 蒸馏 + 演化循环）
+                      审批桥、prompt_end 观察者接线（mindmap 蒸馏）
 web/                React + TypeScript 前端（Vite · @connectrpc/connect-es）
   src/App.tsx        会话生命周期、斜杠命令路由、平铺窗格、模式坞、油量表
   src/components/    ChatView / SessionList / StepsPane / MindMapCard /
                       FilePanel / ScmView / TerminalPane / PreviewPane /
                       PlanPane / MemoryPanel / SettingsPane /
-                      EvolvePanel / NewSessionDlg / CodeEditor …
+                      SkillPanel / ProcessPanel / NewSessionDlg / CodeEditor …
 pkg/agent           引擎核心
   engine.go           Engine：HTTP 连接池调优、全局并发 turn 信号量、Warmup
   session.go          Session：每会话一个驱动 goroutine，事件流、压缩触发、
@@ -217,15 +216,14 @@ pkg/agent           引擎核心
 pkg/tools           工具系统（registry / shell / files / search / image /
                       paste / web / memory / todos / stable / metrics）
 pkg/server          HTTP 服务与 RPC：hub 环形重放、会话存储、审批、
-                      文件/记忆/仪表盘/演化各 Service、x-lyon-workspace
+                      文件/记忆/设置/技能/进程各 Service、x-lyon-workspace
 pkg/hooks           审计（~/.lyon/audit/*.jsonl）、聚合统计、policy/hooks 安全门
 pkg/memory          三层持久记忆：BM25 检索、热层注入、蒸馏、云同步
-pkg/eval            演化机制：四维评分、在岗榜单、闭卷考核、覆盖率门禁、错因归纳
-pkg/evolve          演化循环（lyond prompt_end 接线）：记轮 · 盲评 · 考核 · 事后诊断
 pkg/routing         任务分类（中英双语）与推荐路由表
 pkg/models          模型参数知识库 + 能力画像（32 个型号）
 pkg/flow            workflow 状态机：机械执行、连绿自动固化
-pkg/market          任务工时台账
+pkg/mindmap         心智图：蒸馏入图、图操作回流、draw_event_map 事件图
+pkg/space           技能与知识空间：commons 背书晋升、身份与空间工具
 pkg/openaix         OpenAI 兼容网关：HTTP 层协议翻译（http.RoundTripper）
 internal/mockapi    验收用假 API：真实 SSE 帧序 + 前缀哈希 prompt-cache 模拟器
 bench               性能验收套件（阈值强制）
@@ -428,7 +426,7 @@ context——API 流与运行中的工具一起停，会话本身存活，prompt
 外部钩子可用于自建统计上报、审计外送、DLP/沙箱等安全网关；子代理工具同样
 经过 `PreTool` 安全门。
 
-## 记忆模块（分层热/冷 + 自进化 + 云同步）
+## 记忆模块（分层热/冷 + 蒸馏 + 云同步）
 
 三层持久记忆，one-fact-per-file Markdown，人可直接手改：
 
@@ -446,7 +444,7 @@ context——API 流与运行中的工具一起停，会话本身存活，prompt
   已存事实被检索/精读命中累计 hits≥2 后，再蒸馏时自动晋级热层。
 - **模型工具**：`save_memory`（按标题 upsert，`scope`/`hot` 参数）、`read_memory`
   （`query`=BM25 检索 / `title`=精读 / 空=紧凑列表）、`forget_memory`（按名删除）。
-- **自进化（distill）**：`/remember` 手动触发——引导模型立刻跑一遍蒸馏，把
+- **蒸馏（distill）**：`/remember` 手动触发——引导模型立刻跑一遍蒸馏，把
   本会话的耐久事实（决策与理由、偏好、约定、环境坑）写进记忆（最多 6 条，
   幂等、内容没变不重写）；每次写入记 `memory_save` 审计事件。
   `LYON_DISTILL=off` 关闭。
@@ -597,84 +595,11 @@ hits: 3
   anthropic-sdk-go 客户端穿层、引擎级真实 tool runner 两轮循环 e2e
   （`pkg/agent/openai_gateway_test.go`）。
 
-## Agent 演化机制（评分 · 考核 · 路由 · workflow 固化）
-
-设计文档 `docs/design/agent-evolution.md`。四层代码：`pkg/eval`（评分/榜单/考核/
-覆盖率/错因归纳）、`pkg/evolve`（演化循环——`lyond` 把它接在 prompt_end 观察者
-上）、`pkg/routing`（任务分类与推荐网络）、`pkg/models`（模型能力画像）、
-`pkg/flow`（机械执行器）。账本落盘 `$LYON_HOME/`，**Web 演化面板
-只读展示**；总闸 `LYON_EVOLVE=off`，分闸 `LYON_SCORE` / `LYON_EXAM` /
-`LYON_DIAGNOSE`。
-
-### 生产评分与在岗榜单
-
-- **四维评分** `eval.ScoreWith`：Correctness / Efficiency / Cost / Compliance
-  加权出 Total，`DefaultThresholds` 四维全过才 Passed。
-- **榜单** `$LYON_HOME/leaderboard.json` 按任务类（coding/fix/review/research/
-  writing/design/data/general）分别记账：每个 Agent 保留最近 50 张记分卡，
-  每张生产记录都会重新推选 on-duty（证据最新且达标的当选）。
-- **盲评入榜**：无标准答案的 prompt 跑完交 `eval.JudgeRun`（一次低价调用给
-  0..1 的 correctness），prompt_end 后台判分入榜；判分失败**不入账**（宁缺毋滥）。
-
-### 闭卷考核（每 10 轮）
-
-- **手写题库**：8 个任务类各 4 题，随二进制冻结分发（绝不由被考核的生产任务
-  生成），首次使用落盘 `$LYON_HOME/exams/<class>.json`——可检查、可改。
-- **闭卷** `ClosedBookSystem`：无工具、不读文件，只考权重里的知识；
-  `DefaultExamPass = 0.75`（4 题过 3）。
-- **时钟**：每 10 次成功 prompt 记一轮，到点且席位有人时自动开考；
-  连挂 2 次 → 撤职、席位空缺，下一张生产记分卡重新选举。
-- 考题、时钟、在岗席位在 Web evolve 面板可核对（题量、候选场、考试时钟）。
-
-### 任务分类与推荐路由
-
-- `routing.Classify`：中英双语关键词计分（同分保留靠前者）；`Openness(text)`
-  给任务打 0–5 开放度。
-- **推荐表** `$LYON_HOME/routing.json`：每个 (class, agent) 记运行均值分与
-  置信度 `mean × samples / (samples + 3)`——样本越多置信越高，新玩家要靠
-  真实分数挣位置。
-- **能力画像** `pkg/models`：注册表 32 个模型全部标注 Reasoning/LongHaul/
-  Openness/Speed/Thrift 五维 0–5 画像。
-- 路由表与榜单在 evolve 面板直接可读；考试与评分改写谁在岗，
-  进化的输出真正变成行为。
-
-### 知识覆盖率门禁（设计 §2）
-
-- **两段闭卷测验**：`GenSystem` 从任务生成可核对的 Q/A 清单 → `BookSystem`
-  盲答 → 对照评分；`CoverageThreshold = 0.6` 以下算缺口。
-- **定向注入**：缺口行（`问题 → 期望答案`）拼进任务正文；flow 里经 `{{input}}`
-  进入每个节点的 prompt。门禁本身出错只记 `gate skipped`，**永不阻断**。
-
-### workflow 冻结与机械执行（设计 §3）
-
-- **控制流是数据**：`Workflow{slug, title, trigger, nodes}`，节点退出判据
-  `always | command | 退出码 | contains 标记 | judge 窄问`；失败策略
-  `retry（默认，诊断回灌后有界重试 ≤3）| abort | continue | goto:<name>`——
-  **LLM 只做节点内填空（`{{input}}`），不决定控制流**；tick 预算杀死 goto 死循环。
-- **内置 4 条**（`go:embed`）：`feature-dev` · `bugfix` · `code-review` ·
-  `release`。用户文件 `$LYON_HOME/workflows/*.json` 按 slug 覆盖内置。
-- **自动固化（§3.1）**：同一 slug 连续 3 次绿灯自动冻结为
-  `<slug>-proven.json`（标题带溯源：streak · 最近得分 · 冻结时的模型），
-  红灯清零重计——经得起生产检验的流程自己变成工件。
-- **错因归纳回灌**：失败的 prompt 异步跑 `SummarizeFailure`，产出可核对
-  条件 + patch——audit 留痕（`LYON_DIAGNOSE=off` 关）；诊断结论还会**写入
-  项目记忆热层**（内容去重、热窗上限 3 条），下一次会话的注入带着教训开跑。
-
-### 历史实跑记录（2026-10-12 → 10-13，整夜 11h21m / 224 轮全成功）
-
-- 考试 20 场 **18 PASS / 2 FAIL**：research 在岗模型连挂两场触发撤职，
-  席位由生产证据重新选举（被驱逐者不自动回位）。
-- 盲评入榜 206 次，得分区间 **0.80–1.00**（含 4 个真实低分，评分确有区分度）。
-- 路由换手 8 次，终局 fix 类 100 样本 / 置信 0.96 → 推荐 mimo-v2.6-flash。
-- bugfix workflow **18 连绿**自动固化，终局标题
-  `缺陷修复标准流程 (frozen after 18 green runs · score 1.00 · mimo-v2.6-flash)`。
-- 全部账本（leaderboard/routing/exams/workflows/audit）落盘重启原样恢复。
-
 ## 路线图
 
-- ✅ Web 工作台 v1–v2（平铺窗格、审批、记忆/演化/仪表盘面板、每会话工作区）
+- ✅ Web 工作台 v1–v2（平铺窗格、审批、记忆/技能/进程面板、每会话工作区）
 - 🚧 Release 预编译分发与一键安装 · 进程内与操作系统级定时器
-- 🗺 心智图多人协同、演化面板动作执行（开考/竞赛/固化）的 Web 化
+- 🗺 心智图多人协同
 
 欢迎在 issue 里讨论优先级。
 
@@ -691,9 +616,8 @@ node web/e2e/smoke.mjs                                     # Playwright 冒烟�
 回滚、记忆注入、子代理、真实缓存命中、中断与历史修复）、模式与审批
 （plan 门矩阵、bypass 短路、mode 审计）、模型知识库、OpenAI 翻译层
 （协议互转、SSE 合成、错误映射、SDK 穿层、引擎级 e2e）、MCP、服务
-（connectRPC、SSE、hub 重放、会话存储、文件/记忆/审批/仪表盘）、演化机制
-（评分四维、榜单持久与连挂撤职、考核出题判分、分类与推荐置信度、
-覆盖率注入、flow 执行器全分支）、mockapi、bench（性能验收）。
+（connectRPC、SSE、hub 重放、会话存储、文件/记忆/审批/仪表盘/进程）、
+routing 分类与置信度、flow 执行器与固化、mockapi、bench（性能验收）。
 全部无网络、无真实密钥依赖。
 
 持续集成（`.github/workflows/ci.yml`）在 ubuntu / windows / macos 三平台执行
