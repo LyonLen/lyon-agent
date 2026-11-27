@@ -16,6 +16,7 @@ import PreviewPane from "./components/PreviewPane";
 import TerminalPane from "./components/TerminalPane";
 import MemoryPanel from "./components/MemoryPanel";
 import SkillPanel from "./components/SkillPanel";
+import ProcessPanel from "./components/ProcessPanel";
 import SettingsPane from "./components/SettingsPane";
 import ErrorBoundary from "./components/ErrorBoundary";
 import MindMapCard from "./components/MindMapCard";
@@ -592,6 +593,10 @@ export default function App() {
         ws.openPane("skills");
         flash("skills pane — 命中 / 已安装 / 推荐安装");
         break;
+      case "/procs":
+        ws.openPane("procs");
+        flash("procs pane — 后台进程状态 / 结束");
+        break;
       case "/mindmap":
       case "/mm":
         ws.openPane("mindmap");
@@ -991,6 +996,18 @@ export default function App() {
         </svg>
       ),
       render: () => <SettingsPane />,
+    },
+    {
+      kind: "procs",
+      title: "procs — 后台进程",
+      desc: "background shell tasks — status, output tail, kill",
+      icon: (
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="1.5" y="2.5" width="11" height="9" rx="1.2" />
+          <path d="M4 5.5l2 1.5-2 1.5M7.5 8.5H10" />
+        </svg>
+      ),
+      render: () => <ProcessPanel />,
     },
   ];
 

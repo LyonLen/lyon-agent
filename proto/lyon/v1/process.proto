@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package lyon.v1;
+
+option go_package = "lyon-agent/gen/go/lyon/v1;lyonv1";
+
+// ProcessService: the background-shell process panel — live tasks started
+// by sessions through run_shell background=true (pkg/tools/shell_bg.go).
+// The registry only holds RUNNING tasks (exit unregisters), so the panel
+// is a live view: status is implicit, completion stories ride the
+// background_end chat event instead.
+service ProcessService {
+  rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
+  rpc KillProcess(KillProcessRequest) returns (KillProcessResponse);
+}
+
+message ProcessInfo {
+  int32 id = 1;                 // background task id (#N in run_shell's reply)
+  string command = 2;           // the shell command as started
+  int32 pid = 3;
+  string owner = 4;             // session bgKey ("session-N")
+  string session_id = 5;        // seat id when the owner is a live seat ("" = best-effort miss)
+  string session_title = 6;     // resolved from the live session, "" when unknown
+  string log_path = 7;          // full output stream (read_file in chat reads it)
+  int64 started_unix = 8;       // seconds — client derives elapsed
+  string tail = 9;              // last ~2KB of output ("" = empty/so-far)
+}
+
+message ListProcessesRequest {}
+
+message ListProcessesResponse { repeated ProcessInfo processes = 1; }
+
+message KillProcessRequest { int32 id = 1; }
+
+message KillProcessResponse {}

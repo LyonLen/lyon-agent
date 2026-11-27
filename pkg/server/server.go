@@ -59,6 +59,9 @@ func New(eng *agent.Engine, store *Store) *Server {
 	s.mux.HandleFunc("GET /v1/sessions/{id}/workspace", s.handleSessionWorkspace)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/workspace", s.handleSessionWorkspace)
 	s.mux.HandleFunc("POST /v1/git/clone", s.handleGitClone)
+	// Host-side listeners for the process panel's empty state (listeners.go):
+	// the registry only sees run_shell background=true tasks, this sees the box.
+	s.mux.HandleFunc("GET /v1/listeners", s.handleListeners)
 	// Mindmap → memory extraction (M2.5, §10): bearer-covered like every
 	// other /v1 route via Handler()'s mux wrapper.
 	s.mux.HandleFunc("POST /v1/mindmap/{id}/extract", s.handleMindmapExtract)
@@ -101,6 +104,10 @@ func New(eng *agent.Engine, store *Store) *Server {
 	// second Server on one engine, tests) is ignored: the first wins and
 	// does the same job.
 	_ = eng.Registry().Register(newDrawEventMap())
+	// Process: the background-shell panel (run_shell background=true) —
+	// list live tasks, kill one by id.
+	procPath, procHandler := lyonv1connect.NewProcessServiceHandler(&processService{s: s})
+	s.mux.Handle(procPath, procHandler)
 	// Gateway model enrichment (best-effort, async): a New-API gateway
 	// declares context tags and quota ratios on /api/pricing — pull them
 	// once at startup so the ctx gauge and compaction see the real window

@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -273,4 +274,56 @@ func KillAllBackground() {
 	for _, e := range bgByID {
 		killBgTree(e)
 	}
+}
+
+// ── process panel seam (view/kill from the web) ─────────────────────
+
+// BgStatus is one live background task's snapshot for the process
+// panel: identity, owner tag (the session's bgKey), and the output tail
+// so a row can show what the command is doing without a second RPC.
+type BgStatus struct {
+	ID      int
+	PID     int
+	Owner   string
+	Command string
+	Log     string
+	Started time.Time
+	Tail    string
+}
+
+// ListBackground snapshots the live registry. Entries are copied under
+// bgMu and the log tails are read OUTSIDE the lock — file IO must not
+// serialize against kills. The registry only holds running tasks (the
+// waiter unregisters on exit), so every row is live by construction.
+func ListBackground() []BgStatus {
+	bgMu.Lock()
+	entries := make([]*bgEntry, 0, len(bgByID))
+	for _, e := range bgByID {
+		entries = append(entries, e)
+	}
+	bgMu.Unlock()
+	out := make([]BgStatus, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, BgStatus{
+			ID: e.id, PID: e.pid, Owner: e.key, Command: e.command,
+			Log: e.log, Started: e.started, Tail: readTail(e.log, bgTailLimit),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// KillBackground tears down ONE task by id — the process panel's 结束
+// button. Same tree-kill as the owner sweep; the waiter unregisters on
+// exit, so the row disappears on the next list. Reports whether a live
+// entry existed (a second kill after the first landed is a miss).
+func KillBackground(id int) bool {
+	bgMu.Lock()
+	defer bgMu.Unlock()
+	e, ok := bgByID[id]
+	if !ok {
+		return false
+	}
+	killBgTree(e)
+	return true
 }

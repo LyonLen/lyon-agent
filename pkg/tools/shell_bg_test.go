@@ -187,3 +187,47 @@ func TestShellTimeoutFor(t *testing.T) {
 		t.Errorf("timeout_s=100000 = %v, want the %v clamp", got, shellTimeoutMax)
 	}
 }
+
+// TestListBackgroundAndKill: the process panel's seam — a live task
+// snapshots with owner/command/pid/log/tail, KillBackground(id) takes
+// the tree down and the registry drains, a second kill (or an unknown
+// id) misses instead of panicking.
+func TestListBackgroundAndKill(t *testing.T) {
+	sh := &Shell{Root: tempDir(t)}
+	ctx := WithBackgroundOwner(context.Background(), "t-bg-panel", func(BgInfo) {})
+	in, _ := json.Marshal(shellInput{Command: "sleep 30", Background: true})
+	if _, err := sh.Execute(ctx, in); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	var id int
+	waitFor(t, "task listed", func() bool {
+		for _, b := range ListBackground() {
+			if b.Owner == "t-bg-panel" {
+				id = b.ID
+				return true
+			}
+		}
+		return false
+	})
+	var got BgStatus
+	for _, b := range ListBackground() {
+		if b.ID == id {
+			got = b
+		}
+	}
+	if got.Command != "sleep 30" || got.PID <= 0 || got.Log == "" || got.Started.IsZero() {
+		t.Fatalf("status snapshot: %+v", got)
+	}
+	if !KillBackground(id) {
+		t.Fatal("KillBackground missed a live id")
+	}
+	// The kill is asynchronous — the waiter unregisters on exit, so the
+	// entry (and thus a repeat kill) is still a hit until the drain.
+	waitFor(t, "registry drained", func() bool { return bgCount() == 0 })
+	if KillBackground(id) {
+		t.Fatal("kill after drain must miss")
+	}
+	if KillBackground(999999) {
+		t.Fatal("unknown id must miss")
+	}
+}

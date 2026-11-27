@@ -46,6 +46,7 @@ const SLASH: Array<{ cmd: string; desc: string; kind: SlashKind }> = [
   { cmd: "/mindmap", desc: "session mindmap — live understanding map", kind: "panel" },
   { cmd: "/memory", desc: "browse project memory — hot toggle, forget", kind: "panel" },
   { cmd: "/skills", desc: "skills panel — 本会话命中 / 已安装 / 推荐安装", kind: "panel" },
+  { cmd: "/procs", desc: "后台进程 — 状态查看 / 输出尾部 / 结束", kind: "panel" },
   { cmd: "/remember", desc: "distill this session's learnings into memory now", kind: "misc" },
   { cmd: "/stats", desc: "usage totals — turns, tokens, cache", kind: "misc" },
   { cmd: "/help", desc: "list commands and keys", kind: "misc" },

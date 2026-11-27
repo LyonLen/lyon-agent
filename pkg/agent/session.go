@@ -1513,6 +1513,12 @@ func (s *Session) takePendingNote() string {
 	return note
 }
 
+// BgKey is this session's background-shell owner tag (the string bound
+// through tools.WithBackgroundOwner at creation). The process panel
+// matches live tasks to sessions through it; the key is process-local
+// ("session-N"), so it is only meaningful while this engine runs.
+func (s *Session) BgKey() string { return s.bgKey }
+
 // Agent returns the specialist identity this session runs as ("self"
 // until a routing swap or contest elects another). Read by the space
 // tool on every call.

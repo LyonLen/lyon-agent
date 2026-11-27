@@ -14,7 +14,8 @@ export type PaneKind =
   | "terminal"
   | "memory"
   | "skills"
-  | "settings";
+  | "settings"
+  | "procs";
 
 // NOTE: sanitizeNode drops pane kinds this build no longer knows (an
 // "evolve" leaf from a stored layout dies here), so old localStorage
@@ -31,6 +32,7 @@ export const PANE_KINDS: readonly PaneKind[] = [
   "memory",
   "skills",
   "settings",
+  "procs",
 ];
 
 export function isPaneKind(v: unknown): v is PaneKind {

@@ -16,6 +16,7 @@ import { ApprovalService } from "./gen/lyon/v1/approval_pb";
 import { SettingsService } from "./gen/lyon/v1/settings_pb";
 import { MindmapService } from "./gen/lyon/v1/mindmap_pb";
 import { SkillService } from "./gen/lyon/v1/skill_pb";
+import { ProcessService } from "./gen/lyon/v1/process_pb";
 
 // v1 auth is the static lyond bearer token, kept in localStorage and
 // injected by a transport interceptor (plan §4.7 — one interceptor covers
@@ -124,6 +125,28 @@ export async function saveSessionWorkspace(id: string, ws: string): Promise<stri
   return ((await res.json()) as { workspace: string }).workspace;
 }
 
+// fetchListeners backs the process panel's empty state (GET
+// /v1/listeners): the registry only knows run_shell background=true
+// tasks, this answers what the box is actually listening on.
+export type Listener = {
+  pid: number;
+  name: string;
+  ports: number[];
+  managed: boolean;
+};
+
+export async function fetchListeners(): Promise<{
+  listeners: Listener[];
+  error?: string;
+}> {
+  const t = getToken();
+  const res = await fetch("/v1/listeners", {
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return (await res.json()) as { listeners: Listener[]; error?: string };
+}
+
 // baseUrl "" = same origin: dev goes through the vite proxy, production
 // serves these assets from lyond itself.
 export const transport = createConnectTransport({
@@ -152,6 +175,9 @@ export const mindmapClient = createClient(MindmapService, transport);
 // and the source of slash's dynamic /skillname entries. Skill HITS ride
 // the event stream (skill_used), not this client.
 export const skillClient = createClient(SkillService, transport);
+// ProcessService: the background-shell panel — live run_shell
+// background=true tasks (list + kill; completion rides chat events).
+export const processClient = createClient(ProcessService, transport);
 
 export function errText(err: unknown): string {
   const ce = ConnectError.from(err);
